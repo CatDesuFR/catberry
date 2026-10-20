@@ -14,8 +14,9 @@ same on both.
 
 ## Install on Windows
 
-1. Go to the [Releases page](https://github.com/CatDesuFR/catberry/releases)
-   and download **`catberry-windows.zip`**.
+1. Download **[`catberry-windows.zip`](release/v1.0.2/catberry-windows.zip)**
+   (on its page, click the download button), or get it from the
+   [Releases page](https://github.com/CatDesuFR/catberry/releases).
 2. Right-click the zip → **Extract All…**, and open the extracted
    `catberry-windows` folder.
 3. Double-click **`install.bat`**.
@@ -52,8 +53,9 @@ antivirus if you trust it.
 Works on recent distros (glibc 2.38 or newer: Fedora 39+, Ubuntu 24.04+,
 Debian 13+, Arch, Linux Mint 22+). On older ones use option B.
 
-1. From the [Releases page](https://github.com/CatDesuFR/catberry/releases),
-   download **`catberry-linux-x86_64`**.
+1. Download **[`catberry-linux-x86_64`](release/v1.0.2/catberry-linux-x86_64)**
+   (on its page, click the download button), or get it from the
+   [Releases page](https://github.com/CatDesuFR/catberry/releases).
 2. Install it as `catberry` in `~/.local/bin`:
 
    ```bash
@@ -208,6 +210,9 @@ drawing, sending and watching input, and background processes.
 | Linux program | `make` | `catberry` |
 | Install on Linux | `make install` | `~/.local/bin/catberry` |
 | Windows package | `make windows` | `dist/catberry-windows.zip` |
+
+Ready-built downloads for each version are kept in `release/<version>/`, with
+a `SHA256SUMS` file to check them against.
 
 The Windows package is cross-compiled on Linux with MinGW-w64
 (Fedora: `sudo dnf install mingw64-gcc-c++ mingw64-winpthreads-static`).
