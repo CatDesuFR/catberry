@@ -14,8 +14,8 @@ same on both.
 
 ## Install on Windows
 
-1. Download **[`catberry-windows.zip`](release/v1.0.2/catberry-windows.zip)**
-   (on its page, click the download button), or get it from the
+1. Download **[`catberry-windows.zip`](https://github.com/CatDesuFR/catberry/raw/main/release/v1.0.2/catberry-windows.zip)**
+   (starts the download), or get it from the
    [Releases page](https://github.com/CatDesuFR/catberry/releases).
 2. Right-click the zip → **Extract All…**, and open the extracted
    `catberry-windows` folder.
@@ -53,8 +53,8 @@ antivirus if you trust it.
 Works on recent distros (glibc 2.38 or newer: Fedora 39+, Ubuntu 24.04+,
 Debian 13+, Arch, Linux Mint 22+). On older ones use option B.
 
-1. Download **[`catberry-linux-x86_64`](release/v1.0.2/catberry-linux-x86_64)**
-   (on its page, click the download button), or get it from the
+1. Download **[`catberry-linux-x86_64`](https://github.com/CatDesuFR/catberry/raw/main/release/v1.0.2/catberry-linux-x86_64)**
+   (starts the download), or get it from the
    [Releases page](https://github.com/CatDesuFR/catberry/releases).
 2. Install it as `catberry` in `~/.local/bin`:
 
