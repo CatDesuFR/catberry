@@ -1,29 +1,28 @@
 # Builds the Arch package from the source tree this file sits in:
 #   cd packaging/arch && makepkg -si
-pkgname=catberry
-pkgver=1.0.2
+pkgname=catberry-mtools
+pkgver=1.1.0
 pkgrel=1
-pkgdesc='Autoclicker, macro recorder and hotkey macros (X11 and Wayland)'
+pkgdesc='catberry macro recorder and background hotkey macros'
 arch=('x86_64')
-url='https://github.com/CatDesuFR/catberry'
+url='https://github.com/CatDesuFR/catberry/tree/mtools'
 license=('custom')
-depends=('gcc-libs' 'glibc' 'libx11' 'libxtst')
+depends=('catberry' 'gcc-libs' 'glibc' 'libx11' 'libxtst')
 makedepends=('gcc' 'make')
-install=catberry.install
+install=catberry-mtools.install
 options=('!debug')
 source=()
 
 build() {
-    rm -rf "$srcdir/catberry"
-    mkdir -p "$srcdir/catberry"
-    cp -r "$startdir/../../src" "$startdir/../../Makefile" "$srcdir/catberry/"
-    cd "$srcdir/catberry"
-    make CXXFLAGS="$CXXFLAGS -Wall -Wextra" catberry
+    rm -rf "$srcdir/$pkgname"
+    mkdir -p "$srcdir/$pkgname"
+    cp -r "$startdir/../../src" "$startdir/../../Makefile" "$srcdir/$pkgname/"
+    cd "$srcdir/$pkgname"
+    make CXXFLAGS="$CXXFLAGS -Wall -Wextra" catberry-mtools
 }
 
 package() {
-    cd "$srcdir/catberry"
-    install -Dm755 catberry "$pkgdir/usr/bin/catberry"
-    install -Dm644 "$startdir/70-catberry-uinput.rules" "$pkgdir/usr/lib/udev/rules.d/70-catberry-uinput.rules"
-    install -Dm644 "$startdir/../../README.md" "$pkgdir/usr/share/doc/catberry/README.md"
+    cd "$srcdir/$pkgname"
+    install -Dm755 catberry-mtools "$pkgdir/usr/bin/catberry-mtools"
+    install -Dm644 "$startdir/../../README.md" "$pkgdir/usr/share/doc/$pkgname/README.md"
 }

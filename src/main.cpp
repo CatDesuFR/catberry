@@ -1,13 +1,12 @@
-// catberry - autoclicker (ac), macro recorder (mtools) and hotkey macro
-// configs behind one command.
+// catberry-mtools - the catberry macro recorder and hotkey macro configs.
+// Usually run through the catberry launcher as `catberry mtools ...` and
+// `catberry -config ...`.
 
 #include <cstdio>
 #include <string>
 
-static const char *const kAcVersion = "1.0.2";
-static const char *const kMtoolsVersion = "1.0.0";
+static const char *const kVersion = "1.1.0";
 
-int acGui(int argc, char **argv);
 int mtoolsGui();
 int configSave(int argc, char **argv);
 int configLoad(int argc, char **argv);
@@ -17,10 +16,9 @@ int serveMain(int argc, char **argv);
 static void usage(FILE *out) {
     std::fprintf(out,
                  "usage:\n"
-                 "  catberry ac gui                 open the autoclicker\n"
-                 "  catberry ac -v                  print the autoclicker version\n"
                  "  catberry mtools gui             open the macro recorder\n"
                  "  catberry mtools -v              print the macro recorder version\n"
+                 "  catberry mtools -help           show this help\n"
                  "  catberry -config NAME KEYS HOTKEY COUNT\n"
                  "                                  save a hotkey macro, eg: -config EasyEdit E,LMB F6 1\n"
                  "  catberry -configload NAME       start a saved macro in the background\n"
@@ -29,19 +27,16 @@ static void usage(FILE *out) {
 
 int main(int argc, char **argv) {
     std::string command = argc > 1 ? argv[1] : "";
-    std::string sub = argc > 2 ? argv[2] : "";
-
+    if (command == "gui" && argc == 2) return mtoolsGui();
     if (command == "-config") return configSave(argc - 2, argv + 2);
     if (command == "-configload") return configLoad(argc - 2, argv + 2);
     if (command == "-configunload") return configUnload(argc - 2, argv + 2);
     if (command == "--serve") return serveMain(argc - 2, argv + 2);
-    if (command == "ac" && sub == "gui") return acGui(argc - 3, argv + 3);
-    if (command == "mtools" && sub == "gui" && argc == 3) return mtoolsGui();
-    if ((command == "ac" || command == "mtools") && sub == "-v" && argc == 3) {
-        std::printf("catberry %s %s\n", command.c_str(), command == "ac" ? kAcVersion : kMtoolsVersion);
+    if ((command == "-v" || command == "--version") && argc == 2) {
+        std::printf("catberry mtools %s\n", kVersion);
         return 0;
     }
-    bool help = command == "-h" || command == "--help";
+    bool help = command == "-help" || command == "-h" || command == "--help";
     usage(help ? stdout : stderr);
     return help ? 0 : 2;
 }
