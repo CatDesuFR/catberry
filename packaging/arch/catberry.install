@@ -1,10 +1,8 @@
 post_install() {
     udevadm control --reload-rules 2>/dev/null
     udevadm trigger --name-match=uinput 2>/dev/null
-    echo ":: catberry installed. Try: catberry ac gui"
-    echo ":: For hotkeys, macro recording and -configload, run once:"
-    echo "::     sudo usermod -aG input \$USER"
-    echo ":: then log out and back in."
+    echo ":: catberry installed. Run: catberry -help"
+    echo ":: Install the tools separately: catberry-ac (autoclicker), catberry-mtools (macros)."
 }
 
 post_upgrade() {

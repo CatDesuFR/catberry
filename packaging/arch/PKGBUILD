@@ -1,29 +1,32 @@
 # Builds the Arch package from the source tree this file sits in:
 #   cd packaging/arch && makepkg -si
 pkgname=catberry
-pkgver=1.0.2
+pkgver=1.1.0
 pkgrel=1
-pkgdesc='Autoclicker, macro recorder and hotkey macros (X11 and Wayland)'
+pkgdesc='catberry launcher: runs the catberry autoclicker and macro tools'
 arch=('x86_64')
 url='https://github.com/CatDesuFR/catberry'
 license=('custom')
-depends=('gcc-libs' 'glibc' 'libx11' 'libxtst')
+depends=('gcc-libs' 'glibc')
 makedepends=('gcc' 'make')
+optdepends=('catberry-ac: the autoclicker (catberry ac)'
+            'catberry-mtools: the macro recorder and hotkey macros (catberry mtools, -config)')
 install=catberry.install
 options=('!debug')
 source=()
 
 build() {
-    rm -rf "$srcdir/catberry"
-    mkdir -p "$srcdir/catberry"
-    cp -r "$startdir/../../src" "$startdir/../../Makefile" "$srcdir/catberry/"
-    cd "$srcdir/catberry"
+    rm -rf "$srcdir/$pkgname"
+    mkdir -p "$srcdir/$pkgname"
+    cp -r "$startdir/../../src" "$startdir/../../Makefile" "$srcdir/$pkgname/"
+    cd "$srcdir/$pkgname"
     make CXXFLAGS="$CXXFLAGS -Wall -Wextra" catberry
 }
 
 package() {
-    cd "$srcdir/catberry"
+    cd "$srcdir/$pkgname"
     install -Dm755 catberry "$pkgdir/usr/bin/catberry"
+    # Shared by the tools: lets them create their virtual mouse/keyboard.
     install -Dm644 "$startdir/70-catberry-uinput.rules" "$pkgdir/usr/lib/udev/rules.d/70-catberry-uinput.rules"
-    install -Dm644 "$startdir/../../README.md" "$pkgdir/usr/share/doc/catberry/README.md"
+    install -Dm644 "$startdir/../../README.md" "$pkgdir/usr/share/doc/$pkgname/README.md"
 }
