@@ -1,19 +1,16 @@
-// Global input through /dev/input, for the windows and background configs.
+// Global input through /dev/input.
 
-#include "../common/platform.h"
 #include "linux.h"
 
 #include <dirent.h>
 #include <fcntl.h>
 #include <linux/input.h>
-#include <signal.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
 
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
-#include <deque>
 
 EvdevInput::~EvdevInput() {
     for (auto &entry : fds_) close(entry.second);
@@ -73,65 +70,4 @@ std::vector<InputEvent> EvdevInput::read() {
         }
     }
     return out;
-}
-
-namespace {
-
-volatile sig_atomic_t g_stop = 0;
-void onSignal(int) { g_stop = 1; }
-
-class EvdevWatcher : public KeyWatcher {
-public:
-    bool available() const { return input_.available(); }
-
-    bool next(InputEvent &ev, int timeoutMs) override {
-        auto deadline = Clock::now() + std::chrono::milliseconds(timeoutMs < 0 ? 0 : timeoutMs);
-        for (;;) {
-            if (!pending_.empty()) {
-                ev = pending_.front();
-                pending_.pop_front();
-                return true;
-            }
-            if (g_stop) return false;
-            // Wake up at least every 3 s to pick up newly plugged keyboards.
-            int wait = 3000;
-            if (timeoutMs >= 0) {
-                auto left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - Clock::now()).count();
-                if (left <= 0) return false;
-                wait = static_cast<int>(std::min<long long>(left, wait));
-            }
-            std::vector<pollfd> fds;
-            input_.addPollFds(fds);
-            int ready = poll(fds.data(), fds.size(), wait);
-            if (ready == 0) input_.rescan();
-            for (const InputEvent &e : input_.read()) pending_.push_back(e);
-        }
-    }
-
-    bool stopRequested() const override { return g_stop; }
-
-private:
-    EvdevInput input_;
-    std::deque<InputEvent> pending_;
-};
-
-} // namespace
-
-void installStopSignals() {
-    struct sigaction action {};
-    action.sa_handler = onSignal;
-    sigaction(SIGTERM, &action, nullptr);
-    sigaction(SIGINT, &action, nullptr);
-    sigaction(SIGHUP, &action, nullptr);
-}
-
-std::unique_ptr<KeyWatcher> KeyWatcher::create(const std::string &, bool, std::string &error) {
-    std::unique_ptr<EvdevWatcher> watcher(new EvdevWatcher);
-    if (!watcher->available()) {
-        error = std::string("cannot read the keyboard to watch for the hotkey.\n"
-                            "Run this once, then log out and back in:\n  ") +
-                kInputGroupCommand;
-        return nullptr;
-    }
-    return watcher;
 }

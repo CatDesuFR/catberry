@@ -13,6 +13,7 @@ namespace {
 
 const int kStartDelaySec = 3;
 
+// The mouse targets; a sixth button picks a keyboard key to press instead.
 const int kTargetCount = 5;
 const char *const kTargetNames[kTargetCount] = {"Left", "Middle", "Right", "Scroll up", "Scroll down"};
 const int kTargetCodes[kTargetCount] = {keycode::MouseLeft, keycode::MouseMiddle, keycode::MouseRight,
@@ -23,7 +24,8 @@ const int kHeight = 358;
 const Rect kMinusBtn = {200, 16, 30, 30};
 const Rect kPlusBtn = {318, 16, 30, 30};
 const Rect kTargetBtns[kTargetCount] = {
-    {16, 84, 106, 30}, {129, 84, 106, 30}, {242, 84, 106, 30}, {16, 121, 162, 30}, {186, 121, 162, 30}};
+    {16, 84, 106, 30}, {129, 84, 106, 30}, {242, 84, 106, 30}, {16, 121, 106, 30}, {129, 121, 106, 30}};
+const Rect kKeyBtn = {242, 121, 106, 30};
 const Rect kHotkeyBtn = {200, 167, 148, 30};
 const Rect kToggleBtn = {16, 213, 332, 44};
 const Rect kTestArea = {16, 265, 332, 44};
@@ -44,7 +46,7 @@ public:
     bool wantsTicks() const override { return countingDown_ || clicker_.running(); }
     std::vector<int> watchedKeys() const override {
         // While rebinding, the current key must reach our window instead.
-        if (capturing_) return {};
+        if (capturing_ != Capture::None) return {};
         return {hotkey_};
     }
 
@@ -58,22 +60,32 @@ public:
     }
 
     void globalInput(const InputEvent &ev) override {
-        if (ev.down && ev.code == hotkey_ && !capturing_ && Clock::now() >= ignoreHotkeyUntil_) toggleNow();
+        if (ev.down && ev.code == hotkey_ && capturing_ == Capture::None && Clock::now() >= ignoreHotkeyUntil_)
+            toggleNow();
     }
 
     void focusLost() override {
         if (cps_.focused) commitCps();
-        if (capturing_) {
-            capturing_ = false;
+        if (capturing_ != Capture::None) {
+            capturing_ = Capture::None;
             dirty = true;
         }
     }
 
     void key(const TypedKey &press) override {
-        if (capturing_) {
-            if (press.code < 0 || press.modifier) return;
-            if (press.special != TypedKey::Escape) hotkey_ = press.code;
-            capturing_ = false;
+        if (capturing_ != Capture::None) {
+            if (press.code < 0) return;
+            bool cancel = press.special == TypedKey::Escape;
+            if (capturing_ == Capture::Hotkey) {
+                if (press.modifier) return;
+                // The hotkey and the pressed key must differ, or every
+                // press would also stop the clicker.
+                if (!cancel && press.code != keyTarget_) hotkey_ = press.code;
+            } else if (!cancel && press.code != hotkey_) {
+                keyTarget_ = press.code;
+                clicker_.setCode(keyTarget_);
+            }
+            capturing_ = Capture::None;
             // The same key press may still be on its way as global input.
             ignoreHotkeyUntil_ = Clock::now() + std::chrono::milliseconds(300);
             dirty = true;
@@ -113,7 +125,7 @@ public:
         if (button != 1) return;
 
         if (cps_.focused && !cps_.rect.contains(x, y)) commitCps();
-        if (!kHotkeyBtn.contains(x, y)) capturing_ = false;
+        if (!kHotkeyBtn.contains(x, y) && !kKeyBtn.contains(x, y)) capturing_ = Capture::None;
 
         if (cps_.rect.contains(x, y)) {
             cps_.focused = true;
@@ -122,7 +134,9 @@ public:
         } else if (kPlusBtn.contains(x, y)) {
             stepCps(1);
         } else if (kHotkeyBtn.contains(x, y)) {
-            capturing_ = !capturing_;
+            capturing_ = capturing_ == Capture::Hotkey ? Capture::None : Capture::Hotkey;
+        } else if (kKeyBtn.contains(x, y)) {
+            capturing_ = capturing_ == Capture::Target ? Capture::None : Capture::Target;
         } else if (kToggleBtn.contains(x, y)) {
             // Delayed, so the pointer can be moved off this window first.
             countingDown_ = true;
@@ -147,10 +161,17 @@ public:
             c.button(kTargetBtns[i], kTargetNames[i], selected ? Color::Accent : Color::Panel,
                      selected ? Color::Bg : Color::Text);
         }
+        bool keySelected = keyTarget_ >= 0 && clicker_.code() == keyTarget_;
+        bool keyActive = capturing_ == Capture::Target || keySelected;
+        std::string keyLabel = capturing_ == Capture::Target ? "Press a key..."
+                               : keyTarget_ >= 0            ? "Key: " + keyName(keyTarget_)
+                                                            : "Key...";
+        c.button(kKeyBtn, keyLabel, keyActive ? Color::Accent : Color::Panel, keyActive ? Color::Bg : Color::Text);
 
         c.label(16, kHotkeyBtn, "Start/stop hotkey", Color::Text);
-        c.button(kHotkeyBtn, capturing_ ? "Press a key..." : keyName(hotkey_), capturing_ ? Color::Accent : Color::Panel,
-                 capturing_ ? Color::Bg : Color::Text);
+        bool hotkeyActive = capturing_ == Capture::Hotkey;
+        c.button(kHotkeyBtn, hotkeyActive ? "Press a key..." : keyName(hotkey_),
+                 hotkeyActive ? Color::Accent : Color::Panel, hotkeyActive ? Color::Bg : Color::Text);
 
         std::string status;
         if (clicker_.running()) {
@@ -216,6 +237,7 @@ private:
     }
 
     std::string testText() const {
+        if (keyTarget_ >= 0 && clicker_.code() == keyTarget_) return "Click test: counts mouse clicks only";
         if (testCount_ == 0) return "Click test: start, then hover here";
         char buf[64];
         double seconds = std::chrono::duration<double>(testLast_ - testFirst_).count();
@@ -234,6 +256,7 @@ private:
     }
 
     void loadConfig() {
+        bool keyIsTarget = false;
         std::ifstream in(configDir() / "ac.conf");
         // Location used by the standalone catberryacgui (ac 1.0.1 and older).
         if (!in) in.open(configDir().parent_path() / "catberryacgui.conf");
@@ -246,8 +269,12 @@ private:
             double number = std::strtod(value.c_str(), nullptr);
             if (key == "cps" && number > 0) {
                 clicker_.setCps(number);
-            } else if (key == "target" && number >= 0 && number < kTargetCount) {
+            } else if (key == "target" && value != "key" && number >= 0 && number < kTargetCount) {
                 clicker_.setCode(kTargetCodes[static_cast<int>(number)]);
+            } else if (key == "target" && value == "key") {
+                keyIsTarget = true;
+            } else if (key == "key" && parseKey(value) > 0 && parseKey(value) < 256) {
+                keyTarget_ = parseKey(value);
             } else if (key == "toggle_key" && parseKey(value) >= 0) {
                 hotkey_ = parseKey(value);
             } else if (key == "hotkey" && number >= 9 && number <= 255) {
@@ -256,15 +283,18 @@ private:
                 hotkey_ = static_cast<int>(number) - 8;
             }
         }
+        if (keyIsTarget && keyTarget_ >= 0) clicker_.setCode(keyTarget_);
     }
 
     void saveConfig() {
-        int target = 0;
+        std::string target = "0";
         for (int i = 0; i < kTargetCount; ++i)
-            if (kTargetCodes[i] == clicker_.code()) target = i;
+            if (kTargetCodes[i] == clicker_.code()) target = std::to_string(i);
+        if (keyTarget_ >= 0 && clicker_.code() == keyTarget_) target = "key";
         std::ofstream out(configDir() / "ac.conf");
         out << "cps=" << formatCps(clicker_.cps()) << "\n"
             << "target=" << target << "\n"
+            << (keyTarget_ >= 0 ? "key=" + keyName(keyTarget_) + "\n" : std::string())
             << "toggle_key=" << keyName(hotkey_) << "\n";
     }
 
@@ -273,7 +303,9 @@ private:
     bool showFix_;
 
     int hotkey_ = keycode::F6;
-    bool capturing_ = false;
+    enum class Capture { None, Hotkey, Target };
+    Capture capturing_ = Capture::None;
+    int keyTarget_ = -1; // keyboard key picked with the "Key..." button
     Clock::time_point ignoreHotkeyUntil_{};
 
     TextField cps_{{234, 16, 80, 30}, TextField::Decimal, 7, "", false};
@@ -287,6 +319,7 @@ private:
 
 int acGui(int argc, char **argv) {
     GuiOptions options;
+    options.keyboardOutput = true; // the "Key..." target presses keyboard keys
     for (int i = 0; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg.rfind("--backend=", 0) == 0) {

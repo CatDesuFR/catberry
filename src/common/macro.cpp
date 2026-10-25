@@ -1,7 +1,7 @@
 #include "macro.h"
 
 #include "output.h"
-#include "platform.h"
+#include "daemon.h"
 
 #include <cctype>
 #include <cstdlib>

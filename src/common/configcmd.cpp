@@ -2,7 +2,7 @@
 // the background, one small process per loaded config.
 
 #include "macro.h"
-#include "platform.h"
+#include "daemon.h"
 
 #include <cstdio>
 #include <cstdlib>
