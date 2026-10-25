@@ -1,4 +1,0 @@
-# Lets the logged-in user create catberry's virtual mouse and keyboard
-# (/dev/uinput), the only way to click into native Wayland windows. This is
-# the same rule Steam's controller support installs.
-KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput"
