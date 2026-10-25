@@ -5,7 +5,8 @@ An autoclicker, a macro recorder and background hotkey macros behind one
 same on both.
 
 - [Install on Windows](#install-on-windows)
-- [Install on Linux](#install-on-linux)
+- [Install on CachyOS, Garuda and other Arch-based distros](#install-on-cachyos-garuda-and-other-arch-based-distros)
+- [Install on other Linux distros](#install-on-linux)
 - [Usage](#usage)
 - [Uninstall](#uninstall)
 - [Building from source](#building-from-source)
@@ -43,6 +44,41 @@ out of Windows and back in, or run it by its full path:
 **If antivirus deletes or blocks it**: catberry watches the keyboard for its
 hotkeys and sends clicks, which some antivirus software flags. Allow it in your
 antivirus if you trust it.
+
+---
+
+## Install on CachyOS, Garuda and other Arch-based distros
+
+One command in a terminal: it downloads the package and installs it with
+pacman, which also pulls in the two libraries it needs.
+
+```bash
+curl -LO https://github.com/CatDesuFR/catberry/raw/main/release/v1.0.2/catberry-1.0.2-1-x86_64.pkg.tar.zst && sudo pacman -U catberry-1.0.2-1-x86_64.pkg.tar.zst
+```
+
+Or download **[the package file](https://github.com/CatDesuFR/catberry/raw/main/release/v1.0.2/catberry-1.0.2-1-x86_64.pkg.tar.zst)** in your browser and install it
+from your Downloads folder:
+
+```bash
+sudo pacman -U ~/Downloads/catberry-1.0.2-1-x86_64.pkg.tar.zst
+```
+
+Then, once, allow global hotkeys and macro recording, and **log out and back
+in** (see [why](#allow-global-hotkeys-and-recording-once)):
+
+```bash
+sudo usermod -aG input $USER
+```
+
+Check it works with `catberry ac -v`, then start it with `catberry ac gui`.
+
+The package installs `catberry` to `/usr/bin`, plus a small udev rule that
+lets your desktop session use `/dev/uinput`, so clicks reach native Wayland
+windows (the same rule Steam installs for controllers). To update, install a
+newer package the same way. To remove it: `sudo pacman -R catberry`.
+
+To build the package yourself instead: `cd packaging/arch && makepkg -si` in a
+copy of this repo.
 
 ---
 
@@ -189,7 +225,9 @@ between Linux and Windows.
 configs, removes the program and its PATH entry. Your settings stay in
 `%APPDATA%\catberry`; delete that folder to remove them too.
 
-**Linux:**
+**Arch-based (CachyOS, Garuda, ...):** `sudo pacman -R catberry`
+
+**Other Linux:**
 
 ```bash
 catberry -configunload
@@ -210,6 +248,7 @@ drawing, sending and watching input, and background processes.
 | Linux program | `make` | `catberry` |
 | Install on Linux | `make install` | `~/.local/bin/catberry` |
 | Windows package | `make windows` | `dist/catberry-windows.zip` |
+| Arch package | `cd packaging/arch && makepkg` | `catberry-<version>-1-x86_64.pkg.tar.zst` |
 
 Ready-built downloads for each version are kept in `release/<version>/`, with
 a `SHA256SUMS` file to check them against.
