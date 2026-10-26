@@ -1,40 +1,20 @@
-# catberry: the launcher that runs the catberry tools (catberry-ac and
-# catberry-mtools, built from the ac and mtools branches).
-CXX ?= g++
-WINCXX ?= x86_64-w64-mingw32-g++
-CXXFLAGS ?= -O2 -Wall -Wextra
+# catberry-roofce: the catberry wallpaper manager (Roof Carton Engine).
+# Thin wrapper around CMake so it builds like the other catberry tools.
 PREFIX ?= $(HOME)/.local
+BUILD = build
 
-PROGRAM = catberry
-WINDOWS_DIST = dist/$(PROGRAM)-windows
+catberry-roofce: CMakeLists.txt $(wildcard src/*.cpp src/*.h)
+	cmake -S . -B $(BUILD) -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$(PREFIX) >/dev/null
+	cmake --build $(BUILD) -j2
+	cp $(BUILD)/catberry-roofce $@
 
-$(PROGRAM): src/main.cpp
-	$(CXX) $(CXXFLAGS) -std=c++17 $< -o $@
-
-install: $(PROGRAM)
-	install -Dm755 $(PROGRAM) $(DESTDIR)$(PREFIX)/bin/$(PROGRAM)
+install: catberry-roofce
+	install -Dm755 catberry-roofce $(DESTDIR)$(PREFIX)/bin/catberry-roofce
 
 uninstall:
-	rm -f $(DESTDIR)$(PREFIX)/bin/$(PROGRAM)
-
-# Windows build, cross-compiled with MinGW-w64: a folder with the exe,
-# install.bat and uninstall.bat, plus a zip of it when zip is available.
-windows: $(WINDOWS_DIST)/$(PROGRAM).exe $(WINDOWS_DIST)/install.bat $(WINDOWS_DIST)/uninstall.bat
-	@if command -v zip >/dev/null; then \
-		rm -f dist/$(PROGRAM)-windows.zip && cd dist && zip -qr $(PROGRAM)-windows.zip $(PROGRAM)-windows && \
-		echo "Built dist/$(PROGRAM)-windows.zip"; \
-	else echo "Built $(WINDOWS_DIST)/"; fi
-
-$(WINDOWS_DIST)/$(PROGRAM).exe: src/main.cpp
-	mkdir -p $(@D)
-	$(WINCXX) $(CXXFLAGS) -std=c++17 -static -s $< -o $@
-
-# Batch files need Windows line endings.
-$(WINDOWS_DIST)/%.bat: windows/%.bat
-	mkdir -p $(@D)
-	sed 's/\r*$$/\r/' $< > $@
+	rm -f $(DESTDIR)$(PREFIX)/bin/catberry-roofce
 
 clean:
-	rm -rf $(PROGRAM) dist
+	rm -rf $(BUILD) catberry-roofce dist
 
-.PHONY: install uninstall windows clean
+.PHONY: install uninstall clean

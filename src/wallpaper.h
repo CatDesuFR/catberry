@@ -1,0 +1,15 @@
+// The wallpaper itself: a background process that puts one layer-shell
+// surface on each screen, in the compositor's background layer, so the
+// desktop draws it as the wallpaper instead of a window.
+#pragma once
+
+#include <QString>
+
+// `catberry-roofce --wallpaper`: runs until asked to stop.
+int runWallpaper(int argc, char **argv);
+
+// For the window and the command line: talk to the running wallpaper.
+bool wallpaperRunning();
+// Shows the saved wallpaper: reloads a running wallpaper, or starts one.
+bool showWallpaper(QString &error);
+void stopWallpaper();
