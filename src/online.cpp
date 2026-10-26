@@ -76,6 +76,31 @@ QString humanResolution(int width, int height) {
 
 QString genreName(Genre genre) { return kGenres[int(genre)].name; }
 
+QString resolutionName(Resolution r) {
+    switch (r) {
+    case Resolution::Any: return "Any resolution";
+    case Resolution::P1080: return "1080p";
+    case Resolution::K2: return "2K";
+    case Resolution::K4: return "4K";
+    case Resolution::K8: return "8K";
+    }
+    return QString();
+}
+
+Resolution resolutionClass(int width, int height) {
+    int side = qMax(width, height);
+    if (side >= 7680) return Resolution::K8;
+    if (side >= 3840) return Resolution::K4;
+    if (side >= 2560) return Resolution::K2;
+    if (side >= 1920) return Resolution::P1080;
+    return Resolution::Any;
+}
+
+Resolution resolutionClass(const QString &resolution) {
+    QStringList parts = resolution.split('x');
+    return parts.size() == 2 ? resolutionClass(parts[0].toInt(), parts[1].toInt()) : Resolution::Any;
+}
+
 QString OnlineWallpaper::key() const { return OnlineLibrary::sourceName(source).toLower() + "-" + id; }
 
 OnlineLibrary::OnlineLibrary(QObject *parent) : QObject(parent) {}
@@ -154,6 +179,11 @@ void OnlineLibrary::search(const SearchOptions &options, bool more) {
         if (source == OnlineSource::MotionBgs && options_.filter == OnlineFilter::Pictures) continue;
         if (source == OnlineSource::Commons && !kGenres[int(options_.genre)].commons) continue;
         if (source == OnlineSource::Nasa && !kGenres[int(options_.genre)].nasa) continue;
+        // NASA does not say how big its files are; MotionBgs only has 1080p and 4K.
+        if (source == OnlineSource::Nasa && options_.resolution != Resolution::Any) continue;
+        if (source == OnlineSource::MotionBgs &&
+            (options_.resolution == Resolution::K2 || options_.resolution == Resolution::K8))
+            continue;
         ++pending_;
         switch (source) {
         case OnlineSource::Wallhaven: searchWallhaven(generation); break;
@@ -180,6 +210,7 @@ void OnlineLibrary::deliver(int generation, QList<OnlineWallpaper> items) {
     for (const OnlineWallpaper &w : items) {
         // The same wallpaper can come from a search and a genre page.
         if (seen_.contains(w.key()) || blocked(w.title)) continue;
+        if (options_.resolution != Resolution::Any && resolutionClass(w.resolution) != options_.resolution) continue;
         QString tags = w.tags.join(' ');
         if (options_.hideAi && aiMade(w.title + " " + tags)) continue;
         if (options_.strict) {
@@ -211,7 +242,10 @@ void OnlineLibrary::searchWallhaven(int generation) {
     params.addQueryItem("purity", "100");
     params.addQueryItem("sorting", terms.isEmpty() ? "toplist" : "relevance");
     params.addQueryItem("topRange", "1y");
-    params.addQueryItem("atleast", "1280x720");
+    // Every size by default; with a size class, at least its smallest
+    // (bigger ones are dropped when the results come in).
+    static const char *const atLeast[] = {"", "1920x1080", "2560x1440", "3840x2160", "7680x4320"};
+    if (options_.resolution != Resolution::Any) params.addQueryItem("atleast", atLeast[int(options_.resolution)]);
     if (options_.hideAi) params.addQueryItem("ai_art_filter", "1");
     params.addQueryItem("page", QString::number(page));
     QUrl url("https://wallhaven.cc/api/v1/search");
@@ -260,8 +294,9 @@ void OnlineLibrary::searchCommons(int generation) {
         terms += " filetype:bitmap";
     else
         terms += " filetype:video|bitmap";
-    // Wide enough to fill a screen.
-    terms += " filew:>1279";
+    static const int minWidth[] = {0, 1920, 2560, 3840, 7680};
+    if (options_.resolution != Resolution::Any)
+        terms += " filew:>" + QString::number(minWidth[int(options_.resolution)] - 1);
     terms += kCommonsExclude;
     if (options_.hideAi) terms += " -\"AI-generated\" -midjourney -\"stable diffusion\"";
 
@@ -311,7 +346,9 @@ void OnlineLibrary::searchCommons(int generation) {
             w.previewUrl = w.video ? QString() : w.thumbUrl;
             if (w.video) {
                 // Commons keeps smaller copies of every video: a small one
-                // to stream while hovering, and at most 1080p to download.
+                // to stream while hovering, and (unless a bigger size class
+                // is asked for) at most 1080p to download, to save space.
+                bool original = options_.resolution != Resolution::Any && options_.resolution != Resolution::P1080;
                 int bestPreview = 0, bestFull = 0;
                 for (const QJsonValue &d : info.value("derivatives").toArray()) {
                     QJsonObject o = d.toObject();
@@ -322,7 +359,7 @@ void OnlineLibrary::searchCommons(int generation) {
                         bestPreview = h;
                         w.previewUrl = src;
                     }
-                    if (h <= 1080 && h > bestFull && height > 1080) {
+                    if (!original && h <= 1080 && h > bestFull && height > 1080) {
                         bestFull = h;
                         w.fullUrl = src;
                         w.fileSize = 0; // the copy's size is not listed
@@ -364,9 +401,12 @@ QList<OnlineWallpaper> parseMotionPage(const QString &html) {
         QString base = m.captured(2);
         w.thumbUrl = "https://motionbgs.com/i/c/364x205/media/" + w.id + "/" + base + m.captured(3) + ".jpg";
         w.previewUrl = "https://motionbgs.com/media/" + w.id + "/" + base + ".960x540.mp4";
-        // The 1080p copy rather than 4K: a few MB instead of tens.
+        // The 1080p copy by default (a few MB instead of tens); the 4K one
+        // when 4K is asked for and the wallpaper has it (its preview's name
+        // carries the original size; older ones are 1080p only).
         w.fullUrl = "https://motionbgs.com/dl/hd/" + w.id + "/";
         w.resolution = "1920x1080";
+        w.bigResolution = m.captured(3).mid(1); // e.g. "3840x2160"
         items << w;
     }
     return items;
@@ -431,10 +471,12 @@ void OnlineLibrary::fetchMotionFilterPages(int first) {
 
 void OnlineLibrary::searchMotionBgs(int generation) {
     if (options_.strict && motionFilterState_ != FilterState::Ready) {
-        // Hold the results back until the filter can be applied.
-        motionWaiting_ << generation;
-        loadMotionFilter();
-        return;
+        loadMotionFilter(); // instant when the list is cached
+        if (motionFilterState_ != FilterState::Ready) {
+            // Hold the results back until the filter can be applied.
+            motionWaiting_ << generation;
+            return;
+        }
     }
     int page = page_.value(OnlineSource::MotionBgs, 1);
     QString tag = kGenres[int(options_.genre)].motionTag;
@@ -480,6 +522,17 @@ void OnlineLibrary::searchMotionBgs(int generation) {
             }
             if (--*remaining > 0) return;
             page_[OnlineSource::MotionBgs] = page + 1;
+            if (options_.resolution == Resolution::K4) {
+                // Only those with a 4K copy, and that copy is downloaded.
+                QList<OnlineWallpaper> big;
+                for (OnlineWallpaper w : *gathered) {
+                    if (resolutionClass(w.bigResolution) != Resolution::K4) continue;
+                    w.fullUrl = "https://motionbgs.com/dl/4k/" + w.id + "/";
+                    w.resolution = w.bigResolution;
+                    big << w;
+                }
+                *gathered = big;
+            }
             deliver(generation, *gathered);
             sourceDone(generation, OnlineSource::MotionBgs, *anyFull);
         });
@@ -590,7 +643,9 @@ void OnlineLibrary::fetchThumb(const OnlineWallpaper &w) {
 QString OnlineLibrary::localFile(const OnlineWallpaper &w) {
     QString suffix = QFileInfo(QUrl(w.fullUrl).path()).suffix();
     if (suffix.isEmpty()) suffix = w.video ? "mp4" : "jpg";
-    return paths::downloads() + "/" + w.key() + "." + suffix;
+    // The size is part of the name: the 1080p and 4K copies of one
+    // wallpaper are different files.
+    return paths::downloads() + "/" + w.key() + (w.resolution.isEmpty() ? QString() : "-" + w.resolution) + "." + suffix;
 }
 
 void OnlineLibrary::download(const OnlineWallpaper &w) {

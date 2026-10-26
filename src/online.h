@@ -17,6 +17,14 @@ enum class Genre { Any, Scenery, Space, Anime, Games, Cars, Animals, City, Fanta
 const int kGenreCount = 10;
 QString genreName(Genre genre);
 
+// Size classes by the long side: 1080p 1920-2559, 2K 2560-3839, 4K
+// 3840-7679, 8K 7680 and up.
+enum class Resolution { Any, P1080, K2, K4, K8 };
+QString resolutionName(Resolution r);
+// The class of a "WIDTHxHEIGHT" or of a size; Any when below 1080p or unknown.
+Resolution resolutionClass(int width, int height);
+Resolution resolutionClass(const QString &resolution);
+
 struct OnlineWallpaper {
     OnlineSource source = OnlineSource::Wallhaven;
     QString id;
@@ -29,6 +37,7 @@ struct OnlineWallpaper {
     QString resolution;
     qint64 fileSize = 0; // 0 when the source does not say
     QStringList tags;    // what the source says is in it (Commons categories)
+    QString bigResolution; // MotionBgs: size of its 4K copy, when it has one
 
     // Unique across sources; used for file names.
     QString key() const;
@@ -43,6 +52,7 @@ struct SearchOptions {
     // where most suggestive ones are, on top of the word blocklist.
     bool strict = true;
     bool hideAi = true; // hides AI-generated art where sources say so
+    Resolution resolution = Resolution::Any;
 };
 
 class OnlineLibrary : public QObject {

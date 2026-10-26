@@ -416,6 +416,12 @@ QWidget *MainWindow::buildLibraryPage() {
     optionsLayout->addWidget(hideAi_);
     searchLayout->addWidget(search_, 1);
     searchLayout->addWidget(filter_);
+    resolution_ = new QComboBox;
+    for (Resolution r : {Resolution::Any, Resolution::P1080, Resolution::K2, Resolution::K4, Resolution::K8})
+        resolution_->addItem(resolutionName(r), int(r));
+    resolution_->setToolTip("1080p: 1920-2559 px wide, 2K: 2560-3839, 4K: 3840-7679, 8K: 7680 and up\n"
+                            "(the long side, so tall wallpapers count too)");
+    searchLayout->addWidget(resolution_);
     searchLayout->addWidget(onlineOptions_);
     searchLayout->addWidget(go);
     col->addWidget(searchRow_);
@@ -503,6 +509,7 @@ QWidget *MainWindow::buildLibraryPage() {
     connect(search_, &QLineEdit::returnPressed, this, [this] { searchOnline(false); });
     connect(filter_, &QComboBox::currentIndexChanged, this, [this] { searchOnline(false); });
     connect(genre_, &QComboBox::currentIndexChanged, this, [this] { searchOnline(false); });
+    connect(resolution_, &QComboBox::currentIndexChanged, this, [this] { searchOnline(false); });
     connect(strict_, &QCheckBox::toggled, this, [this] { searchOnline(false); });
     connect(hideAi_, &QCheckBox::toggled, this, [this] { searchOnline(false); });
     connect(refreshButton_, &QPushButton::clicked, this, &MainWindow::refreshLibrary);
@@ -575,6 +582,11 @@ void MainWindow::refreshLibrary() {
                                     bool live = w.kind == Kind::Video || w.kind == Kind::Gif;
                                     if (kindFilter == OnlineFilter::Live && !live) return true;
                                     if (kindFilter == OnlineFilter::Pictures && live) return true;
+                                    Resolution wanted = Resolution(resolution_->currentData().toInt());
+                                    if (wanted != Resolution::Any) {
+                                        QSize size = localResolution(w);
+                                        if (resolutionClass(size.width(), size.height()) != wanted) return true;
+                                    }
                                     return !matchesSearch(w);
                                 }),
                  local_.end());
@@ -875,6 +887,7 @@ void MainWindow::searchOnline(bool more) {
         if (action->isChecked()) options.sources << OnlineSource(action->data().toInt());
     options.strict = strict_->isChecked();
     options.hideAi = hideAi_->isChecked();
+    options.resolution = Resolution(resolution_->currentData().toInt());
     if (options.sources.isEmpty()) {
         libraryNote_->setText("Tick at least one source.");
         return;

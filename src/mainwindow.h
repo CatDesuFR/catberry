@@ -89,7 +89,7 @@ private:
     QTabBar *sources_;
     QWidget *searchRow_;
     QLineEdit *search_;
-    QComboBox *filter_, *genre_;
+    QComboBox *filter_, *genre_, *resolution_;
     QToolButton *sourcesButton_;
     QList<QAction *> sourceActions_; // one tick per online source
     QCheckBox *strict_, *hideAi_;
