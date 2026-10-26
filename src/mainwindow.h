@@ -53,12 +53,12 @@ private:
     void searchOnline(bool more);
     void hoverItem(QListWidgetItem *item);
     void stopHover();
+    void playHover(const QString &url, bool video, bool local);
 
     Settings settings_;
-    Wallhaven wallhaven_;
+    OnlineLibrary onlineLib_;
     QList<Wallpaper> local_;
     QList<OnlineWallpaper> online_;
-    int onlinePage_ = 1, onlineLastPage_ = 1;
     int generation_ = 0; // discards thumbnails meant for an older list
 
     QListWidget *nav_;
@@ -78,10 +78,10 @@ private:
     QTabBar *sources_;
     QWidget *searchRow_;
     QLineEdit *search_;
-    QComboBox *sorting_;
+    QComboBox *filter_, *genre_, *sourcePicker_;
     QListWidget *grid_;
     QLabel *details_, *libraryNote_;
-    QPushButton *applyButton_, *deleteButton_, *moreButton_, *steamButton_;
+    QPushButton *applyButton_, *deleteButton_, *moreButton_, *steamButton_, *refreshButton_;
 
     QLabel *uploadResult_;
 
@@ -92,4 +92,5 @@ private:
     QMediaPlayer *hoverPlayer_;
     QMovie *hoverMovie_ = nullptr;
     int hoverRow_ = -1;
+    QString hoverKey_; // online wallpaper waiting for its preview address
 };

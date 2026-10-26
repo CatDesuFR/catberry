@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Roof Carton Engine
+GenericName=Wallpaper manager
+Comment=Live and still wallpapers for your desktop (catberry roofce)
+Exec=catberry-roofce gui
+Icon=preferences-desktop-wallpaper
+Categories=Settings;DesktopSettings;Qt;
+Terminal=false

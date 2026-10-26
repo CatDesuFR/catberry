@@ -10,9 +10,10 @@ catberry-roofce: CMakeLists.txt $(wildcard src/*.cpp src/*.h)
 
 install: catberry-roofce
 	install -Dm755 catberry-roofce $(DESTDIR)$(PREFIX)/bin/catberry-roofce
+	install -Dm644 data/catberry-roofce.desktop $(DESTDIR)$(PREFIX)/share/applications/catberry-roofce.desktop
 
 uninstall:
-	rm -f $(DESTDIR)$(PREFIX)/bin/catberry-roofce
+	rm -f $(DESTDIR)$(PREFIX)/bin/catberry-roofce $(DESTDIR)$(PREFIX)/share/applications/catberry-roofce.desktop
 
 clean:
 	rm -rf $(BUILD) catberry-roofce dist

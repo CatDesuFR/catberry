@@ -32,6 +32,8 @@
 #include <QVBoxLayout>
 #include <QVideoWidget>
 
+#include <memory>
+
 namespace {
 
 const QSize kThumb(240, 135);
@@ -111,34 +113,49 @@ MainWindow::MainWindow() : settings_(Settings::load()) {
 
     connect(nav_, &QListWidget::currentRowChanged, this, &MainWindow::showPage);
 
-    connect(&wallhaven_, &Wallhaven::results, this, [this](const QList<OnlineWallpaper> &items, int page, int lastPage) {
-        onlinePage_ = page;
-        onlineLastPage_ = lastPage;
-        int start = online_.size();
-        online_ += items;
-        for (int i = 0; i < items.size(); ++i) {
-            auto *item = new QListWidgetItem(items[i].resolution);
+    connect(&onlineLib_, &OnlineLibrary::results, this, [this](const QList<OnlineWallpaper> &items) {
+        for (const OnlineWallpaper &w : items) {
+            online_ << w;
+            QString label = (w.video ? "LIVE  " : "") + w.title;
+            auto *item = new QListWidgetItem(label.left(60));
+            item->setToolTip(w.title + "\n" + OnlineLibrary::sourceName(w.source));
             item->setSizeHint(kThumb + QSize(12, 34));
             grid_->addItem(item);
-            Q_UNUSED(start);
-            wallhaven_.fetchThumb(items[i]);
+            onlineLib_.fetchThumb(w);
         }
-        moreButton_->setVisible(page < lastPage);
-        libraryNote_->setText(online_.isEmpty() ? "Nothing found." : "Free wallpapers from wallhaven.cc");
     });
-    connect(&wallhaven_, &Wallhaven::thumbReady, this, [this](const QString &id, const QString &path) {
+    connect(&onlineLib_, &OnlineLibrary::searchFinished, this, [this](bool more) {
+        moreButton_->setVisible(more);
+        libraryNote_->setText(online_.isEmpty() ? "Nothing found."
+                                                : "Free wallpapers from MotionBgs, Wallhaven, Wikimedia Commons and NASA. "
+                                                  "Hover a tile to play it; nothing is saved until you set it.");
+    });
+    connect(&onlineLib_, &OnlineLibrary::thumbReady, this, [this](const QString &key, const QString &path) {
         if (sources_->currentIndex() != Online) return;
         for (int i = 0; i < online_.size(); ++i)
-            if (online_[i].id == id) loadThumb(i, path, false);
+            if (online_[i].key() == key) loadThumb(i, path, false);
     });
-    connect(&wallhaven_, &Wallhaven::downloadProgress, this, [this](const QString &, qint64 received, qint64 total) {
-        if (total > 0) details_->setText(QString("Downloading... %1 of %2").arg(humanSize(received), humanSize(total)));
+    connect(&onlineLib_, &OnlineLibrary::resolved, this,
+            [this](const QString &key, const QString &previewUrl, const QString &fullUrl) {
+                for (OnlineWallpaper &w : online_) {
+                    if (w.key() != key) continue;
+                    w.previewUrl = previewUrl;
+                    w.fullUrl = fullUrl;
+                    if (key == hoverKey_) playHover(previewUrl, w.video, false);
+                }
+            });
+    connect(&onlineLib_, &OnlineLibrary::downloadProgress, this, [this](const QString &, qint64 received, qint64 total) {
+        details_->setText(total > 0 ? QString("Downloading... %1 of %2").arg(humanSize(received), humanSize(total))
+                                    : "Downloading... " + humanSize(received));
     });
-    connect(&wallhaven_, &Wallhaven::downloaded, this, [this](const QString &id, const QString &path) {
+    connect(&onlineLib_, &OnlineLibrary::downloaded, this, [this](const QString &key, const QString &path) {
         applyButton_->setEnabled(true);
-        apply(path, "Wallhaven " + id);
+        QString title = key;
+        for (const OnlineWallpaper &w : online_)
+            if (w.key() == key) title = w.title;
+        apply(path, title);
     });
-    connect(&wallhaven_, &Wallhaven::failed, this, [this](const QString &message) {
+    connect(&onlineLib_, &OnlineLibrary::failed, this, [this](const QString &message) {
         applyButton_->setEnabled(true);
         libraryNote_->setText(message);
     });
@@ -335,21 +352,34 @@ QWidget *MainWindow::buildLibraryPage() {
     sources_->addTab("Wallpaper Engine");
     sources_->addTab("Online (free)");
     sources_->setExpanding(false);
-    col->addWidget(sources_);
+    refreshButton_ = new QPushButton("Refresh");
+    auto *tabsRow = new QHBoxLayout;
+    tabsRow->addWidget(sources_, 1);
+    tabsRow->addWidget(refreshButton_);
+    col->addLayout(tabsRow);
 
     searchRow_ = new QWidget;
     auto *searchLayout = new QHBoxLayout(searchRow_);
     searchLayout->setContentsMargins(0, 0, 0, 0);
     search_ = new QLineEdit;
-    search_->setPlaceholderText("Search wallpapers (e.g. mountains, anime, space)");
-    sorting_ = new QComboBox;
-    sorting_->addItem("Top this year", "toplist");
-    sorting_->addItem("Newest", "date_added");
-    sorting_->addItem("Most viewed", "views");
-    sorting_->addItem("Most favorited", "favorites");
+    search_->setPlaceholderText("Search wallpapers");
+    filter_ = new QComboBox;
+    filter_->addItem("Live and pictures", int(OnlineFilter::All));
+    filter_->addItem("Live (videos)", int(OnlineFilter::Live));
+    filter_->addItem("Pictures", int(OnlineFilter::Pictures));
+    genre_ = new QComboBox;
+    for (int g = 0; g < kGenreCount; ++g) genre_->addItem(genreName(Genre(g)), g);
+    sourcePicker_ = new QComboBox;
+    sourcePicker_->addItem("All sources", -1);
+    sourcePicker_->addItem("Wallhaven", int(OnlineSource::Wallhaven));
+    sourcePicker_->addItem("MotionBgs", int(OnlineSource::MotionBgs));
+    sourcePicker_->addItem("Wikimedia Commons", int(OnlineSource::Commons));
+    sourcePicker_->addItem("NASA", int(OnlineSource::Nasa));
     auto *go = new QPushButton("Search");
     searchLayout->addWidget(search_, 1);
-    searchLayout->addWidget(sorting_);
+    searchLayout->addWidget(filter_);
+    searchLayout->addWidget(genre_);
+    searchLayout->addWidget(sourcePicker_);
     searchLayout->addWidget(go);
     col->addWidget(searchRow_);
 
@@ -370,6 +400,7 @@ QWidget *MainWindow::buildLibraryPage() {
     col->addWidget(grid_, 1);
 
     grid_->setMouseTracking(true);
+    grid_->viewport()->setMouseTracking(true);
     grid_->viewport()->installEventFilter(this);
     hover_ = new QStackedWidget(grid_->viewport());
     hover_->setAttribute(Qt::WA_TransparentForMouseEvents); // clicks still select the tile
@@ -378,7 +409,8 @@ QWidget *MainWindow::buildLibraryPage() {
     hoverLabel_->setAlignment(Qt::AlignCenter);
     hoverLabel_->setStyleSheet("background: #181825;");
     hoverVideo_ = new QVideoWidget;
-    hoverVideo_->setAspectRatioMode(Qt::KeepAspectRatioByExpanding);
+    // The whole wallpaper, uncropped.
+    hoverVideo_->setAspectRatioMode(Qt::KeepAspectRatio);
     hoverVideo_->setAttribute(Qt::WA_TransparentForMouseEvents);
     hover_->addWidget(hoverLabel_);
     hover_->addWidget(hoverVideo_);
@@ -408,7 +440,10 @@ QWidget *MainWindow::buildLibraryPage() {
     connect(sources_, &QTabBar::currentChanged, this, &MainWindow::refreshLibrary);
     connect(go, &QPushButton::clicked, this, [this] { searchOnline(false); });
     connect(search_, &QLineEdit::returnPressed, this, [this] { searchOnline(false); });
-    connect(sorting_, &QComboBox::currentIndexChanged, this, [this] { searchOnline(false); });
+    connect(filter_, &QComboBox::currentIndexChanged, this, [this] { searchOnline(false); });
+    connect(genre_, &QComboBox::currentIndexChanged, this, [this] { searchOnline(false); });
+    connect(sourcePicker_, &QComboBox::currentIndexChanged, this, [this] { searchOnline(false); });
+    connect(refreshButton_, &QPushButton::clicked, this, &MainWindow::refreshLibrary);
     connect(moreButton_, &QPushButton::clicked, this, [this] { searchOnline(true); });
     connect(grid_, &QListWidget::currentRowChanged, this, &MainWindow::selectionChanged);
     connect(grid_, &QListWidget::itemDoubleClicked, this, &MainWindow::applySelected);
@@ -485,26 +520,59 @@ void MainWindow::hoverItem(QListWidgetItem *item) {
     int row = grid_->row(item);
     if (row == hoverRow_) return;
     stopHover();
-    if (sources_->currentIndex() == Online || row < 0 || row >= local_.size()) return;
-    const Wallpaper &w = local_[row];
-    QString gif = w.kind == Kind::Gif ? w.file : w.preview.endsWith(".gif", Qt::CaseInsensitive) ? w.preview : QString();
-    if (w.kind != Kind::Video && gif.isEmpty()) return; // a still picture: nothing to play
-
+    if (row < 0) return;
     hoverRow_ = row;
     QRect tile = grid_->visualItemRect(item);
     // The icon sits centred at the top of the tile.
     hover_->move(tile.x() + (tile.width() - kThumb.width()) / 2, tile.y() + 4);
-    if (w.kind == Kind::Video) {
+
+    if (sources_->currentIndex() == Online) {
+        if (row >= online_.size()) return;
+        const OnlineWallpaper &w = online_[row];
+        if (!w.video) {
+            // The whole picture, from its (uncropped) preview.
+            QString thumb = paths::thumbs() + "/" + w.key() + ".jpg";
+            if (QFile::exists(thumb)) playHover(thumb, false, true);
+            return;
+        }
+        if (!w.previewUrl.isEmpty()) {
+            playHover(w.previewUrl, true, false);
+        } else {
+            hoverKey_ = w.key();
+            onlineLib_.resolve(w);
+        }
+        return;
+    }
+    if (row >= local_.size()) return;
+    const Wallpaper &w = local_[row];
+    if (w.kind == Kind::Video)
+        playHover(w.file, true, true);
+    else if (w.kind == Kind::Gif || w.kind == Kind::Image)
+        playHover(w.file, false, true);
+    else if (!w.preview.isEmpty())
+        playHover(w.preview, false, true);
+}
+
+void MainWindow::playHover(const QString &url, bool video, bool local) {
+    hoverKey_.clear();
+    if (video) {
         hover_->setCurrentWidget(hoverVideo_);
-        hoverPlayer_->setSource(QUrl::fromLocalFile(w.file));
+        hoverPlayer_->setSource(local ? QUrl::fromLocalFile(url) : QUrl(url));
         hoverPlayer_->play();
     } else {
         hover_->setCurrentWidget(hoverLabel_);
-        hoverMovie_ = new QMovie(gif, QByteArray(), this);
-        QSize size = QImageReader(gif).size();
-        if (size.isValid()) hoverMovie_->setScaledSize(size.scaled(kThumb, Qt::KeepAspectRatioByExpanding));
-        hoverLabel_->setMovie(hoverMovie_);
-        hoverMovie_->start();
+        QSize size = QImageReader(url).size();
+        QSize fitted = size.isValid() ? size.scaled(kThumb, Qt::KeepAspectRatio) : kThumb;
+        if (QImageReader(url).supportsAnimation() && QImageReader(url).imageCount() != 1) {
+            hoverMovie_ = new QMovie(url, QByteArray(), this);
+            hoverMovie_->setScaledSize(fitted);
+            hoverLabel_->setMovie(hoverMovie_);
+            hoverMovie_->start();
+        } else {
+            QImageReader reader(url);
+            reader.setScaledSize(fitted);
+            hoverLabel_->setPixmap(QPixmap::fromImage(reader.read()));
+        }
     }
     hover_->show();
     hover_->raise();
@@ -512,6 +580,7 @@ void MainWindow::hoverItem(QListWidgetItem *item) {
 
 void MainWindow::stopHover() {
     hoverRow_ = -1;
+    hoverKey_.clear();
     hover_->hide();
     hoverPlayer_->stop();
     hoverPlayer_->setSource(QUrl());
@@ -550,9 +619,12 @@ void MainWindow::selectionChanged() {
     if (sources_->currentIndex() == Online) {
         if (row >= online_.size()) return;
         const OnlineWallpaper &w = online_[row];
-        bool have = QFile::exists(Wallhaven::localFile(w));
-        details_->setText(QString("%1 - %2%3").arg(w.resolution, humanSize(w.fileSize),
-                                                   have ? " - already downloaded" : " - downloaded when you set it"));
+        bool have = QFile::exists(OnlineLibrary::localFile(w));
+        QStringList parts = {OnlineLibrary::sourceName(w.source), w.video ? "Live" : "Picture"};
+        if (!w.resolution.isEmpty()) parts << w.resolution;
+        if (w.fileSize > 0) parts << humanSize(w.fileSize);
+        parts << (have ? "already downloaded" : "downloaded when you set it");
+        details_->setText(parts.join(" - "));
         return;
     }
     if (row >= local_.size()) return;
@@ -570,8 +642,23 @@ void MainWindow::applySelected() {
     if (row < 0) return;
     if (sources_->currentIndex() == Online) {
         if (row >= online_.size()) return;
+        const OnlineWallpaper &w = online_[row];
+        if (w.fullUrl.isEmpty()) {
+            // NASA: look up the file first, then set it.
+            QString key = w.key();
+            auto connection = std::make_shared<QMetaObject::Connection>();
+            *connection = connect(&onlineLib_, &OnlineLibrary::resolved, this, [this, key, connection] {
+                for (const OnlineWallpaper &o : online_)
+                    if (o.key() == key && !o.fullUrl.isEmpty()) {
+                        disconnect(*connection);
+                        onlineLib_.download(o);
+                    }
+            });
+            onlineLib_.resolve(w);
+        } else {
+            onlineLib_.download(w);
+        }
         applyButton_->setEnabled(false);
-        wallhaven_.download(online_[row]);
         return;
     }
     if (row >= local_.size() || local_[row].kind == Kind::Unsupported) return;
@@ -580,12 +667,28 @@ void MainWindow::applySelected() {
 
 void MainWindow::searchOnline(bool more) {
     if (sources_->currentIndex() != Online) return;
-    if (!more) {
+    QString query = search_->text().trimmed();
+    if (OnlineLibrary::blocked(query)) {
         ++generation_;
         grid_->clear();
         online_.clear();
+        moreButton_->hide();
+        libraryNote_->setText("That search is not allowed.");
+        return;
     }
-    wallhaven_.search(search_->text().trimmed(), sorting_->currentData().toString(), more ? onlinePage_ + 1 : 1);
+    if (!more) {
+        stopHover();
+        ++generation_;
+        grid_->clear();
+        online_.clear();
+        libraryNote_->setText("Loading...");
+    }
+    QList<OnlineSource> sources = {OnlineSource::MotionBgs, OnlineSource::Wallhaven, OnlineSource::Commons,
+                                   OnlineSource::Nasa};
+    int picked = sourcePicker_->currentData().toInt();
+    if (picked >= 0) sources = {OnlineSource(picked)};
+    onlineLib_.search(query, OnlineFilter(filter_->currentData().toInt()), Genre(genre_->currentData().toInt()), sources,
+                      more);
 }
 
 // --- Upload page --------------------------------------------------------------
