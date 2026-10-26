@@ -21,6 +21,8 @@
 #include <QMessageBox>
 #include <QMimeData>
 #include <QMovie>
+#include <QProcess>
+#include <QPropertyAnimation>
 #include <QPushButton>
 #include <QScrollBar>
 #include <QSlider>
@@ -30,8 +32,11 @@
 #include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
+#include <QVideoSink>
 #include <QVideoWidget>
+#include <QWheelEvent>
 
+#include <algorithm>
 #include <memory>
 
 namespace {
@@ -68,6 +73,13 @@ QLabel *heading(const QString &text) {
     label->setObjectName("heading");
     return label;
 }
+
+qint64 pixels(const QString &resolution) {
+    QStringList parts = resolution.split('x');
+    return parts.size() == 2 ? parts[0].toLongLong() * parts[1].toLongLong() : 0;
+}
+
+QString tileKey(const Wallpaper &w) { return "local:" + (w.file.isEmpty() ? w.id : w.file); }
 
 QImage scaledImage(const QString &path) {
     QImageReader reader(path);
@@ -114,15 +126,10 @@ MainWindow::MainWindow() : settings_(Settings::load()) {
     connect(nav_, &QListWidget::currentRowChanged, this, &MainWindow::showPage);
 
     connect(&onlineLib_, &OnlineLibrary::results, this, [this](const QList<OnlineWallpaper> &items) {
-        for (const OnlineWallpaper &w : items) {
-            online_ << w;
-            QString label = (w.video ? "LIVE  " : "") + w.title;
-            auto *item = new QListWidgetItem(label.left(60));
-            item->setToolTip(w.title + "\n" + OnlineLibrary::sourceName(w.source));
-            item->setSizeHint(kThumb + QSize(12, 34));
-            grid_->addItem(item);
-            onlineLib_.fetchThumb(w);
-        }
+        online_ += items;
+        populateGrid();
+        for (const OnlineWallpaper &w : items)
+            if (!icons_.contains(w.key())) onlineLib_.fetchThumb(w);
     });
     connect(&onlineLib_, &OnlineLibrary::searchFinished, this, [this](bool more) {
         moreButton_->setVisible(more);
@@ -131,9 +138,7 @@ MainWindow::MainWindow() : settings_(Settings::load()) {
                                                   "Hover a tile to play it; nothing is saved until you set it.");
     });
     connect(&onlineLib_, &OnlineLibrary::thumbReady, this, [this](const QString &key, const QString &path) {
-        if (sources_->currentIndex() != Online) return;
-        for (int i = 0; i < online_.size(); ++i)
-            if (online_[i].key() == key) loadThumb(i, path, false);
+        loadThumb(key, path, false);
     });
     connect(&onlineLib_, &OnlineLibrary::resolved, this,
             [this](const QString &key, const QString &previewUrl, const QString &fullUrl) {
@@ -353,8 +358,13 @@ QWidget *MainWindow::buildLibraryPage() {
     sources_->addTab("Online (free)");
     sources_->setExpanding(false);
     refreshButton_ = new QPushButton("Refresh");
+    sort_ = new QComboBox;
+    sort_->addItem("Sort: default");
+    sort_->addItem("Sort: resolution, highest first");
+    sort_->addItem("Sort: file size, largest first");
     auto *tabsRow = new QHBoxLayout;
     tabsRow->addWidget(sources_, 1);
+    tabsRow->addWidget(sort_);
     tabsRow->addWidget(refreshButton_);
     col->addLayout(tabsRow);
 
@@ -397,6 +407,12 @@ QWidget *MainWindow::buildLibraryPage() {
     grid_->setSpacing(6);
     grid_->setUniformItemSizes(true);
     grid_->setWordWrap(true);
+    // Smooth scrolling: by pixels, and the mouse wheel glides (see eventFilter).
+    grid_->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    grid_->verticalScrollBar()->setSingleStep(24);
+    scrollAnimation_ = new QPropertyAnimation(grid_->verticalScrollBar(), "value", this);
+    scrollAnimation_->setDuration(220);
+    scrollAnimation_->setEasingCurve(QEasingCurve::OutCubic);
     col->addWidget(grid_, 1);
 
     grid_->setMouseTracking(true);
@@ -418,6 +434,18 @@ QWidget *MainWindow::buildLibraryPage() {
     hoverPlayer_ = new QMediaPlayer(this); // no audio output: silent
     hoverPlayer_->setVideoOutput(hoverVideo_);
     hoverPlayer_->setLoops(QMediaPlayer::Infinite);
+    // The still picture shows at once; the video takes over from its first frame.
+    connect(hoverVideo_->videoSink(), &QVideoSink::videoFrameChanged, this, [this] {
+        if (hover_->isVisible() && hoverPlayer_->isPlaying()) hover_->setCurrentWidget(hoverVideo_);
+    });
+    hoverDelay_ = new QTimer(this);
+    hoverDelay_->setSingleShot(true);
+    hoverDelay_->setInterval(120);
+    connect(hoverDelay_, &QTimer::timeout, this, [this] {
+        if (hoverVideoUrl_.isEmpty()) return;
+        hoverPlayer_->setSource(hoverVideoLocal_ ? QUrl::fromLocalFile(hoverVideoUrl_) : QUrl(hoverVideoUrl_));
+        hoverPlayer_->play();
+    });
     connect(grid_, &QListWidget::itemEntered, this, &MainWindow::hoverItem);
     connect(grid_->verticalScrollBar(), &QScrollBar::valueChanged, this, &MainWindow::stopHover);
 
@@ -444,6 +472,7 @@ QWidget *MainWindow::buildLibraryPage() {
     connect(genre_, &QComboBox::currentIndexChanged, this, [this] { searchOnline(false); });
     connect(sourcePicker_, &QComboBox::currentIndexChanged, this, [this] { searchOnline(false); });
     connect(refreshButton_, &QPushButton::clicked, this, &MainWindow::refreshLibrary);
+    connect(sort_, &QComboBox::currentIndexChanged, this, &MainWindow::populateGrid);
     connect(moreButton_, &QPushButton::clicked, this, [this] { searchOnline(true); });
     connect(grid_, &QListWidget::currentRowChanged, this, &MainWindow::selectionChanged);
     connect(grid_, &QListWidget::itemDoubleClicked, this, &MainWindow::applySelected);
@@ -503,17 +532,83 @@ void MainWindow::refreshLibrary() {
         else
             libraryNote_->setText("Your Wallpaper Engine Workshop subscriptions, read from Steam's folder.");
     }
-    for (int i = 0; i < local_.size(); ++i) {
-        const Wallpaper &w = local_[i];
-        auto *item = new QListWidgetItem(w.title);
-        item->setSizeHint(kThumb + QSize(12, 34));
-        if (w.kind == Kind::Unsupported) item->setForeground(QColor("#6c7086"));
-        grid_->addItem(item);
+    populateGrid();
+    for (const Wallpaper &w : local_) {
+        if (icons_.contains(tileKey(w))) continue;
         if (!w.preview.isEmpty())
-            loadThumb(i, w.preview, false);
+            loadThumb(tileKey(w), w.preview, false);
         else if (w.kind == Kind::Video)
-            loadThumb(i, w.file, true);
+            loadThumb(tileKey(w), w.file, true);
     }
+}
+
+QSize MainWindow::localResolution(const Wallpaper &w) {
+    if (resolutions_.contains(w.file)) return resolutions_.value(w.file);
+    QSize size;
+    if (w.kind == Kind::Video) {
+        // Asked from ffprobe once and remembered.
+        QProcess probe;
+        probe.start("ffprobe", {"-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
+                                "-of", "csv=s=x:p=0", w.file});
+        if (probe.waitForFinished(5000)) {
+            QStringList parts = QString::fromUtf8(probe.readAllStandardOutput()).trimmed().split('x');
+            if (parts.size() == 2) size = QSize(parts[0].toInt(), parts[1].toInt());
+        }
+    } else if (!w.file.isEmpty()) {
+        size = QImageReader(w.file).size();
+    }
+    resolutions_.insert(w.file, size);
+    return size;
+}
+
+void MainWindow::sortWallpapers() {
+    int mode = sort_->currentIndex();
+    if (mode == 0) return;
+    if (sources_->currentIndex() == Online) {
+        std::stable_sort(online_.begin(), online_.end(), [mode](const OnlineWallpaper &a, const OnlineWallpaper &b) {
+            // Unknown values (0) sort last.
+            return mode == 1 ? pixels(a.resolution) > pixels(b.resolution) : a.fileSize > b.fileSize;
+        });
+        return;
+    }
+    QHash<QString, qint64> value;
+    for (const Wallpaper &w : local_) {
+        QSize res = mode == 1 ? localResolution(w) : QSize();
+        value.insert(w.file, mode == 1 ? qint64(res.width()) * res.height() : QFileInfo(w.file).size());
+    }
+    std::stable_sort(local_.begin(), local_.end(),
+                     [&value](const Wallpaper &a, const Wallpaper &b) { return value.value(a.file) > value.value(b.file); });
+}
+
+void MainWindow::populateGrid() {
+    stopHover();
+    QString selected = grid_->currentItem() ? grid_->currentItem()->data(Qt::UserRole).toString() : QString();
+    int scroll = grid_->verticalScrollBar()->value();
+    sortWallpapers();
+    grid_->setUpdatesEnabled(false);
+    grid_->clear();
+    auto add = [&](const QString &key, const QString &label, const QString &tip, bool dim) {
+        auto *item = new QListWidgetItem(label.left(60));
+        item->setData(Qt::UserRole, key);
+        item->setToolTip(tip);
+        item->setSizeHint(kThumb + QSize(12, 34));
+        if (dim) item->setForeground(QColor("#6c7086"));
+        if (icons_.contains(key)) item->setIcon(icons_.value(key));
+        grid_->addItem(item);
+        if (key == selected) grid_->setCurrentItem(item);
+    };
+    if (sources_->currentIndex() == Online) {
+        for (const OnlineWallpaper &w : online_)
+            add(w.key(), (w.video ? "LIVE  " : "") + w.title,
+                w.title + "\n" + OnlineLibrary::sourceName(w.source) + (w.resolution.isEmpty() ? "" : " - " + w.resolution),
+                false);
+    } else {
+        for (const Wallpaper &w : local_)
+            add(tileKey(w), (w.kind == Kind::Video ? "LIVE  " : "") + w.title, w.title, w.kind == Kind::Unsupported);
+    }
+    grid_->setUpdatesEnabled(true);
+    grid_->verticalScrollBar()->setValue(scroll);
+    scrollTarget_ = scroll;
 }
 
 void MainWindow::hoverItem(QListWidgetItem *item) {
@@ -529,12 +624,10 @@ void MainWindow::hoverItem(QListWidgetItem *item) {
     if (sources_->currentIndex() == Online) {
         if (row >= online_.size()) return;
         const OnlineWallpaper &w = online_[row];
-        if (!w.video) {
-            // The whole picture, from its (uncropped) preview.
-            QString thumb = paths::thumbs() + "/" + w.key() + ".jpg";
-            if (QFile::exists(thumb)) playHover(thumb, false, true);
-            return;
-        }
+        // The whole picture, from its (uncropped) preview, straight away.
+        QString thumb = paths::thumbs() + "/" + w.key() + ".jpg";
+        if (QFile::exists(thumb)) playHover(thumb, false, true);
+        if (!w.video) return;
         if (!w.previewUrl.isEmpty()) {
             playHover(w.previewUrl, true, false);
         } else {
@@ -545,8 +638,11 @@ void MainWindow::hoverItem(QListWidgetItem *item) {
     }
     if (row >= local_.size()) return;
     const Wallpaper &w = local_[row];
-    if (w.kind == Kind::Video)
+    if (w.kind == Kind::Video) {
+        QString still = videoThumbnail(w.file, false);
+        if (!still.isEmpty()) playHover(still, false, true);
         playHover(w.file, true, true);
+    }
     else if (w.kind == Kind::Gif || w.kind == Kind::Image)
         playHover(w.file, false, true);
     else if (!w.preview.isEmpty())
@@ -556,9 +652,11 @@ void MainWindow::hoverItem(QListWidgetItem *item) {
 void MainWindow::playHover(const QString &url, bool video, bool local) {
     hoverKey_.clear();
     if (video) {
-        hover_->setCurrentWidget(hoverVideo_);
-        hoverPlayer_->setSource(local ? QUrl::fromLocalFile(url) : QUrl(url));
-        hoverPlayer_->play();
+        // Started a moment later, so sweeping the mouse across the grid
+        // does not start (and stop) a video for every tile it passes.
+        hoverVideoUrl_ = url;
+        hoverVideoLocal_ = local;
+        hoverDelay_->start();
     } else {
         hover_->setCurrentWidget(hoverLabel_);
         QSize size = QImageReader(url).size();
@@ -581,9 +679,11 @@ void MainWindow::playHover(const QString &url, bool video, bool local) {
 void MainWindow::stopHover() {
     hoverRow_ = -1;
     hoverKey_.clear();
+    hoverVideoUrl_.clear();
+    hoverDelay_->stop();
     hover_->hide();
-    hoverPlayer_->stop();
-    hoverPlayer_->setSource(QUrl());
+    hover_->setCurrentWidget(hoverLabel_);
+    if (hoverPlayer_->playbackState() != QMediaPlayer::StoppedState) hoverPlayer_->stop();
     hoverLabel_->clear();
     delete hoverMovie_;
     hoverMovie_ = nullptr;
@@ -591,6 +691,20 @@ void MainWindow::stopHover() {
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
     if (watched == grid_->viewport()) {
+        if (event->type() == QEvent::Wheel) {
+            auto *wheel = static_cast<QWheelEvent *>(event);
+            // Touchpads already scroll smoothly; animate mouse wheel notches.
+            if (wheel->pixelDelta().isNull() && wheel->angleDelta().y() != 0) {
+                QScrollBar *bar = grid_->verticalScrollBar();
+                if (scrollAnimation_->state() != QAbstractAnimation::Running) scrollTarget_ = bar->value();
+                scrollTarget_ = qBound(bar->minimum(), scrollTarget_ - wheel->angleDelta().y() * 3 / 2, bar->maximum());
+                scrollAnimation_->stop();
+                scrollAnimation_->setStartValue(bar->value());
+                scrollAnimation_->setEndValue(scrollTarget_);
+                scrollAnimation_->start();
+                return true;
+            }
+        }
         if (event->type() == QEvent::Leave) stopHover();
         // Moving onto empty space between tiles.
         if (event->type() == QEvent::MouseMove && !grid_->itemAt(static_cast<QMouseEvent *>(event)->pos()))
@@ -599,15 +713,16 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
     return QMainWindow::eventFilter(watched, event);
 }
 
-void MainWindow::loadThumb(int row, const QString &path, bool video) {
-    int generation = generation_;
-    QThreadPool::globalInstance()->start([this, row, path, video, generation] {
+void MainWindow::loadThumb(const QString &key, const QString &path, bool video) {
+    QThreadPool::globalInstance()->start([this, key, path, video] {
         QString source = video ? videoThumbnail(path) : path;
         QImage image = source.isEmpty() ? QImage() : scaledImage(source);
         if (image.isNull()) return;
-        QMetaObject::invokeMethod(this, [this, row, image, generation] {
-            if (generation != generation_ || row >= grid_->count()) return;
-            grid_->item(row)->setIcon(QIcon(QPixmap::fromImage(image)));
+        QMetaObject::invokeMethod(this, [this, key, image] {
+            QIcon icon(QPixmap::fromImage(image));
+            icons_.insert(key, icon);
+            for (int i = 0; i < grid_->count(); ++i)
+                if (grid_->item(i)->data(Qt::UserRole).toString() == key) grid_->item(i)->setIcon(icon);
         });
     });
 }

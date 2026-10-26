@@ -32,5 +32,6 @@ bool wallpaperEngineInstalled();
 QList<Wallpaper> scanWallpaperEngine();
 
 // A still frame of a video for the library, made with ffmpeg when it is
-// installed; cached. Empty when it cannot be made.
-QString videoThumbnail(const QString &video);
+// installed; cached. Empty when it cannot be made, or (with create false)
+// when it has not been made yet.
+QString videoThumbnail(const QString &video, bool create = true);

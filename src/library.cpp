@@ -136,12 +136,12 @@ QList<Wallpaper> scanWallpaperEngine() {
     return out;
 }
 
-QString videoThumbnail(const QString &video) {
+QString videoThumbnail(const QString &video, bool create) {
     QFileInfo info(video);
     QByteArray key = (info.absoluteFilePath() + QString::number(info.lastModified().toSecsSinceEpoch())).toUtf8();
     QString thumb = paths::thumbs() + "/" + QCryptographicHash::hash(key, QCryptographicHash::Sha1).toHex() + ".jpg";
     if (QFile::exists(thumb)) return thumb;
-    if (QStandardPaths::findExecutable("ffmpeg").isEmpty()) return QString();
+    if (!create || QStandardPaths::findExecutable("ffmpeg").isEmpty()) return QString();
     QProcess ffmpeg;
     ffmpeg.start("ffmpeg", {"-v", "quiet", "-y", "-ss", "1", "-i", video, "-frames:v", "1", "-vf", "scale=320:-2", thumb});
     if (!ffmpeg.waitForFinished(15000) || !QFile::exists(thumb)) {

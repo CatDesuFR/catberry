@@ -6,6 +6,8 @@
 #include "online.h"
 #include "settings.h"
 
+#include <QHash>
+#include <QIcon>
 #include <QMainWindow>
 
 class QCheckBox;
@@ -17,10 +19,12 @@ class QListWidgetItem;
 class QMediaPlayer;
 class QMovie;
 class QVideoWidget;
+class QPropertyAnimation;
 class QPushButton;
 class QSlider;
 class QStackedWidget;
 class QTabBar;
+class QTimer;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -44,7 +48,11 @@ private:
     void showPreview();
     void pausePreview();
     void refreshLibrary();
-    void loadThumb(int row, const QString &path, bool video);
+    void loadThumb(const QString &key, const QString &path, bool video);
+    // Rebuilds the tiles from local_ or online_, in the chosen order.
+    void populateGrid();
+    void sortWallpapers();
+    QSize localResolution(const Wallpaper &w);
     void selectionChanged();
     void applySelected();
     void apply(const QString &file, const QString &title);
@@ -81,6 +89,11 @@ private:
     QComboBox *filter_, *genre_, *sourcePicker_;
     QListWidget *grid_;
     QLabel *details_, *libraryNote_;
+    QComboBox *sort_;
+    QHash<QString, QIcon> icons_; // tile pictures by wallpaper key, so re-sorting is instant
+    QHash<QString, QSize> resolutions_;
+    QPropertyAnimation *scrollAnimation_;
+    int scrollTarget_ = 0;
     QPushButton *applyButton_, *deleteButton_, *moreButton_, *steamButton_, *refreshButton_;
 
     QLabel *uploadResult_;
@@ -93,4 +106,7 @@ private:
     QMovie *hoverMovie_ = nullptr;
     int hoverRow_ = -1;
     QString hoverKey_; // online wallpaper waiting for its preview address
+    QTimer *hoverDelay_;      // starts the video once the mouse settles on a tile
+    QString hoverVideoUrl_;
+    bool hoverVideoLocal_ = false;
 };
