@@ -22,14 +22,16 @@
 
 namespace {
 
-const char *const kVersion = "1.1.0";
+const char *const kVersion = "1.2.0";
 const char *const kRepo = "https://github.com/CatDesuFR/catberry";
 
 struct Tool {
     const char *name;
     const char *program;
+    const char *branch;
 };
-const Tool kTools[] = {{"ac", "catberry-ac"}, {"mtools", "catberry-mtools"}};
+const Tool kTools[] = {
+    {"ac", "catberry-ac", "ac"}, {"mtools", "catberry-mtools", "mtools"}, {"roofce", "catberry-roofce", "roof-carton-engine"}};
 
 void usage(FILE *out) {
     std::fprintf(out,
@@ -47,8 +49,10 @@ void usage(FILE *out) {
                  "                                  save a hotkey macro, eg: -config EasyEdit E,LMB F6 1\n"
                  "  catberry -configload NAME       start a saved macro in the background\n"
                  "  catberry -configunload [NAME]   stop one loaded macro, or all of them\n"
+                 "  catberry roofce gui             open the wallpaper manager (Linux, Wayland)\n"
+                 "  catberry roofce -v              print the wallpaper manager version\n"
                  "\n"
-                 "ac and mtools are installed separately: %s\n",
+                 "ac, mtools and roofce are installed separately: %s\n",
                  kVersion, kRepo);
 }
 
@@ -178,7 +182,7 @@ int dispatch(const Tool &tool, int argc, char **argv) {
         std::fprintf(stderr,
                      "catberry: %s is not installed.\n"
                      "Get it from the '%s' branch: %s/tree/%s\n",
-                     tool.name, tool.name, kRepo, tool.name);
+                     tool.name, tool.branch, kRepo, tool.branch);
         return 1;
     }
     return runTool(path, argc, argv);
