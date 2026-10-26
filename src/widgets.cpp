@@ -134,9 +134,12 @@ void MediaPlayers::setArt(const QImage &image) {
         backdrop_ = QImage();
         return;
     }
-    // Shrinking to a few pixels and back is a cheap, smooth blur.
-    QImage small = image.scaled(18, 18, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
-    backdrop_ = small.scaled(220, 84, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+    // The middle strip of the art in the card's shape (wide and slim),
+    // shrunk to a few pixels and back: a cheap, smooth blur.
+    QImage wide = image.scaled(600, 84, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
+    wide = wide.copy((wide.width() - 600) / 2, (wide.height() - 84) / 2, 600, 84);
+    QImage small = wide.scaled(42, 6, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+    backdrop_ = small.scaled(300, 42, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
 }
 
 void MediaPlayers::call(const QString &method) {
@@ -321,41 +324,44 @@ void ClockWidget::paintEvent(QPaintEvent *) {
 
 // --- MusicWidget ----------------------------------------------------------------
 //
-// In the style of the profile players on guns.lol / haunt.gg and Rainmeter
-// Spotify skins: a glass card over the blurred album art, the cover, title
-// and artist, a thin progress bar with times, and a row of white controls
-// around a round play button.
+// A slim card in the style of guns.lol / haunt.gg profile players: the
+// blurred album art behind, the cover on the left, an equalizer icon with
+// the title, the artist, and one row of previous / play / next, elapsed
+// time, a thin progress bar and the length.
 
 MusicWidget::MusicWidget(QScreen *screen, const Settings &settings, MediaPlayers *players)
     : DesktopWidget(screen, "music", settings.musicPlace, settings.musicPos,
-                    QSize(int(440 * settings.musicSize / 100.0), int(172 * settings.musicSize / 100.0)), true,
+                    QSize(int(600 * settings.musicSize / 100.0), int(84 * settings.musicSize / 100.0)), true,
                     settings.arrange),
       settings_(settings), players_(players), scale_(settings.musicSize / 100.0) {
     auto refresh = [this] {
-        // Nothing playing: nothing shown (unless it is being arranged).
+        // Nothing playing: nothing shown.
         setVisible(players_->active() || arrange_);
+        // The equalizer icon only moves while playing.
+        if (players_->playing() && !animation_.isActive())
+            animation_.start(140);
+        else if (!players_->playing())
+            animation_.stop();
         update();
     };
     connect(players_, &MediaPlayers::changed, this, refresh);
+    connect(&animation_, &QTimer::timeout, this, [this] { update(); });
     refresh();
 }
 
 QRectF MusicWidget::progressBar() const {
     double s = scale_;
-    return QRectF(58 * s, 112 * s, width() - 116 * s, 4 * s);
+    double left = 216 * s, right = width() - 52 * s;
+    return QRectF(left, 62 * s, right - left, 4 * s);
 }
 
 QRectF MusicWidget::button(int index) const {
     double s = scale_;
-    // Shuffle, previous, play, next, repeat: centred under the card.
-    static const double sizes[ButtonCount] = {20, 24, 42, 24, 20};
-    double gap = 26 * s, total = 0;
-    for (double size : sizes) total += size * s;
-    total += gap * (ButtonCount - 1);
-    double x = (width() - total) / 2, centre = 146 * s;
-    for (int i = 0; i < index; ++i) x += sizes[i] * s + gap;
-    double size = sizes[index] * s;
-    return QRectF(x, centre - size / 2, size, size);
+    switch (index) {
+    case Previous: return QRectF(84 * s, 57 * s, 14 * s, 14 * s);
+    case PlayPause: return QRectF(110 * s, 48 * s, 32 * s, 32 * s);
+    default: return QRectF(154 * s, 57 * s, 14 * s, 14 * s);
+    }
 }
 
 bool MusicWidget::draggableAt(QPointF pos) const {
@@ -371,158 +377,110 @@ void MusicWidget::paintEvent(QPaintEvent *) {
     double s = scale_;
     QColor color(settings_.musicColor);
     QColor dim = color;
-    dim.setAlphaF(0.65f);
+    dim.setAlphaF(0.7f);
 
-    // Glass card: blurred album art, darkened, with a faint edge.
+    // Card: blurred album art, darkened, with a faint edge.
     QPainterPath card;
-    card.addRoundedRect(QRectF(rect()).adjusted(1, 1, -1, -1), 20 * s, 20 * s);
+    card.addRoundedRect(QRectF(rect()).adjusted(1, 1, -1, -1), 16 * s, 16 * s);
     p.save();
     p.setClipPath(card);
-    if (!players_->backdrop().isNull())
-        p.drawImage(rect(), players_->backdrop());
-    p.fillRect(rect(), QColor(10, 10, 16, players_->backdrop().isNull() ? 190 : 150));
+    if (!players_->backdrop().isNull()) p.drawImage(rect(), players_->backdrop());
+    p.fillRect(rect(), QColor(8, 8, 12, players_->backdrop().isNull() ? 200 : 165));
     p.restore();
-    p.setPen(QPen(QColor(255, 255, 255, 34), 1));
+    p.setPen(QPen(QColor(255, 255, 255, 30), 1));
     p.setBrush(Qt::NoBrush);
     p.drawPath(card);
 
     // Cover.
-    QRectF art(18 * s, 18 * s, 76 * s, 76 * s);
-    QPainterPath artClip;
-    artClip.addRoundedRect(art, 12 * s, 12 * s);
-    if (!players_->art().isNull()) {
-        p.save();
-        p.setClipPath(artClip);
+    QRectF art(14 * s, 14 * s, 56 * s, 56 * s);
+    if (!players_->art().isNull())
         p.drawImage(art, players_->art());
-        p.restore();
-    } else {
-        p.fillPath(artClip, QColor(255, 255, 255, 28));
-    }
+    else
+        p.fillRect(art, QColor(255, 255, 255, 25));
 
-    // Title and artist.
-    double left = 110 * s, textWidth = width() - left - 18 * s;
+    // Equalizer icon, then the title; the artist below.
+    double left = 84 * s, textWidth = width() - left - 16 * s;
+    p.setPen(Qt::NoPen);
+    p.setBrush(color);
+    qint64 t = QDateTime::currentMSecsSinceEpoch() / 140;
+    for (int i = 0; i < 3; ++i) {
+        // Three bars; while playing they bounce.
+        static const double still[3] = {0.55, 1.0, 0.75};
+        double h = players_->playing() ? 0.35 + 0.65 * ((t * (i + 2) + i * 3) % 7) / 6.0 : still[i];
+        double barHeight = 13 * s * h;
+        p.drawRoundedRect(QRectF(left + i * 4.5 * s, 25 * s - barHeight, 2.6 * s, barHeight), 1, 1);
+    }
+    double titleLeft = left + 20 * s;
     QFont title = font();
-    title.setPixelSize(int(18 * s));
-    title.setWeight(QFont::DemiBold);
+    title.setPixelSize(int(16 * s));
+    title.setWeight(QFont::Medium);
     p.setFont(title);
     p.setPen(color);
-    QString titleText = players_->active() ? players_->title() : QString("Nothing playing");
-    p.drawText(QRectF(left, 30 * s, textWidth, 26 * s), Qt::AlignLeft | Qt::AlignVCenter,
-               QFontMetrics(title).elidedText(titleText, Qt::ElideRight, int(textWidth)));
+    p.drawText(QRectF(titleLeft, 10 * s, width() - titleLeft - 16 * s, 20 * s), Qt::AlignLeft | Qt::AlignVCenter,
+               QFontMetrics(title).elidedText(players_->active() ? players_->title() : QString("Nothing playing"),
+                                              Qt::ElideRight, int(width() - titleLeft - 16 * s)));
     QFont artist = font();
-    artist.setPixelSize(int(14 * s));
+    artist.setPixelSize(int(13 * s));
     p.setFont(artist);
     p.setPen(dim);
-    p.drawText(QRectF(left, 58 * s, textWidth, 20 * s), Qt::AlignLeft | Qt::AlignVCenter,
+    p.drawText(QRectF(left, 30 * s, textWidth, 18 * s), Qt::AlignLeft | Qt::AlignVCenter,
                QFontMetrics(artist).elidedText(players_->artist(), Qt::ElideRight, int(textWidth)));
 
-    // Progress: elapsed, a thin rounded bar with a knob, length.
-    QFont times = font();
-    times.setPixelSize(int(11 * s));
-    p.setFont(times);
+    // Previous, play/pause (white circle), next.
+    p.setPen(Qt::NoPen);
+    for (int i : {int(Previous), int(Next)}) {
+        QRectF b = button(i);
+        QPointF c = b.center();
+        double r = b.width() / 2, dir = i == Previous ? -1 : 1;
+        p.setBrush(color);
+        p.drawPolygon(QPolygonF{{c.x() - dir * r * 0.5, c.y() - r * 0.75},
+                                {c.x() + dir * r * 0.5, c.y()},
+                                {c.x() - dir * r * 0.5, c.y() + r * 0.75}});
+        p.drawRect(QRectF(c.x() + dir * r * 0.55 - r * 0.12, c.y() - r * 0.75, r * 0.24, r * 1.5));
+    }
+    QRectF play = button(PlayPause);
+    QPointF c = play.center();
+    double r = play.width() / 2;
+    p.setBrush(QColor(255, 255, 255));
+    p.drawEllipse(c, r, r);
+    p.setBrush(QColor(10, 10, 14));
+    if (players_->playing()) {
+        p.drawRoundedRect(QRectF(c.x() - r * 0.32, c.y() - r * 0.38, r * 0.22, r * 0.76), 1.5, 1.5);
+        p.drawRoundedRect(QRectF(c.x() + r * 0.1, c.y() - r * 0.38, r * 0.22, r * 0.76), 1.5, 1.5);
+    } else {
+        p.drawPolygon(QPolygonF{{c.x() - r * 0.22, c.y() - r * 0.42}, {c.x() + r * 0.44, c.y()},
+                                {c.x() - r * 0.22, c.y() + r * 0.42}});
+    }
+
+    // Elapsed, the bar with its knob, length.
     QRectF bar = progressBar();
-    p.drawText(QRectF(14 * s, bar.center().y() - 8 * s, 40 * s, 16 * s), Qt::AlignCenter,
+    QFont times = font();
+    times.setPixelSize(int(12 * s));
+    p.setFont(times);
+    p.setPen(dim);
+    p.drawText(QRectF(176 * s, bar.center().y() - 9 * s, 36 * s, 18 * s), Qt::AlignLeft | Qt::AlignVCenter,
                clockTime(players_->positionUs()));
-    p.drawText(QRectF(width() - 54 * s, bar.center().y() - 8 * s, 40 * s, 16 * s), Qt::AlignCenter,
+    p.drawText(QRectF(width() - 48 * s, bar.center().y() - 9 * s, 36 * s, 18 * s), Qt::AlignRight | Qt::AlignVCenter,
                clockTime(players_->lengthUs()));
     p.setPen(Qt::NoPen);
-    p.setBrush(QColor(255, 255, 255, 55));
+    p.setBrush(QColor(255, 255, 255, 50));
     p.drawRoundedRect(bar, bar.height() / 2, bar.height() / 2);
     double done = players_->lengthUs() > 0 ? double(players_->positionUs()) / double(players_->lengthUs()) : 0;
     done = qBound(0.0, done, 1.0);
     p.setBrush(color);
-    p.drawRoundedRect(QRectF(bar.left(), bar.top(), bar.width() * done, bar.height()), bar.height() / 2,
-                      bar.height() / 2);
-    p.drawEllipse(QPointF(bar.left() + bar.width() * done, bar.center().y()), 5 * s, 5 * s);
+    p.drawRoundedRect(QRectF(bar.left(), bar.top(), qMax(bar.height(), bar.width() * done), bar.height()),
+                      bar.height() / 2, bar.height() / 2);
+    p.drawEllipse(QPointF(bar.left() + bar.width() * done, bar.center().y()), 5.5 * s, 5.5 * s);
 
-    // Controls.
-    auto pen = [&](const QColor &c) {
-        QPen line(c, 2 * s);
-        line.setCapStyle(Qt::RoundCap);
-        line.setJoinStyle(Qt::RoundJoin);
-        return line;
-    };
-    for (int i = 0; i < ButtonCount; ++i) {
-        QRectF b = button(i);
-        QPointF c = b.center();
-        double r = b.width() / 2;
-        p.setBrush(Qt::NoBrush);
-        switch (i) {
-        case Shuffle: {
-            QColor on = players_->shuffle() ? kAccent : dim;
-            p.setPen(pen(on));
-            p.drawLine(QPointF(c.x() - r, c.y() - r * 0.55), QPointF(c.x() + r * 0.8, c.y() + r * 0.55));
-            p.drawLine(QPointF(c.x() - r, c.y() + r * 0.55), QPointF(c.x() + r * 0.8, c.y() - r * 0.55));
-            p.drawPolyline(QPolygonF{{c.x() + r * 0.35, c.y() - r * 0.75}, {c.x() + r * 0.85, c.y() - r * 0.55},
-                                     {c.x() + r * 0.6, c.y() - r * 0.1}});
-            p.drawPolyline(QPolygonF{{c.x() + r * 0.35, c.y() + r * 0.75}, {c.x() + r * 0.85, c.y() + r * 0.55},
-                                     {c.x() + r * 0.6, c.y() + r * 0.1}});
-            if (players_->shuffle()) {
-                p.setPen(Qt::NoPen);
-                p.setBrush(kAccent);
-                p.drawEllipse(QPointF(c.x(), b.bottom() + 5 * s), 1.6 * s, 1.6 * s);
-            }
-            break;
-        }
-        case Previous:
-        case Next: {
-            double dir = i == Previous ? -1 : 1;
-            p.setPen(Qt::NoPen);
-            p.setBrush(color);
-            p.drawPolygon(QPolygonF{{c.x() - dir * r * 0.55, c.y() - r * 0.6},
-                                    {c.x() + dir * r * 0.45, c.y()},
-                                    {c.x() - dir * r * 0.55, c.y() + r * 0.6}});
-            p.drawRoundedRect(QRectF(c.x() + dir * r * 0.5 - r * 0.1, c.y() - r * 0.6, r * 0.2, r * 1.2), 1, 1);
-            break;
-        }
-        case PlayPause: {
-            p.setPen(Qt::NoPen);
-            p.setBrush(QColor(255, 255, 255));
-            p.drawEllipse(c, r, r);
-            p.setBrush(QColor(12, 12, 18));
-            if (players_->playing()) {
-                p.drawRoundedRect(QRectF(c.x() - r * 0.32, c.y() - r * 0.36, r * 0.22, r * 0.72), 1.5, 1.5);
-                p.drawRoundedRect(QRectF(c.x() + r * 0.1, c.y() - r * 0.36, r * 0.22, r * 0.72), 1.5, 1.5);
-            } else {
-                p.drawPolygon(QPolygonF{{c.x() - r * 0.22, c.y() - r * 0.4}, {c.x() + r * 0.42, c.y()},
-                                        {c.x() - r * 0.22, c.y() + r * 0.4}});
-            }
-            break;
-        }
-        case Repeat: {
-            bool on = players_->loop() != MediaPlayers::Loop::None;
-            p.setPen(pen(on ? kAccent : dim));
-            QRectF loop(c.x() - r * 0.9, c.y() - r * 0.5, r * 1.8, r * 1.0);
-            p.drawRoundedRect(loop, r * 0.35, r * 0.35);
-            p.setPen(Qt::NoPen);
-            p.setBrush(on ? kAccent : dim);
-            p.drawPolygon(QPolygonF{{loop.center().x() + r * 0.1, loop.top() - r * 0.3},
-                                    {loop.center().x() + r * 0.45, loop.top()},
-                                    {loop.center().x() + r * 0.1, loop.top() + r * 0.3}});
-            if (players_->loop() == MediaPlayers::Loop::Track) {
-                QFont one = font();
-                one.setPixelSize(int(9 * s));
-                one.setBold(true);
-                p.setFont(one);
-                p.setPen(kAccent);
-                p.drawText(loop, Qt::AlignCenter, "1");
-            }
-            if (on) p.drawEllipse(QPointF(c.x(), b.bottom() + 5 * s), 1.6 * s, 1.6 * s);
-            break;
-        }
-        }
-    }
     paintArrangeFrame(p);
 }
 
 void MusicWidget::mousePressEvent(QMouseEvent *event) {
     if (event->button() == Qt::LeftButton) {
         QPointF pos = event->position();
-        if (button(Shuffle).adjusted(-6, -6, 6, 6).contains(pos)) return players_->toggleShuffle();
         if (button(Previous).adjusted(-6, -6, 6, 6).contains(pos)) return players_->previous();
         if (button(PlayPause).adjusted(-4, -4, 4, 4).contains(pos)) return players_->playPause();
         if (button(Next).adjusted(-6, -6, 6, 6).contains(pos)) return players_->next();
-        if (button(Repeat).adjusted(-6, -6, 6, 6).contains(pos)) return players_->cycleLoop();
         QRectF bar = progressBar();
         if (bar.adjusted(0, -10, 0, 10).contains(pos))
             return players_->seek((pos.x() - bar.left()) / bar.width());

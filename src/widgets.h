@@ -117,11 +117,12 @@ protected:
     bool draggableAt(QPointF pos) const override;
 
 private:
-    enum Button { Shuffle, Previous, PlayPause, Next, Repeat, ButtonCount };
+    enum Button { Previous, PlayPause, Next, ButtonCount };
     QRectF button(int index) const;
     QRectF progressBar() const;
 
     Settings settings_;
     MediaPlayers *players_;
     double scale_;
+    QTimer animation_; // the equalizer icon, while playing
 };
