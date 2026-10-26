@@ -76,6 +76,10 @@ protected:
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
+    void enterEvent(QEnterEvent *event) override;
+    void leaveEvent(QEvent *event) override;
+    // The dashed "Drag to move" outline, shown while the mouse is over the
+    // widget or dragging it.
     void paintArrangeFrame(QPainter &p);
 
     bool arrange_;
@@ -88,6 +92,7 @@ private:
     LayerShellQt::Window *layer_;
     QPoint topLeft_;
     bool dragging_ = false;
+    bool hovered_ = false;
     QPointF grab_;
 };
 

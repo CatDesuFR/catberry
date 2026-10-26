@@ -218,6 +218,7 @@ void DesktopWidget::mousePressEvent(QMouseEvent *event) {
     if (event->button() == Qt::LeftButton && draggableAt(event->position())) {
         dragging_ = true;
         grab_ = event->position();
+        update();
     }
 }
 
@@ -232,10 +233,21 @@ void DesktopWidget::mouseReleaseEvent(QMouseEvent *) {
     if (!dragging_) return;
     dragging_ = false;
     Settings::savePosition(name_, topLeft_);
+    update();
+}
+
+void DesktopWidget::enterEvent(QEnterEvent *) {
+    hovered_ = true;
+    update();
+}
+
+void DesktopWidget::leaveEvent(QEvent *) {
+    hovered_ = false;
+    update();
 }
 
 void DesktopWidget::paintArrangeFrame(QPainter &p) {
-    if (!arrange_) return;
+    if (!arrange_ && !hovered_ && !dragging_) return;
     p.save();
     QPen pen(QColor(137, 180, 250), 2, Qt::DashLine);
     p.setPen(pen);
@@ -379,17 +391,9 @@ void MusicWidget::paintEvent(QPaintEvent *) {
     QColor dim = color;
     dim.setAlphaF(0.7f);
 
-    // Card: blurred album art, darkened, with a faint edge.
-    QPainterPath card;
-    card.addRoundedRect(QRectF(rect()).adjusted(1, 1, -1, -1), 16 * s, 16 * s);
-    p.save();
-    p.setClipPath(card);
-    if (!players_->backdrop().isNull()) p.drawImage(rect(), players_->backdrop());
-    p.fillRect(rect(), QColor(8, 8, 12, players_->backdrop().isNull() ? 200 : 165));
-    p.restore();
-    p.setPen(QPen(QColor(255, 255, 255, 30), 1));
-    p.setBrush(Qt::NoBrush);
-    p.drawPath(card);
+    // No card: everything sits straight on the wallpaper, with a soft
+    // shadow under text and icons so they stay readable.
+    const QColor shadow(0, 0, 0, 120);
 
     // Cover.
     QRectF art(14 * s, 14 * s, 56 * s, 56 * s);
@@ -401,46 +405,53 @@ void MusicWidget::paintEvent(QPaintEvent *) {
     // Equalizer icon, then the title; the artist below.
     double left = 84 * s, textWidth = width() - left - 16 * s;
     p.setPen(Qt::NoPen);
-    p.setBrush(color);
     qint64 t = QDateTime::currentMSecsSinceEpoch() / 140;
-    for (int i = 0; i < 3; ++i) {
-        // Three bars; while playing they bounce.
-        static const double still[3] = {0.55, 1.0, 0.75};
-        double h = players_->playing() ? 0.35 + 0.65 * ((t * (i + 2) + i * 3) % 7) / 6.0 : still[i];
-        double barHeight = 13 * s * h;
-        p.drawRoundedRect(QRectF(left + i * 4.5 * s, 25 * s - barHeight, 2.6 * s, barHeight), 1, 1);
+    for (int pass = 0; pass < 2; ++pass) {
+        p.setBrush(pass == 0 ? shadow : color);
+        double dy = pass == 0 ? 1.5 * s : 0;
+        for (int i = 0; i < 3; ++i) {
+            // Three bars; while playing they bounce.
+            static const double still[3] = {0.55, 1.0, 0.75};
+            double h = players_->playing() ? 0.35 + 0.65 * ((t * (i + 2) + i * 3) % 7) / 6.0 : still[i];
+            double barHeight = 13 * s * h;
+            p.drawRoundedRect(QRectF(left + i * 4.5 * s, 25 * s - barHeight + dy, 2.6 * s, barHeight), 1, 1);
+        }
     }
     double titleLeft = left + 20 * s;
     QFont title = font();
     title.setPixelSize(int(16 * s));
     title.setWeight(QFont::Medium);
     p.setFont(title);
-    p.setPen(color);
-    p.drawText(QRectF(titleLeft, 10 * s, width() - titleLeft - 16 * s, 20 * s), Qt::AlignLeft | Qt::AlignVCenter,
-               QFontMetrics(title).elidedText(players_->active() ? players_->title() : QString("Nothing playing"),
-                                              Qt::ElideRight, int(width() - titleLeft - 16 * s)));
+    drawText(p, QRectF(titleLeft, 10 * s, width() - titleLeft - 16 * s, 20 * s), Qt::AlignLeft | Qt::AlignVCenter,
+             QFontMetrics(title).elidedText(players_->active() ? players_->title() : QString("Nothing playing"),
+                                            Qt::ElideRight, int(width() - titleLeft - 16 * s)),
+             color);
     QFont artist = font();
     artist.setPixelSize(int(13 * s));
     p.setFont(artist);
-    p.setPen(dim);
-    p.drawText(QRectF(left, 30 * s, textWidth, 18 * s), Qt::AlignLeft | Qt::AlignVCenter,
-               QFontMetrics(artist).elidedText(players_->artist(), Qt::ElideRight, int(textWidth)));
+    drawText(p, QRectF(left, 30 * s, textWidth, 18 * s), Qt::AlignLeft | Qt::AlignVCenter,
+             QFontMetrics(artist).elidedText(players_->artist(), Qt::ElideRight, int(textWidth)), dim);
 
     // Previous, play/pause (white circle), next.
     p.setPen(Qt::NoPen);
-    for (int i : {int(Previous), int(Next)}) {
-        QRectF b = button(i);
-        QPointF c = b.center();
-        double r = b.width() / 2, dir = i == Previous ? -1 : 1;
-        p.setBrush(color);
-        p.drawPolygon(QPolygonF{{c.x() - dir * r * 0.5, c.y() - r * 0.75},
-                                {c.x() + dir * r * 0.5, c.y()},
-                                {c.x() - dir * r * 0.5, c.y() + r * 0.75}});
-        p.drawRect(QRectF(c.x() + dir * r * 0.55 - r * 0.12, c.y() - r * 0.75, r * 0.24, r * 1.5));
+    for (int pass = 0; pass < 2; ++pass) {
+        double dy = pass == 0 ? 1.5 * s : 0;
+        p.setBrush(pass == 0 ? shadow : color);
+        for (int i : {int(Previous), int(Next)}) {
+            QRectF b = button(i);
+            QPointF c = b.center() + QPointF(0, dy);
+            double r = b.width() / 2, dir = i == Previous ? -1 : 1;
+            p.drawPolygon(QPolygonF{{c.x() - dir * r * 0.5, c.y() - r * 0.75},
+                                    {c.x() + dir * r * 0.5, c.y()},
+                                    {c.x() - dir * r * 0.5, c.y() + r * 0.75}});
+            p.drawRect(QRectF(c.x() + dir * r * 0.55 - r * 0.12, c.y() - r * 0.75, r * 0.24, r * 1.5));
+        }
     }
     QRectF play = button(PlayPause);
     QPointF c = play.center();
     double r = play.width() / 2;
+    p.setBrush(shadow);
+    p.drawEllipse(c + QPointF(0, 1.5 * s), r, r);
     p.setBrush(QColor(255, 255, 255));
     p.drawEllipse(c, r, r);
     p.setBrush(QColor(10, 10, 14));
@@ -457,13 +468,14 @@ void MusicWidget::paintEvent(QPaintEvent *) {
     QFont times = font();
     times.setPixelSize(int(12 * s));
     p.setFont(times);
-    p.setPen(dim);
-    p.drawText(QRectF(176 * s, bar.center().y() - 9 * s, 36 * s, 18 * s), Qt::AlignLeft | Qt::AlignVCenter,
-               clockTime(players_->positionUs()));
-    p.drawText(QRectF(width() - 48 * s, bar.center().y() - 9 * s, 36 * s, 18 * s), Qt::AlignRight | Qt::AlignVCenter,
-               clockTime(players_->lengthUs()));
+    drawText(p, QRectF(176 * s, bar.center().y() - 9 * s, 36 * s, 18 * s), Qt::AlignLeft | Qt::AlignVCenter,
+             clockTime(players_->positionUs()), dim);
+    drawText(p, QRectF(width() - 48 * s, bar.center().y() - 9 * s, 36 * s, 18 * s), Qt::AlignRight | Qt::AlignVCenter,
+             clockTime(players_->lengthUs()), dim);
     p.setPen(Qt::NoPen);
-    p.setBrush(QColor(255, 255, 255, 50));
+    p.setBrush(shadow);
+    p.drawRoundedRect(bar.translated(0, 1.5 * s), bar.height() / 2, bar.height() / 2);
+    p.setBrush(QColor(255, 255, 255, 70));
     p.drawRoundedRect(bar, bar.height() / 2, bar.height() / 2);
     double done = players_->lengthUs() > 0 ? double(players_->positionUs()) / double(players_->lengthUs()) : 0;
     done = qBound(0.0, done, 1.0);
