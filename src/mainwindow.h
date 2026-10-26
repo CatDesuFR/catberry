@@ -32,6 +32,7 @@ class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
     MainWindow();
+    ~MainWindow() override;
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
@@ -115,6 +116,8 @@ private:
 
     FontLibrary fontLib_;
     QComboBox *clockFontBox_ = nullptr;
+    QPushButton *arrangeButton_ = nullptr;
+    void setArrange(bool on);
     QLineEdit *fontSearch_;
     QListWidget *fontList_, *savedList_;
     QLabel *fontPreview_, *fontNote_, *savedNote_;

@@ -190,6 +190,21 @@ MainWindow::MainWindow() : settings_(Settings::load()) {
     refreshCurrent();
 }
 
+MainWindow::~MainWindow() {
+    // Never leave the clock grabbing the mouse once the window is gone.
+    if (settings_.arrange) setArrange(false);
+}
+
+void MainWindow::setArrange(bool on) {
+    settings_.arrange = on;
+    if (arrangeButton_) {
+        QSignalBlocker block(arrangeButton_);
+        arrangeButton_->setChecked(on);
+        arrangeButton_->setText(on ? "Done arranging" : "Arrange widgets (drag them on the desktop)");
+    }
+    saveWidgets();
+}
+
 // --- Wallpaper page ---------------------------------------------------------
 
 QWidget *MainWindow::buildWallpaperPage() {
@@ -1056,11 +1071,33 @@ QWidget *MainWindow::buildWidgetsPage() {
     musicForm->addRow("Position", musicPlace);
     musicForm->addRow("Size", musicSize);
     musicForm->addRow("Colour", colorButton(&settings_.musicColor));
-    auto *musicNote = new QLabel("Hidden while nothing is playing. Its buttons work on the desktop.");
+    auto *musicNote = new QLabel("Hidden while nothing is playing. Its buttons work on the desktop, and you can drag it "
+                                 "by its card.");
     musicNote->setObjectName("dim");
     musicForm->addRow(musicNote);
     col->addWidget(musicGroup);
+
+    auto *arrangeRow = new QHBoxLayout;
+    arrangeButton_ = new QPushButton("Arrange widgets (drag them on the desktop)");
+    arrangeButton_->setCheckable(true);
+    arrangeButton_->setObjectName("primary");
+    auto *reset = new QPushButton("Reset positions");
+    arrangeRow->addWidget(arrangeButton_);
+    arrangeRow->addWidget(reset);
+    arrangeRow->addStretch();
+    col->addLayout(arrangeRow);
+    auto *arrangeNote = new QLabel("While arranging, the widgets show an outline: drag them anywhere (Meta+D shows "
+                                   "the desktop). The clock lets clicks through again when you are done.");
+    arrangeNote->setObjectName("dim");
+    arrangeNote->setWordWrap(true);
+    col->addWidget(arrangeNote);
     col->addStretch();
+    connect(arrangeButton_, &QPushButton::toggled, this, &MainWindow::setArrange);
+    connect(reset, &QPushButton::clicked, this, [this] {
+        Settings::clearPosition("clock");
+        Settings::clearPosition("music");
+        saveWidgets();
+    });
 
     auto save = [=] {
         settings_.clock = clockOn->isChecked();
@@ -1075,8 +1112,16 @@ QWidget *MainWindow::buildWidgetsPage() {
         saveWidgets();
     };
     for (QCheckBox *box : {clockOn, clock24, clockSeconds, musicOn}) connect(box, &QCheckBox::toggled, this, save);
-    for (QComboBox *box : {clockPlace, clockFont, musicPlace})
-        connect(box, &QComboBox::currentIndexChanged, this, save);
+    connect(clockFont, &QComboBox::currentIndexChanged, this, save);
+    // Picking a position puts the widget back there (forgets the dragged spot).
+    connect(clockPlace, &QComboBox::currentIndexChanged, this, [save] {
+        Settings::clearPosition("clock");
+        save();
+    });
+    connect(musicPlace, &QComboBox::currentIndexChanged, this, [save] {
+        Settings::clearPosition("music");
+        save();
+    });
     // Sizes apply when the slider is let go, not on every step.
     for (QSlider *slider : {clockSize, musicSize}) connect(slider, &QSlider::sliderReleased, this, save);
     return page;
@@ -1313,5 +1358,6 @@ void MainWindow::showPage(int page) {
     else
         pausePreview();
     if (page != 1) stopHover();
+    if (page != 3 && settings_.arrange) setArrange(false);
     if (page == 1) refreshLibrary();
 }

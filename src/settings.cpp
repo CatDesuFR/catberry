@@ -40,6 +40,9 @@ Settings Settings::load() {
     s.musicPlace = readPlace(in, "music_place", s.musicPlace);
     s.musicSize = qBound(50, in.value("music_size", s.musicSize).toInt(), 250);
     s.musicColor = in.value("music_color", s.musicColor).toString();
+    s.clockPos = in.value("clock_pos", s.clockPos).toPoint();
+    s.musicPos = in.value("music_pos", s.musicPos).toPoint();
+    s.arrange = in.value("arrange", s.arrange).toBool();
     return s;
 }
 
@@ -64,4 +67,16 @@ void Settings::save() const {
     out.setValue("music_place", int(musicPlace));
     out.setValue("music_size", musicSize);
     out.setValue("music_color", musicColor);
+    out.setValue("arrange", arrange);
+    // Positions are left alone: the widgets save them when dragged.
+}
+
+void Settings::savePosition(const QString &widget, QPoint pos) {
+    QSettings out(paths::settingsFile(), QSettings::IniFormat);
+    out.setValue(widget + "_pos", pos);
+}
+
+void Settings::clearPosition(const QString &widget) {
+    QSettings out(paths::settingsFile(), QSettings::IniFormat);
+    out.remove(widget + "_pos");
 }

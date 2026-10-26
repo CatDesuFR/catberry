@@ -2,6 +2,7 @@
 // the window and the wallpaper process (~/.config/catberry/roofce.conf).
 #pragma once
 
+#include <QPoint>
 #include <QString>
 
 // Where a desktop widget sits on the screen.
@@ -31,6 +32,16 @@ struct Settings {
     Place musicPlace = Place::BottomLeft;
     int musicSize = 100;     // percent
     QString musicColor = "#ffffff";
+
+    // Dragged positions (top-left on the screen); (-1, -1) means "use the
+    // Position setting". Written only by the widgets themselves.
+    QPoint clockPos{-1, -1};
+    QPoint musicPos{-1, -1};
+    // While on, the widgets can be dragged (the clock takes the mouse).
+    bool arrange = false;
+
+    static void savePosition(const QString &widget, QPoint pos);
+    static void clearPosition(const QString &widget);
 
     static Settings load();
     void save() const;
