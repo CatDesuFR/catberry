@@ -5,6 +5,10 @@
 
 #include <QApplication>
 #include <QCheckBox>
+#include <QColorDialog>
+#include <QFontDatabase>
+#include <QFormLayout>
+#include <QGroupBox>
 #include <QComboBox>
 #include <QDesktopServices>
 #include <QDir>
@@ -116,13 +120,14 @@ MainWindow::MainWindow() : settings_(Settings::load()) {
     nav_ = new QListWidget;
     nav_->setObjectName("nav");
     nav_->setFixedWidth(190);
-    nav_->addItems({"Wallpaper", "Library", "Upload wallpaper"});
+    nav_->addItems({"Wallpaper", "Library", "Upload wallpaper", "Widgets"});
     row->addWidget(nav_);
 
     pages_ = new QStackedWidget;
     pages_->addWidget(buildWallpaperPage());
     pages_->addWidget(buildLibraryPage());
     pages_->addWidget(buildUploadPage());
+    pages_->addWidget(buildWidgetsPage());
     row->addWidget(pages_, 1);
     setCentralWidget(central);
 
@@ -959,6 +964,119 @@ void MainWindow::upload(const QStringList &files) {
     if (!added.isEmpty()) text += "Added: " + added.join(", ") + ". Find them under Library > My wallpapers.";
     if (!errors.isEmpty()) text += (text.isEmpty() ? "" : "\n") + errors.join("\n");
     uploadResult_->setText(text);
+}
+
+// --- Widgets page -------------------------------------------------------------
+
+QWidget *MainWindow::buildWidgetsPage() {
+    auto *page = new QWidget;
+    auto *col = new QVBoxLayout(page);
+    col->setContentsMargins(28, 24, 28, 24);
+    col->addWidget(heading("Widgets"));
+    auto *intro = new QLabel("Shown on top of the wallpaper while it is running. Changes apply straight away.");
+    intro->setObjectName("dim");
+    col->addWidget(intro);
+
+    auto placeBox = [](Place current) {
+        auto *box = new QComboBox;
+        for (int i = 0; i < kPlaceCount; ++i) box->addItem(placeName(Place(i)), i);
+        box->setCurrentIndex(int(current));
+        return box;
+    };
+    auto sizeSlider = [](int value, int min, int max) {
+        auto *slider = new QSlider(Qt::Horizontal);
+        slider->setRange(min, max);
+        slider->setValue(value);
+        slider->setFixedWidth(220);
+        return slider;
+    };
+    // A button showing a colour; clicking it opens a colour picker.
+    auto colorButton = [this](QString *target) {
+        auto *button = new QPushButton;
+        auto paint = [button, target] {
+            button->setText(*target);
+            button->setStyleSheet("background: " + *target + "; color: " +
+                                  (QColor(*target).lightness() > 128 ? "#1e1e2e" : "#ffffff") + ";");
+        };
+        paint();
+        connect(button, &QPushButton::clicked, this, [this, target, paint] {
+            QColor picked = QColorDialog::getColor(QColor(*target), this, "Choose a colour");
+            if (!picked.isValid()) return;
+            *target = picked.name();
+            paint();
+            saveWidgets();
+        });
+        return button;
+    };
+
+    // Clock.
+    auto *clockGroup = new QGroupBox("Clock (Mond style)");
+    auto *clockForm = new QFormLayout(clockGroup);
+    auto *clockOn = new QCheckBox("Show the clock");
+    clockOn->setChecked(settings_.clock);
+    auto *clockPlace = placeBox(settings_.clockPlace);
+    auto *clockSize = sizeSlider(settings_.clockSize, 30, 300);
+    auto *clockFont = new QComboBox;
+    clockFont->addItem("Automatic (thin, Mond-like)", QString());
+    for (const QString &family : QFontDatabase::families()) clockFont->addItem(family, family);
+    clockFont->setCurrentIndex(qMax(0, clockFont->findData(settings_.clockFont)));
+    clockFont->setMaxVisibleItems(20);
+    auto *clock24 = new QCheckBox("24-hour time");
+    clock24->setChecked(settings_.clock24h);
+    auto *clockSeconds = new QCheckBox("Show seconds");
+    clockSeconds->setChecked(settings_.clockSeconds);
+    clockForm->addRow(clockOn);
+    clockForm->addRow("Position", clockPlace);
+    clockForm->addRow("Size", clockSize);
+    clockForm->addRow("Colour", colorButton(&settings_.clockColor));
+    clockForm->addRow("Font", clockFont);
+    clockForm->addRow(clock24);
+    clockForm->addRow(clockSeconds);
+    col->addWidget(clockGroup);
+
+    // Music.
+    auto *musicGroup = new QGroupBox("Music player");
+    auto *musicForm = new QFormLayout(musicGroup);
+    auto *musicOn = new QCheckBox("Show what's playing (Spotify first, otherwise any player)");
+    musicOn->setChecked(settings_.music);
+    auto *musicPlace = placeBox(settings_.musicPlace);
+    auto *musicSize = sizeSlider(settings_.musicSize, 50, 250);
+    musicForm->addRow(musicOn);
+    musicForm->addRow("Position", musicPlace);
+    musicForm->addRow("Size", musicSize);
+    musicForm->addRow("Colour", colorButton(&settings_.musicColor));
+    auto *musicNote = new QLabel("Hidden while nothing is playing. Its buttons work on the desktop.");
+    musicNote->setObjectName("dim");
+    musicForm->addRow(musicNote);
+    col->addWidget(musicGroup);
+    col->addStretch();
+
+    auto save = [=] {
+        settings_.clock = clockOn->isChecked();
+        settings_.clockPlace = Place(clockPlace->currentData().toInt());
+        settings_.clockSize = clockSize->value();
+        settings_.clockFont = clockFont->currentData().toString();
+        settings_.clock24h = clock24->isChecked();
+        settings_.clockSeconds = clockSeconds->isChecked();
+        settings_.music = musicOn->isChecked();
+        settings_.musicPlace = Place(musicPlace->currentData().toInt());
+        settings_.musicSize = musicSize->value();
+        saveWidgets();
+    };
+    for (QCheckBox *box : {clockOn, clock24, clockSeconds, musicOn}) connect(box, &QCheckBox::toggled, this, save);
+    for (QComboBox *box : {clockPlace, clockFont, musicPlace})
+        connect(box, &QComboBox::currentIndexChanged, this, save);
+    // Sizes apply when the slider is let go, not on every step.
+    for (QSlider *slider : {clockSize, musicSize}) connect(slider, &QSlider::sliderReleased, this, save);
+    return page;
+}
+
+void MainWindow::saveWidgets() {
+    settings_.save();
+    if (wallpaperRunning()) {
+        QString error;
+        showWallpaper(error);
+    }
 }
 
 // --- navigation -------------------------------------------------------------

@@ -43,6 +43,8 @@ private:
     QWidget *buildWallpaperPage();
     QWidget *buildLibraryPage();
     QWidget *buildUploadPage();
+    QWidget *buildWidgetsPage();
+    void saveWidgets();
 
     void showPage(int page);
     void refreshCurrent();

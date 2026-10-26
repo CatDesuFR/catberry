@@ -2,6 +2,7 @@
 
 #include "library.h"
 #include "settings.h"
+#include "widgets.h"
 
 #include <LayerShellQt/window.h>
 
@@ -139,6 +140,22 @@ public:
     void reload() {
         Settings s = Settings::load();
         for (auto &view : views_) view->apply(s);
+        // The widgets go on the main screen, made after the wallpaper so
+        // they sit on top of it.
+        clock_.reset();
+        music_.reset();
+        QScreen *screen = QGuiApplication::primaryScreen();
+        if (!screen) return;
+        if (s.clock) {
+            clock_ = std::make_unique<ClockWidget>(screen, s);
+            clock_->show();
+        }
+        if (s.music) {
+            if (!players_) players_ = std::make_unique<MediaPlayers>();
+            music_ = std::make_unique<MusicWidget>(screen, s, players_.get());
+        } else {
+            players_.reset();
+        }
     }
 
 private:
@@ -155,6 +172,9 @@ private:
     }
 
     std::vector<std::unique_ptr<WallpaperView>> views_;
+    std::unique_ptr<MediaPlayers> players_;
+    std::unique_ptr<ClockWidget> clock_;
+    std::unique_ptr<MusicWidget> music_;
 };
 
 bool send(const QByteArray &command) {
