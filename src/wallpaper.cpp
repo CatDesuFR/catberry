@@ -34,19 +34,26 @@ class WallpaperView : public QWidget {
 public:
     WallpaperView(QScreen *screen, bool withSound) : withSound_(withSound) {
         setAttribute(Qt::WA_OpaquePaintEvent);
+        // Clicks go through to the desktop underneath (its right-click menu).
+        setWindowFlag(Qt::WindowTransparentForInput);
         setScreen(screen);
         setGeometry(screen->geometry());
         winId(); // the native window must exist before it gets its role
 
         auto *layer = LayerShellQt::Window::get(windowHandle());
-        layer->setLayer(LayerShellQt::Window::LayerBackground);
+        // KDE's own desktop (Plasma's wallpaper) sits in the background
+        // layer and can be raised over anything else there, so the
+        // wallpaper goes one layer up: above it, below every window.
+        layer->setLayer(LayerShellQt::Window::LayerBottom);
         layer->setAnchors(LayerShellQt::Window::Anchors(
             LayerShellQt::Window::AnchorTop | LayerShellQt::Window::AnchorBottom |
             LayerShellQt::Window::AnchorLeft | LayerShellQt::Window::AnchorRight));
         // -1: cover the whole screen, ignoring panels' reserved space.
         layer->setExclusiveZone(-1);
         layer->setKeyboardInteractivity(LayerShellQt::Window::KeyboardInteractivityNone);
-        layer->setScope("catberry-roofce");
+        // KWin treats a surface named "desktop" as part of the desktop: Show
+        // Desktop (Meta+D) keeps it instead of hiding it with the windows.
+        layer->setScope("desktop");
     }
 
     void apply(const Settings &s) {
