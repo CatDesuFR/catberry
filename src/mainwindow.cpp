@@ -191,7 +191,7 @@ MainWindow::MainWindow() : settings_(Settings::load()) {
 }
 
 MainWindow::~MainWindow() {
-    // Never leave the clock grabbing the mouse once the window is gone.
+    // Older versions had an arrange mode; never leave it on.
     if (settings_.arrange) setArrange(false);
 }
 
@@ -1078,21 +1078,15 @@ QWidget *MainWindow::buildWidgetsPage() {
     col->addWidget(musicGroup);
 
     auto *arrangeRow = new QHBoxLayout;
-    arrangeButton_ = new QPushButton("Arrange widgets (drag them on the desktop)");
-    arrangeButton_->setCheckable(true);
-    arrangeButton_->setObjectName("primary");
     auto *reset = new QPushButton("Reset positions");
-    arrangeRow->addWidget(arrangeButton_);
-    arrangeRow->addWidget(reset);
-    arrangeRow->addStretch();
-    col->addLayout(arrangeRow);
-    auto *arrangeNote = new QLabel("While arranging, the widgets show an outline: drag them anywhere (Meta+D shows "
-                                   "the desktop). The clock lets clicks through again when you are done.");
+    auto *arrangeNote = new QLabel("Drag the clock (by its text) and the player (by its card) anywhere on the "
+                                   "desktop; Meta+D shows it. They stay where you drop them.");
     arrangeNote->setObjectName("dim");
     arrangeNote->setWordWrap(true);
-    col->addWidget(arrangeNote);
+    arrangeRow->addWidget(arrangeNote, 1);
+    arrangeRow->addWidget(reset);
+    col->addLayout(arrangeRow);
     col->addStretch();
-    connect(arrangeButton_, &QPushButton::toggled, this, &MainWindow::setArrange);
     connect(reset, &QPushButton::clicked, this, [this] {
         Settings::clearPosition("clock");
         Settings::clearPosition("music");
@@ -1175,6 +1169,23 @@ QWidget *MainWindow::buildFontLibraryPage() {
     buttons->addWidget(fontUse_);
     buttons->addStretch();
     side->addLayout(buttons);
+
+    auto *howTo = new QLabel(
+        "<b>How to install fonts</b>"
+        "<ol style='margin-left:-20px'>"
+        "<li><b>From this list:</b> pick a font and click <b>Download</b>. It is installed for you straight away "
+        "(in ~/.local/share/fonts/catberry), so every app on this computer can use it.</li>"
+        "<li><b>Anurati</b> and fonts from other sites: click <b>Get it in the browser</b> (or find the font "
+        "online), download it (a .ttf, .otf or a .zip), then open <b>Saved fonts</b>, click "
+        "<b>Import fonts...</b> and choose the file.</li>"
+        "<li><b>Put it on the clock:</b> select the font and click <b>Use for the clock</b>, or choose it under "
+        "<b>Widgets &gt; Font</b>. Saved fonts are listed first there, marked with a star.</li>"
+        "<li>Other apps that were already open may need a restart before they list a new font.</li>"
+        "</ol>");
+    howTo->setWordWrap(true);
+    howTo->setTextFormat(Qt::RichText);
+    howTo->setStyleSheet("background: #181825; border-radius: 10px; padding: 10px; color: #a6adc8;");
+    side->addWidget(howTo);
     side->addStretch();
     row->addLayout(side, 1);
     col->addLayout(row, 1);
@@ -1231,7 +1242,10 @@ QWidget *MainWindow::buildSavedFontsPage() {
     auto *col = new QVBoxLayout(page);
     col->setContentsMargins(28, 24, 28, 24);
     col->addWidget(heading("Saved fonts"));
-    auto *intro = new QLabel("Fonts you downloaded from the Font library or imported (.ttf, .otf, or a .zip of them).");
+    auto *intro = new QLabel("Fonts you downloaded from the Font library or imported. To add one: download it in "
+                             "your browser, click Import fonts... below and choose the .ttf, .otf, or the .zip it "
+                             "came in. It is installed for you, and other apps can use it too.");
+    intro->setWordWrap(true);
     intro->setObjectName("dim");
     col->addWidget(intro);
     savedList_ = new QListWidget;
@@ -1358,6 +1372,6 @@ void MainWindow::showPage(int page) {
     else
         pausePreview();
     if (page != 1) stopHover();
-    if (page != 3 && settings_.arrange) setArrange(false);
+
     if (page == 1) refreshLibrary();
 }

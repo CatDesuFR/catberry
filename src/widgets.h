@@ -1,8 +1,7 @@
 // Desktop widgets drawn over the wallpaper: a Mond-style clock and a music
 // player. Each is its own small, transparent layer-shell surface just
 // above the wallpaper, so it also shows over video wallpapers. Both can be
-// dragged around: the player always (by its card), the clock while
-// "Arrange widgets" is on.
+// dragged around: the player by its card, the clock by its text.
 #pragma once
 
 #include "settings.h"
@@ -105,6 +104,7 @@ private:
     Settings settings_;
     QTimer tick_;
     double scale_;
+    QRect inputBox_;
 };
 
 class MusicWidget : public DesktopWidget {

@@ -250,7 +250,7 @@ void DesktopWidget::paintArrangeFrame(QPainter &p) {
 
 ClockWidget::ClockWidget(QScreen *screen, const Settings &settings)
     : DesktopWidget(screen, "clock", settings.clockPlace, settings.clockPos,
-                    QSize(int(1000 * settings.clockSize / 100.0), int(300 * settings.clockSize / 100.0)), false,
+                    QSize(int(1000 * settings.clockSize / 100.0), int(300 * settings.clockSize / 100.0)), true,
                     settings.arrange),
       settings_(settings), scale_(settings.clockSize / 100.0) {
     connect(&tick_, &QTimer::timeout, this, [this] { update(); });
@@ -294,13 +294,29 @@ void ClockWidget::paintEvent(QPaintEvent *) {
     QRectF area = rect();
     double dayHeight = 140 * scale_, lineHeight = 44 * scale_;
     double top = (area.height() - dayHeight - 2 * lineHeight) / 2;
+    QString dayText = english.toString(now, "dddd").toUpper();
+    QString dateText = english.toString(now, "d MMMM, yyyy").toUpper();
+    QString timeText = "- " + time + " -";
     p.setFont(day);
-    drawText(p, QRectF(0, top, area.width(), dayHeight), Qt::AlignCenter, english.toString(now, "dddd").toUpper(), color);
+    drawText(p, QRectF(0, top, area.width(), dayHeight), Qt::AlignCenter, dayText, color);
+    QRect dayBox = QFontMetrics(day).boundingRect(QRect(0, int(top), width(), int(dayHeight)), Qt::AlignCenter, dayText);
     p.setFont(small);
-    drawText(p, QRectF(0, top + dayHeight, area.width(), lineHeight), Qt::AlignCenter,
-             english.toString(now, "d MMMM, yyyy").toUpper(), color);
-    drawText(p, QRectF(0, top + dayHeight + lineHeight, area.width(), lineHeight), Qt::AlignCenter,
-             "- " + time + " -", color);
+    drawText(p, QRectF(0, top + dayHeight, area.width(), lineHeight), Qt::AlignCenter, dateText, color);
+    drawText(p, QRectF(0, top + dayHeight + lineHeight, area.width(), lineHeight), Qt::AlignCenter, timeText, color);
+    QFontMetrics smallMetrics(small);
+    QRect textBox = dayBox
+                        .united(smallMetrics.boundingRect(QRect(0, int(top + dayHeight), width(), int(lineHeight)),
+                                                          Qt::AlignCenter, dateText))
+                        .united(smallMetrics.boundingRect(
+                            QRect(0, int(top + dayHeight + lineHeight), width(), int(lineHeight)), Qt::AlignCenter,
+                            timeText))
+                        .adjusted(-12, -8, 12, 8);
+    // Only the text takes the mouse (to drag the clock); clicks on the
+    // empty space around it still reach the desktop.
+    if (textBox != inputBox_) {
+        inputBox_ = textBox;
+        windowHandle()->setMask(QRegion(textBox));
+    }
 }
 
 // --- MusicWidget ----------------------------------------------------------------
