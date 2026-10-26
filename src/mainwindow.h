@@ -2,6 +2,7 @@
 // Library (uploads, Wallpaper Engine, online) and Upload.
 #pragma once
 
+#include "fonts.h"
 #include "library.h"
 #include "online.h"
 #include "settings.h"
@@ -44,6 +45,10 @@ private:
     QWidget *buildLibraryPage();
     QWidget *buildUploadPage();
     QWidget *buildWidgetsPage();
+    QWidget *buildFontLibraryPage();
+    QWidget *buildSavedFontsPage();
+    void refreshFonts();
+    void useFontForClock(const QString &family);
     void saveWidgets();
 
     void showPage(int page);
@@ -107,6 +112,13 @@ private:
     QPushButton *applyButton_, *deleteButton_, *moreButton_, *steamButton_, *refreshButton_;
 
     QLabel *uploadResult_;
+
+    FontLibrary fontLib_;
+    QComboBox *clockFontBox_ = nullptr;
+    QLineEdit *fontSearch_;
+    QListWidget *fontList_, *savedList_;
+    QLabel *fontPreview_, *fontNote_, *savedNote_;
+    QPushButton *fontDownload_, *fontUse_;
 
     // Plays the motion of the library tile under the mouse.
     QStackedWidget *hover_;

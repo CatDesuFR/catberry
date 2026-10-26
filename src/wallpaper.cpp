@@ -1,5 +1,6 @@
 #include "wallpaper.h"
 
+#include "fonts.h"
 #include "library.h"
 #include "settings.h"
 #include "widgets.h"
@@ -146,6 +147,7 @@ public:
         music_.reset();
         QScreen *screen = QGuiApplication::primaryScreen();
         if (!screen) return;
+        FontLibrary::registerAll(); // downloaded and imported fonts
         if (s.clock) {
             clock_ = std::make_unique<ClockWidget>(screen, s);
             clock_->show();

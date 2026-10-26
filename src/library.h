@@ -22,7 +22,7 @@ struct Wallpaper {
 Kind kindOfFile(const QString &path);
 QString kindName(Kind kind);
 
-// Files from the Upload page.
+// Files from the Upload page and downloaded online wallpapers.
 QList<Wallpaper> scanUploads();
 // Copies `source` into the uploads folder; returns the new path, or empty
 // and sets `error`.

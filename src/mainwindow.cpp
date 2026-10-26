@@ -120,7 +120,8 @@ MainWindow::MainWindow() : settings_(Settings::load()) {
     nav_ = new QListWidget;
     nav_->setObjectName("nav");
     nav_->setFixedWidth(190);
-    nav_->addItems({"Wallpaper", "Library", "Upload wallpaper", "Widgets"});
+    nav_->addItems({"Wallpaper", "Library", "Upload wallpaper", "Widgets", "Font library", "Saved fonts"});
+    FontLibrary::registerAll();
     row->addWidget(nav_);
 
     pages_ = new QStackedWidget;
@@ -128,6 +129,18 @@ MainWindow::MainWindow() : settings_(Settings::load()) {
     pages_->addWidget(buildLibraryPage());
     pages_->addWidget(buildUploadPage());
     pages_->addWidget(buildWidgetsPage());
+    pages_->addWidget(buildFontLibraryPage());
+    pages_->addWidget(buildSavedFontsPage());
+    connect(&fontLib_, &FontLibrary::downloaded, this, [this](const QString &family) {
+        fontNote_->setText(family + " is saved. Find it under Saved fonts.");
+        fontDownload_->setEnabled(true);
+        refreshFonts();
+    });
+    connect(&fontLib_, &FontLibrary::failed, this, [this](const QString &, const QString &message) {
+        fontNote_->setText(message);
+        fontDownload_->setEnabled(true);
+    });
+    refreshFonts();
     row->addWidget(pages_, 1);
     setCentralWidget(central);
 
@@ -1017,9 +1030,7 @@ QWidget *MainWindow::buildWidgetsPage() {
     auto *clockPlace = placeBox(settings_.clockPlace);
     auto *clockSize = sizeSlider(settings_.clockSize, 30, 300);
     auto *clockFont = new QComboBox;
-    clockFont->addItem("Automatic (thin, Mond-like)", QString());
-    for (const QString &family : QFontDatabase::families()) clockFont->addItem(family, family);
-    clockFont->setCurrentIndex(qMax(0, clockFont->findData(settings_.clockFont)));
+    clockFontBox_ = clockFont;
     clockFont->setMaxVisibleItems(20);
     auto *clock24 = new QCheckBox("24-hour time");
     clock24->setChecked(settings_.clock24h);
@@ -1076,6 +1087,219 @@ void MainWindow::saveWidgets() {
     if (wallpaperRunning()) {
         QString error;
         showWallpaper(error);
+    }
+}
+
+// --- Font library and saved fonts -------------------------------------------------
+
+QWidget *MainWindow::buildFontLibraryPage() {
+    auto *page = new QWidget;
+    auto *col = new QVBoxLayout(page);
+    col->setContentsMargins(28, 24, 28, 24);
+    col->addWidget(heading("Font library"));
+    auto *intro = new QLabel("Popular free fonts for the clock. Downloaded fonts are installed for you, so other apps "
+                             "can use them too.");
+    intro->setObjectName("dim");
+    intro->setWordWrap(true);
+    col->addWidget(intro);
+    fontSearch_ = new QLineEdit;
+    fontSearch_->setPlaceholderText("Search fonts");
+    col->addWidget(fontSearch_);
+
+    auto *row = new QHBoxLayout;
+    fontList_ = new QListWidget;
+    fontList_->setObjectName("grid");
+    fontList_->setFixedWidth(330);
+    row->addWidget(fontList_);
+    auto *side = new QVBoxLayout;
+    fontPreview_ = new QLabel;
+    fontPreview_->setAlignment(Qt::AlignCenter);
+    fontPreview_->setMinimumHeight(220);
+    fontPreview_->setWordWrap(true);
+    fontPreview_->setStyleSheet("background: #181825; border-radius: 10px;");
+    side->addWidget(fontPreview_);
+    fontNote_ = new QLabel;
+    fontNote_->setObjectName("dim");
+    fontNote_->setWordWrap(true);
+    side->addWidget(fontNote_);
+    auto *buttons = new QHBoxLayout;
+    fontDownload_ = new QPushButton("Download");
+    fontDownload_->setObjectName("primary");
+    fontUse_ = new QPushButton("Use for the clock");
+    buttons->addWidget(fontDownload_);
+    buttons->addWidget(fontUse_);
+    buttons->addStretch();
+    side->addLayout(buttons);
+    side->addStretch();
+    row->addLayout(side, 1);
+    col->addLayout(row, 1);
+
+    auto selected = [this]() -> const FontEntry * {
+        QListWidgetItem *item = fontList_->currentItem();
+        if (!item || item->data(Qt::UserRole).isNull()) return nullptr;
+        return &fontCatalog()[item->data(Qt::UserRole).toInt()];
+    };
+    connect(fontList_, &QListWidget::currentRowChanged, this, [this, selected] {
+        const FontEntry *font = selected();
+        fontDownload_->setEnabled(font != nullptr);
+        fontUse_->setEnabled(font != nullptr);
+        if (!font) return;
+        bool saved = FontLibrary::isSaved(font->family);
+        fontDownload_->setText(!font->webUrl.isEmpty() ? "Get it in the browser"
+                               : saved                ? "Download again"
+                                                      : "Download");
+        fontUse_->setEnabled(saved);
+        fontNote_->setText(font->family + " - " + font->license + (saved ? " - saved" : ""));
+        if (saved) {
+            QFont preview(font->family);
+            preview.setPixelSize(40);
+            preview.setLetterSpacing(QFont::AbsoluteSpacing, 8);
+            fontPreview_->setFont(preview);
+            fontPreview_->setText("M O N D A Y\n- 20:45 -");
+        } else {
+            fontPreview_->setFont(QFont());
+            fontPreview_->setText("Download " + font->family + " to see it here");
+        }
+    });
+    connect(fontDownload_, &QPushButton::clicked, this, [this, selected] {
+        const FontEntry *font = selected();
+        if (!font) return;
+        if (!font->webUrl.isEmpty()) {
+            QDesktopServices::openUrl(QUrl(font->webUrl));
+            fontNote_->setText("Download " + font->family + " (" + font->license.toLower() + ") in the browser, then "
+                               "add the file (or its .zip) with Import fonts... on the Saved fonts page.");
+            return;
+        }
+        fontDownload_->setEnabled(false);
+        fontNote_->setText("Downloading " + font->family + "...");
+        fontLib_.download(*font);
+    });
+    connect(fontUse_, &QPushButton::clicked, this, [this, selected] {
+        if (const FontEntry *font = selected()) useFontForClock(font->family);
+    });
+    connect(fontSearch_, &QLineEdit::textChanged, this, &MainWindow::refreshFonts);
+    return page;
+}
+
+QWidget *MainWindow::buildSavedFontsPage() {
+    auto *page = new QWidget;
+    auto *col = new QVBoxLayout(page);
+    col->setContentsMargins(28, 24, 28, 24);
+    col->addWidget(heading("Saved fonts"));
+    auto *intro = new QLabel("Fonts you downloaded from the Font library or imported (.ttf, .otf, or a .zip of them).");
+    intro->setObjectName("dim");
+    col->addWidget(intro);
+    savedList_ = new QListWidget;
+    savedList_->setObjectName("grid");
+    col->addWidget(savedList_, 1);
+    savedNote_ = new QLabel;
+    savedNote_->setObjectName("dim");
+    savedNote_->setWordWrap(true);
+    col->addWidget(savedNote_);
+    auto *buttons = new QHBoxLayout;
+    auto *import = new QPushButton("Import fonts...");
+    import->setObjectName("primary");
+    auto *use = new QPushButton("Use for the clock");
+    auto *remove = new QPushButton("Remove");
+    buttons->addWidget(import);
+    buttons->addWidget(use);
+    buttons->addWidget(remove);
+    buttons->addStretch();
+    col->addLayout(buttons);
+
+    connect(import, &QPushButton::clicked, this, [this] {
+        QStringList files = QFileDialog::getOpenFileNames(this, "Import fonts", QDir::homePath(),
+                                                          "Fonts (*.ttf *.otf *.ttc *.zip *.TTF *.OTF *.ZIP)");
+        if (files.isEmpty()) return;
+        QString error;
+        QStringList added = fontLib_.import(files, error);
+        savedNote_->setText((added.isEmpty() ? QString() : "Added: " + added.join(", ") + "\n") + error.trimmed());
+        refreshFonts();
+    });
+    connect(use, &QPushButton::clicked, this, [this] {
+        if (QListWidgetItem *item = savedList_->currentItem()) useFontForClock(item->text());
+    });
+    connect(remove, &QPushButton::clicked, this, [this] {
+        QListWidgetItem *item = savedList_->currentItem();
+        if (!item) return;
+        QString family = item->text();
+        if (QMessageBox::question(this, "Remove font", "Remove " + family + " from your saved fonts?") !=
+            QMessageBox::Yes)
+            return;
+        fontLib_.remove(family);
+        if (settings_.clockFont == family) useFontForClock(QString());
+        savedNote_->setText(family + " removed.");
+        refreshFonts();
+    });
+    return page;
+}
+
+void MainWindow::refreshFonts() {
+    QStringList saved = FontLibrary::savedFamilies();
+    QString filter = fontSearch_->text().trimmed();
+
+    // Font library: suggested, then the rest.
+    int current = fontList_->currentItem() ? fontList_->currentItem()->data(Qt::UserRole).toInt() : -1;
+    fontList_->clear();
+    bool headerShown[2] = {false, false};
+    for (int i = 0; i < fontCatalog().size(); ++i) {
+        const FontEntry &font = fontCatalog()[i];
+        if (!filter.isEmpty() && !font.family.contains(filter, Qt::CaseInsensitive)) continue;
+        int group = font.suggested ? 0 : 1;
+        if (!headerShown[group]) {
+            headerShown[group] = true;
+            auto *header = new QListWidgetItem(group == 0 ? "Suggested fonts" : "More popular fonts");
+            header->setFlags(Qt::NoItemFlags);
+            QFont bold = header->font();
+            bold.setBold(true);
+            header->setFont(bold);
+            header->setForeground(QColor("#89b4fa"));
+            fontList_->addItem(header);
+        }
+        bool isSaved = saved.contains(font.family, Qt::CaseInsensitive);
+        auto *item = new QListWidgetItem((isSaved ? "\u2713  " : "     ") + font.family);
+        item->setData(Qt::UserRole, i);
+        if (isSaved) {
+            QFont preview(font.family);
+            preview.setPointSize(13);
+            item->setFont(preview);
+        }
+        fontList_->addItem(item);
+        if (i == current) fontList_->setCurrentItem(item);
+    }
+
+    // Saved fonts, each shown in itself.
+    savedList_->clear();
+    for (const QString &family : saved) {
+        auto *item = new QListWidgetItem(family);
+        QFont preview(family);
+        preview.setPointSize(16);
+        item->setFont(preview);
+        savedList_->addItem(item);
+    }
+    if (saved.isEmpty() && savedNote_->text().isEmpty())
+        savedNote_->setText("No saved fonts yet: download some in the Font library, or import your own.");
+
+    // The clock's font list: automatic, saved fonts, then all the others.
+    if (clockFontBox_) {
+        QSignalBlocker block(clockFontBox_);
+        clockFontBox_->clear();
+        clockFontBox_->addItem("Automatic (Anurati if saved, else a thin font)", QString());
+        for (const QString &family : saved) clockFontBox_->addItem("\u2605 " + family, family);
+        for (const QString &family : QFontDatabase::families())
+            if (!saved.contains(family)) clockFontBox_->addItem(family, family);
+        clockFontBox_->setCurrentIndex(qMax(0, clockFontBox_->findData(settings_.clockFont)));
+    }
+}
+
+void MainWindow::useFontForClock(const QString &family) {
+    settings_.clockFont = family;
+    if (!family.isEmpty()) settings_.clock = true;
+    saveWidgets();
+    refreshFonts();
+    if (!family.isEmpty()) {
+        fontNote_->setText("The clock now uses " + family + ".");
+        savedNote_->setText("The clock now uses " + family + ".");
     }
 }
 

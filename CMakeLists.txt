@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(catberry-roofce VERSION 1.1.5 LANGUAGES CXX)
+project(catberry-roofce VERSION 1.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -16,6 +16,7 @@ add_executable(catberry-roofce
     src/online.cpp
     src/wallpaper.cpp
     src/widgets.cpp
+    src/fonts.cpp
     src/mainwindow.cpp
 )
 target_compile_definitions(catberry-roofce PRIVATE ROOFCE_VERSION="${PROJECT_VERSION}")

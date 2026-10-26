@@ -14,6 +14,8 @@
 #include <QSet>
 #include <QStandardPaths>
 
+#include <algorithm>
+
 namespace {
 
 const char *const kWallpaperEngineApp = "431960";
@@ -69,8 +71,13 @@ QString kindName(Kind kind) {
 
 QList<Wallpaper> scanUploads() {
     QList<Wallpaper> out;
-    QDir dir(paths::uploads());
-    for (const QFileInfo &info : dir.entryInfoList(QDir::Files, QDir::Time)) {
+    // Uploaded files and online wallpapers you have downloaded, newest first.
+    QFileInfoList files = QDir(paths::uploads()).entryInfoList(QDir::Files) +
+                          QDir(paths::downloads()).entryInfoList(QDir::Files);
+    std::sort(files.begin(), files.end(),
+              [](const QFileInfo &a, const QFileInfo &b) { return a.lastModified() > b.lastModified(); });
+    for (const QFileInfo &info : files) {
+        if (info.suffix() == "part") continue; // a download still going
         Wallpaper w;
         w.id = info.fileName();
         w.title = info.completeBaseName();
