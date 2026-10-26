@@ -28,6 +28,7 @@ public:
     MainWindow();
 
 protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
     void dragEnterEvent(QDragEnterEvent *event) override;
     void dropEvent(QDropEvent *event) override;
 
@@ -50,6 +51,8 @@ private:
     void saveOptions();
     void upload(const QStringList &files);
     void searchOnline(bool more);
+    void hoverItem(QListWidgetItem *item);
+    void stopHover();
 
     Settings settings_;
     Wallhaven wallhaven_;
@@ -81,4 +84,12 @@ private:
     QPushButton *applyButton_, *deleteButton_, *moreButton_, *steamButton_;
 
     QLabel *uploadResult_;
+
+    // Plays the motion of the library tile under the mouse.
+    QStackedWidget *hover_;
+    QLabel *hoverLabel_;
+    QVideoWidget *hoverVideo_;
+    QMediaPlayer *hoverPlayer_;
+    QMovie *hoverMovie_ = nullptr;
+    int hoverRow_ = -1;
 };

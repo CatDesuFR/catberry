@@ -22,6 +22,7 @@
 #include <QMimeData>
 #include <QMovie>
 #include <QPushButton>
+#include <QScrollBar>
 #include <QSlider>
 #include <QStackedWidget>
 #include <QTabBar>
@@ -368,6 +369,26 @@ QWidget *MainWindow::buildLibraryPage() {
     grid_->setWordWrap(true);
     col->addWidget(grid_, 1);
 
+    grid_->setMouseTracking(true);
+    grid_->viewport()->installEventFilter(this);
+    hover_ = new QStackedWidget(grid_->viewport());
+    hover_->setAttribute(Qt::WA_TransparentForMouseEvents); // clicks still select the tile
+    hover_->setFixedSize(kThumb);
+    hoverLabel_ = new QLabel;
+    hoverLabel_->setAlignment(Qt::AlignCenter);
+    hoverLabel_->setStyleSheet("background: #181825;");
+    hoverVideo_ = new QVideoWidget;
+    hoverVideo_->setAspectRatioMode(Qt::KeepAspectRatioByExpanding);
+    hoverVideo_->setAttribute(Qt::WA_TransparentForMouseEvents);
+    hover_->addWidget(hoverLabel_);
+    hover_->addWidget(hoverVideo_);
+    hover_->hide();
+    hoverPlayer_ = new QMediaPlayer(this); // no audio output: silent
+    hoverPlayer_->setVideoOutput(hoverVideo_);
+    hoverPlayer_->setLoops(QMediaPlayer::Infinite);
+    connect(grid_, &QListWidget::itemEntered, this, &MainWindow::hoverItem);
+    connect(grid_->verticalScrollBar(), &QScrollBar::valueChanged, this, &MainWindow::stopHover);
+
     moreButton_ = new QPushButton("Load more");
     col->addWidget(moreButton_, 0, Qt::AlignHCenter);
 
@@ -411,6 +432,7 @@ QWidget *MainWindow::buildLibraryPage() {
 }
 
 void MainWindow::refreshLibrary() {
+    stopHover();
     ++generation_;
     grid_->clear();
     local_.clear();
@@ -457,6 +479,55 @@ void MainWindow::refreshLibrary() {
         else if (w.kind == Kind::Video)
             loadThumb(i, w.file, true);
     }
+}
+
+void MainWindow::hoverItem(QListWidgetItem *item) {
+    int row = grid_->row(item);
+    if (row == hoverRow_) return;
+    stopHover();
+    if (sources_->currentIndex() == Online || row < 0 || row >= local_.size()) return;
+    const Wallpaper &w = local_[row];
+    QString gif = w.kind == Kind::Gif ? w.file : w.preview.endsWith(".gif", Qt::CaseInsensitive) ? w.preview : QString();
+    if (w.kind != Kind::Video && gif.isEmpty()) return; // a still picture: nothing to play
+
+    hoverRow_ = row;
+    QRect tile = grid_->visualItemRect(item);
+    // The icon sits centred at the top of the tile.
+    hover_->move(tile.x() + (tile.width() - kThumb.width()) / 2, tile.y() + 4);
+    if (w.kind == Kind::Video) {
+        hover_->setCurrentWidget(hoverVideo_);
+        hoverPlayer_->setSource(QUrl::fromLocalFile(w.file));
+        hoverPlayer_->play();
+    } else {
+        hover_->setCurrentWidget(hoverLabel_);
+        hoverMovie_ = new QMovie(gif, QByteArray(), this);
+        QSize size = QImageReader(gif).size();
+        if (size.isValid()) hoverMovie_->setScaledSize(size.scaled(kThumb, Qt::KeepAspectRatioByExpanding));
+        hoverLabel_->setMovie(hoverMovie_);
+        hoverMovie_->start();
+    }
+    hover_->show();
+    hover_->raise();
+}
+
+void MainWindow::stopHover() {
+    hoverRow_ = -1;
+    hover_->hide();
+    hoverPlayer_->stop();
+    hoverPlayer_->setSource(QUrl());
+    hoverLabel_->clear();
+    delete hoverMovie_;
+    hoverMovie_ = nullptr;
+}
+
+bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
+    if (watched == grid_->viewport()) {
+        if (event->type() == QEvent::Leave) stopHover();
+        // Moving onto empty space between tiles.
+        if (event->type() == QEvent::MouseMove && !grid_->itemAt(static_cast<QMouseEvent *>(event)->pos()))
+            stopHover();
+    }
+    return QMainWindow::eventFilter(watched, event);
 }
 
 void MainWindow::loadThumb(int row, const QString &path, bool video) {
@@ -592,5 +663,6 @@ void MainWindow::showPage(int page) {
         refreshCurrent();
     else
         pausePreview();
+    if (page != 1) stopHover();
     if (page == 1) refreshLibrary();
 }
