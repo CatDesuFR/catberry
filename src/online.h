@@ -8,6 +8,7 @@
 #include <QMap>
 #include <QNetworkAccessManager>
 #include <QObject>
+#include <QSet>
 #include <QString>
 
 enum class OnlineSource { Wallhaven, MotionBgs, Commons, Nasa };
@@ -27,9 +28,21 @@ struct OnlineWallpaper {
     QString assetsUrl;  // NASA only: where previewUrl/fullUrl are looked up
     QString resolution;
     qint64 fileSize = 0; // 0 when the source does not say
+    QStringList tags;    // what the source says is in it (Commons categories)
 
     // Unique across sources; used for file names.
     QString key() const;
+};
+
+struct SearchOptions {
+    QString query;
+    OnlineFilter filter = OnlineFilter::All;
+    Genre genre = Genre::Any;
+    QList<OnlineSource> sources;
+    // Strict: also hides wallpapers sources tag as showing (anime) girls,
+    // where most suggestive ones are, on top of the word blocklist.
+    bool strict = true;
+    bool hideAi = true; // hides AI-generated art where sources say so
 };
 
 class OnlineLibrary : public QObject {
@@ -40,10 +53,12 @@ public:
     static QString sourceName(OnlineSource source);
     // True when the text asks for something not suitable as a wallpaper.
     static bool blocked(const QString &text);
+    static bool aiMade(const QString &text);
+    // The word and its singular/plural, so "eyes" also finds "eye".
+    static QStringList variants(const QString &word);
 
     // Searches the chosen sources; `more` asks for their next pages.
-    void search(const QString &query, OnlineFilter filter, Genre genre, const QList<OnlineSource> &sources,
-                bool more);
+    void search(const SearchOptions &options, bool more);
     void fetchThumb(const OnlineWallpaper &w);
     // Fills in previewUrl and fullUrl where they are not known yet (NASA).
     void resolve(const OnlineWallpaper &w);
@@ -69,12 +84,19 @@ private:
     void searchNasa(int generation);
     void sourceDone(int generation, OnlineSource source, bool more);
     void deliver(int generation, QList<OnlineWallpaper> items);
+    // MotionBgs' "girl" tag, fetched once a week, for the strict filter.
+    void loadMotionFilter();
+    void fetchMotionFilterPages(int first);
 
     QNetworkAccessManager net_;
-    QString query_;
-    OnlineFilter filter_ = OnlineFilter::All;
-    Genre genre_ = Genre::Any;
-    QList<OnlineSource> sources_;
+    SearchOptions options_;
+    QSet<QString> seen_; // keys already shown for this search
+    QSet<QString> motionFiltered_;
+    enum class FilterState { Missing, Loading, Ready } motionFilterState_ = FilterState::Missing;
+    QSet<QString> motionFilterBatch_;
+    int motionFilterPending_ = 0;
+    bool motionFilterEnd_ = false;
+    QList<int> motionWaiting_; // searches waiting for the filter
     QMap<OnlineSource, int> page_;     // next page (or offset for Commons)
     QMap<OnlineSource, bool> hasMore_;
     int pending_ = 0;

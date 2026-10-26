@@ -21,6 +21,7 @@ class QMovie;
 class QVideoWidget;
 class QPropertyAnimation;
 class QPushButton;
+class QToolButton;
 class QSlider;
 class QStackedWidget;
 class QTabBar;
@@ -59,6 +60,8 @@ private:
     void saveOptions();
     void upload(const QStringList &files);
     void searchOnline(bool more);
+    bool matchesSearch(const Wallpaper &w) const;
+    void updateSourcesLabel();
     void hoverItem(QListWidgetItem *item);
     void stopHover();
     void playHover(const QString &url, bool video, bool local);
@@ -86,7 +89,11 @@ private:
     QTabBar *sources_;
     QWidget *searchRow_;
     QLineEdit *search_;
-    QComboBox *filter_, *genre_, *sourcePicker_;
+    QComboBox *filter_, *genre_;
+    QToolButton *sourcesButton_;
+    QList<QAction *> sourceActions_; // one tick per online source
+    QCheckBox *strict_, *hideAi_;
+    QWidget *onlineOptions_;
     QListWidget *grid_;
     QLabel *details_, *libraryNote_;
     QComboBox *sort_;
@@ -94,6 +101,7 @@ private:
     QHash<QString, QSize> resolutions_;
     QPropertyAnimation *scrollAnimation_;
     int scrollTarget_ = 0;
+    QPushButton *webButton_;
     QPushButton *applyButton_, *deleteButton_, *moreButton_, *steamButton_, *refreshButton_;
 
     QLabel *uploadResult_;

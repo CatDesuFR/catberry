@@ -6,6 +6,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QProcess>
@@ -117,6 +118,8 @@ QList<Wallpaper> scanWallpaperEngine() {
             Wallpaper w;
             w.id = id;
             w.title = json.value("title").toString(id);
+            for (const QJsonValue &tag : json.value("tags").toArray()) w.tags << tag.toString();
+            w.tags << json.value("description").toString();
             QString preview = json.value("preview").toString();
             if (!preview.isEmpty() && QFile::exists(dir + "/" + preview)) w.preview = dir + "/" + preview;
             QString type = json.value("type").toString().toLower();

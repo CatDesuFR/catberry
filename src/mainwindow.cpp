@@ -24,12 +24,15 @@
 #include <QProcess>
 #include <QPropertyAnimation>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QScrollBar>
 #include <QSlider>
 #include <QStackedWidget>
 #include <QTabBar>
 #include <QThreadPool>
 #include <QTimer>
+#include <QToolButton>
+#include <QMenu>
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QVideoSink>
@@ -379,17 +382,41 @@ QWidget *MainWindow::buildLibraryPage() {
     filter_->addItem("Pictures", int(OnlineFilter::Pictures));
     genre_ = new QComboBox;
     for (int g = 0; g < kGenreCount; ++g) genre_->addItem(genreName(Genre(g)), g);
-    sourcePicker_ = new QComboBox;
-    sourcePicker_->addItem("All sources", -1);
-    sourcePicker_->addItem("Wallhaven", int(OnlineSource::Wallhaven));
-    sourcePicker_->addItem("MotionBgs", int(OnlineSource::MotionBgs));
-    sourcePicker_->addItem("Wikimedia Commons", int(OnlineSource::Commons));
-    sourcePicker_->addItem("NASA", int(OnlineSource::Nasa));
+    // Any mix of sources: a menu of ticks.
+    sourcesButton_ = new QToolButton;
+    sourcesButton_->setPopupMode(QToolButton::InstantPopup);
+    auto *sourcesMenu = new QMenu(sourcesButton_);
+    for (OnlineSource source : {OnlineSource::MotionBgs, OnlineSource::Wallhaven, OnlineSource::Commons, OnlineSource::Nasa}) {
+        QAction *action = sourcesMenu->addAction(source == OnlineSource::Commons ? "Wikimedia Commons"
+                                                                                : OnlineLibrary::sourceName(source));
+        action->setCheckable(true);
+        action->setChecked(true);
+        action->setData(int(source));
+        sourceActions_ << action;
+        connect(action, &QAction::toggled, this, [this] {
+            updateSourcesLabel();
+            searchOnline(false);
+        });
+    }
+    sourcesButton_->setMenu(sourcesMenu);
+    updateSourcesLabel();
+    strict_ = new QCheckBox("Strict filter");
+    strict_->setChecked(true);
+    strict_->setToolTip("Also hides wallpapers the sources tag as showing girls (most suggestive ones are there),\n"
+                        "on top of the word filter that always applies.");
+    hideAi_ = new QCheckBox("Hide AI art");
+    hideAi_->setChecked(true);
     auto *go = new QPushButton("Search");
+    onlineOptions_ = new QWidget;
+    auto *optionsLayout = new QHBoxLayout(onlineOptions_);
+    optionsLayout->setContentsMargins(0, 0, 0, 0);
+    optionsLayout->addWidget(genre_);
+    optionsLayout->addWidget(sourcesButton_);
+    optionsLayout->addWidget(strict_);
+    optionsLayout->addWidget(hideAi_);
     searchLayout->addWidget(search_, 1);
     searchLayout->addWidget(filter_);
-    searchLayout->addWidget(genre_);
-    searchLayout->addWidget(sourcePicker_);
+    searchLayout->addWidget(onlineOptions_);
     searchLayout->addWidget(go);
     col->addWidget(searchRow_);
 
@@ -457,6 +484,12 @@ QWidget *MainWindow::buildLibraryPage() {
     details_->setObjectName("dim");
     bottom->addWidget(details_, 1);
     steamButton_ = new QPushButton("Get Wallpaper Engine on Steam");
+    // wallpapers.com does not allow programs to use it, so it opens in the
+    // browser; downloaded files can then be added on the Upload page.
+    webButton_ = new QPushButton("Browse wallpapers.com");
+    webButton_->setToolTip("Opens wallpapers.com in your browser. Add what you download there on the Upload page.");
+    bottom->addWidget(webButton_);
+    connect(webButton_, &QPushButton::clicked, this, [] { QDesktopServices::openUrl(QUrl("https://wallpapers.com/")); });
     deleteButton_ = new QPushButton("Delete");
     applyButton_ = new QPushButton("Set as wallpaper");
     applyButton_->setObjectName("primary");
@@ -470,7 +503,8 @@ QWidget *MainWindow::buildLibraryPage() {
     connect(search_, &QLineEdit::returnPressed, this, [this] { searchOnline(false); });
     connect(filter_, &QComboBox::currentIndexChanged, this, [this] { searchOnline(false); });
     connect(genre_, &QComboBox::currentIndexChanged, this, [this] { searchOnline(false); });
-    connect(sourcePicker_, &QComboBox::currentIndexChanged, this, [this] { searchOnline(false); });
+    connect(strict_, &QCheckBox::toggled, this, [this] { searchOnline(false); });
+    connect(hideAi_, &QCheckBox::toggled, this, [this] { searchOnline(false); });
     connect(refreshButton_, &QPushButton::clicked, this, &MainWindow::refreshLibrary);
     connect(sort_, &QComboBox::currentIndexChanged, this, &MainWindow::populateGrid);
     connect(moreButton_, &QPushButton::clicked, this, [this] { searchOnline(true); });
@@ -503,7 +537,9 @@ void MainWindow::refreshLibrary() {
     online_.clear();
     details_->clear();
     int source = sources_->currentIndex();
-    searchRow_->setVisible(source == Online);
+    searchRow_->setVisible(true);
+    onlineOptions_->setVisible(source == Online);
+    webButton_->setVisible(source == Online);
     moreButton_->setVisible(false);
     deleteButton_->setVisible(source == Mine);
     steamButton_->setVisible(false);
@@ -532,6 +568,16 @@ void MainWindow::refreshLibrary() {
         else
             libraryNote_->setText("Your Wallpaper Engine Workshop subscriptions, read from Steam's folder.");
     }
+    // Search and the live/pictures choice apply to your own wallpapers too.
+    OnlineFilter kindFilter = OnlineFilter(filter_->currentData().toInt());
+    local_.erase(std::remove_if(local_.begin(), local_.end(),
+                                [&](const Wallpaper &w) {
+                                    bool live = w.kind == Kind::Video || w.kind == Kind::Gif;
+                                    if (kindFilter == OnlineFilter::Live && !live) return true;
+                                    if (kindFilter == OnlineFilter::Pictures && live) return true;
+                                    return !matchesSearch(w);
+                                }),
+                 local_.end());
     populateGrid();
     for (const Wallpaper &w : local_) {
         if (icons_.contains(tileKey(w))) continue;
@@ -780,8 +826,31 @@ void MainWindow::applySelected() {
     apply(local_[row].file, local_[row].title);
 }
 
+bool MainWindow::matchesSearch(const Wallpaper &w) const {
+    QStringList words = search_->text().toLower().split(QRegularExpression("[^a-z0-9]+"), Qt::SkipEmptyParts);
+    if (words.isEmpty()) return true;
+    // Name, file name and (for Wallpaper Engine) its tags and description;
+    // every word has to match, in either singular or plural.
+    QString text = (w.title + " " + QFileInfo(w.file).fileName() + " " + w.tags.join(' ')).toLower();
+    for (const QString &word : words) {
+        bool found = false;
+        for (const QString &v : OnlineLibrary::variants(word)) found |= text.contains(v);
+        if (!found) return false;
+    }
+    return true;
+}
+
+void MainWindow::updateSourcesLabel() {
+    int on = 0;
+    for (QAction *action : sourceActions_) on += action->isChecked();
+    sourcesButton_->setText(on == sourceActions_.size() ? "All sources" : QString("Sources: %1").arg(on));
+}
+
 void MainWindow::searchOnline(bool more) {
-    if (sources_->currentIndex() != Online) return;
+    if (sources_->currentIndex() != Online) {
+        refreshLibrary();
+        return;
+    }
     QString query = search_->text().trimmed();
     if (OnlineLibrary::blocked(query)) {
         ++generation_;
@@ -798,12 +867,19 @@ void MainWindow::searchOnline(bool more) {
         online_.clear();
         libraryNote_->setText("Loading...");
     }
-    QList<OnlineSource> sources = {OnlineSource::MotionBgs, OnlineSource::Wallhaven, OnlineSource::Commons,
-                                   OnlineSource::Nasa};
-    int picked = sourcePicker_->currentData().toInt();
-    if (picked >= 0) sources = {OnlineSource(picked)};
-    onlineLib_.search(query, OnlineFilter(filter_->currentData().toInt()), Genre(genre_->currentData().toInt()), sources,
-                      more);
+    SearchOptions options;
+    options.query = query;
+    options.filter = OnlineFilter(filter_->currentData().toInt());
+    options.genre = Genre(genre_->currentData().toInt());
+    for (QAction *action : sourceActions_)
+        if (action->isChecked()) options.sources << OnlineSource(action->data().toInt());
+    options.strict = strict_->isChecked();
+    options.hideAi = hideAi_->isChecked();
+    if (options.sources.isEmpty()) {
+        libraryNote_->setText("Tick at least one source.");
+        return;
+    }
+    onlineLib_.search(options, more);
 }
 
 // --- Upload page --------------------------------------------------------------

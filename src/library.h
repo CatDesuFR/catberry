@@ -5,6 +5,7 @@
 
 #include <QList>
 #include <QString>
+#include <QStringList>
 
 enum class Kind { Image, Gif, Video, Unsupported };
 
@@ -15,6 +16,7 @@ struct Wallpaper {
     QString preview; // an image to show in the library, may be empty
     Kind kind = Kind::Unsupported;
     QString note;    // why it cannot be used, when unsupported
+    QStringList tags; // words describing it (Wallpaper Engine tags and description)
 };
 
 Kind kindOfFile(const QString &path);

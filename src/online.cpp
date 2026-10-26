@@ -2,6 +2,7 @@
 
 #include "paths.h"
 
+#include <QDateTime>
 #include <QFile>
 #include <QSharedPointer>
 #include <QFileInfo>
@@ -26,7 +27,18 @@ const QStringList kBlocked = {
     "erotica",  "porn",     "lingerie", "bikini", "bikinis",   "underwear", "swimsuit",  "topless",
     "boobs",    "breast",   "breasts",  "butt",   "cleavage",  "panties",   "ecchi",     "hentai",
     "fetish",   "seductive", "sensual", "provocative", "bra", "thong",    "stripper",  "playboy",
+    "waifu",    "lewd",     "thicc",    "booty",  "busty",     "nipple",    "nipples",   "undressed",
+    "undress",  "pinup",    "seduction", "bathing", "onsen",   "swimwear",  "succubus",  "nikke",
 };
+
+// Signs of AI-generated art, in titles and Commons categories.
+const QStringList kAiWords = {"ai", "aiart", "midjourney", "dall", "dalle", "diffusion", "generated", "generative",
+                              "aigc", "novelai", "nijijourney"};
+
+// Commons categories that mark pictures as not suitable (checked as
+// substrings, so "Nude women in art" and "Topless women" both count).
+const QStringList kBlockedCategories = {"nude", "nudity", "naked", "erotic", "topless", "lingerie", "bikini",
+                                        "swimwear", "breast", "sexual", "pornograph", "underwear", "buttocks"};
 
 // Asks Commons' search to leave these out as well.
 const char *const kCommonsExclude = " -nude -naked -nudity -erotic -sexy -lingerie -bikini -topless";
@@ -78,6 +90,36 @@ QString OnlineLibrary::sourceName(OnlineSource source) {
     return QString();
 }
 
+bool OnlineLibrary::aiMade(const QString &text) {
+    QString lower = text.toLower();
+    if (lower.contains("ai-generated") || lower.contains("ai generated") || lower.contains("artificial intelligence") ||
+        lower.contains("stable diffusion"))
+        return true;
+    static const QRegularExpression words("[^a-z]+");
+    QStringList list = lower.split(words, Qt::SkipEmptyParts);
+    // "generated" alone is too common; only with "ai" nearby.
+    for (const QString &word : list)
+        if (word != "generated" && word != "generative" && word != "diffusion" && kAiWords.contains(word)) return true;
+    return false;
+}
+
+QStringList OnlineLibrary::variants(const QString &word) {
+    QString w = word.toLower();
+    QStringList out = {w};
+    if (w.size() < 3) return out;
+    if (w.endsWith("ies"))
+        out << w.chopped(3) + "y";
+    else if (w.endsWith("es") && (w.endsWith("ches") || w.endsWith("shes") || w.endsWith("xes") || w.endsWith("sses")))
+        out << w.chopped(2);
+    else if (w.endsWith('s') && !w.endsWith("ss"))
+        out << w.chopped(1);
+    else if (w.endsWith('y') && !QString("aeiou").contains(w.at(w.size() - 2)))
+        out << w.chopped(1) + "ies";
+    else
+        out << w + "s";
+    return out;
+}
+
 bool OnlineLibrary::blocked(const QString &text) {
     static const QRegularExpression words("[^a-z]+");
     for (const QString &word : text.toLower().split(words, Qt::SkipEmptyParts))
@@ -95,26 +137,23 @@ QNetworkReply *OnlineLibrary::get(const QString &url) {
     return net_.get(request);
 }
 
-void OnlineLibrary::search(const QString &query, OnlineFilter filter, Genre genre, const QList<OnlineSource> &sources,
-                           bool more) {
+void OnlineLibrary::search(const SearchOptions &options, bool more) {
     if (!more) {
-        query_ = query;
-        filter_ = filter;
-        genre_ = genre;
-        sources_ = sources;
+        options_ = options;
         page_.clear();
         hasMore_.clear();
+        seen_.clear();
     }
     int generation = ++generation_;
     pending_ = 0;
-    for (OnlineSource source : sources_) {
+    for (OnlineSource source : options_.sources) {
         if (more && !hasMore_.value(source)) continue;
         // Wallhaven only has pictures, MotionBgs only live wallpapers, and
         // Commons and NASA have nothing for some genres.
-        if (source == OnlineSource::Wallhaven && filter_ == OnlineFilter::Live) continue;
-        if (source == OnlineSource::MotionBgs && filter_ == OnlineFilter::Pictures) continue;
-        if (source == OnlineSource::Commons && !kGenres[int(genre_)].commons) continue;
-        if (source == OnlineSource::Nasa && !kGenres[int(genre_)].nasa) continue;
+        if (source == OnlineSource::Wallhaven && options_.filter == OnlineFilter::Live) continue;
+        if (source == OnlineSource::MotionBgs && options_.filter == OnlineFilter::Pictures) continue;
+        if (source == OnlineSource::Commons && !kGenres[int(options_.genre)].commons) continue;
+        if (source == OnlineSource::Nasa && !kGenres[int(options_.genre)].nasa) continue;
         ++pending_;
         switch (source) {
         case OnlineSource::Wallhaven: searchWallhaven(generation); break;
@@ -137,9 +176,22 @@ void OnlineLibrary::sourceDone(int generation, OnlineSource source, bool more) {
 
 void OnlineLibrary::deliver(int generation, QList<OnlineWallpaper> items) {
     if (generation != generation_) return;
-    items.erase(std::remove_if(items.begin(), items.end(), [](const OnlineWallpaper &w) { return blocked(w.title); }),
-                items.end());
-    if (!items.isEmpty()) emit results(items);
+    QList<OnlineWallpaper> shown;
+    for (const OnlineWallpaper &w : items) {
+        // The same wallpaper can come from a search and a genre page.
+        if (seen_.contains(w.key()) || blocked(w.title)) continue;
+        QString tags = w.tags.join(' ');
+        if (options_.hideAi && aiMade(w.title + " " + tags)) continue;
+        if (options_.strict) {
+            QString lower = tags.toLower();
+            bool bad = std::any_of(kBlockedCategories.begin(), kBlockedCategories.end(),
+                                   [&lower](const QString &c) { return lower.contains(c); });
+            if (bad || (w.source == OnlineSource::MotionBgs && motionFiltered_.contains(w.id))) continue;
+        }
+        seen_.insert(w.key());
+        shown << w;
+    }
+    if (!shown.isEmpty()) emit results(shown);
 }
 
 // --- Wallhaven: pictures ------------------------------------------------------
@@ -147,19 +199,20 @@ void OnlineLibrary::deliver(int generation, QList<OnlineWallpaper> items) {
 void OnlineLibrary::searchWallhaven(int generation) {
     int page = page_.value(OnlineSource::Wallhaven, 1);
     QUrlQuery params;
-    QString terms = (query_ + " " + kGenres[int(genre_)].words).trimmed();
+    QString terms = (options_.query + " " + kGenres[int(options_.genre)].words).trimmed();
     QString q = terms;
-    if (genre_ == Genre::Anime) q += " -ecchi -bikini -swimsuit -lingerie -underwear -cleavage -panties";
+    if (options_.genre == Genre::Anime) q += " -ecchi -bikini -swimsuit -lingerie -underwear -cleavage -panties";
     if (!q.isEmpty()) params.addQueryItem("q", q);
     // "General" only, except for the anime genre: Wallhaven's anime and
     // people categories are where suggestive pictures turn up even among its
     // "safe" ones. People stays off; for anime, its tags for such pictures
     // are excluded on top.
-    params.addQueryItem("categories", genre_ == Genre::Anime ? "010" : "100");
+    params.addQueryItem("categories", options_.genre == Genre::Anime ? "010" : "100");
     params.addQueryItem("purity", "100");
     params.addQueryItem("sorting", terms.isEmpty() ? "toplist" : "relevance");
     params.addQueryItem("topRange", "1y");
     params.addQueryItem("atleast", "1280x720");
+    if (options_.hideAi) params.addQueryItem("ai_art_filter", "1");
     params.addQueryItem("page", QString::number(page));
     QUrl url("https://wallhaven.cc/api/v1/search");
     url.setQuery(params);
@@ -199,17 +252,18 @@ void OnlineLibrary::searchWallhaven(int generation) {
 
 void OnlineLibrary::searchCommons(int generation) {
     int offset = page_.value(OnlineSource::Commons, 0);
-    QString terms = (query_ + " " + kGenres[int(genre_)].words).trimmed();
-    if (terms.isEmpty()) terms = filter_ == OnlineFilter::Pictures ? "landscape" : "timelapse";
-    if (filter_ == OnlineFilter::Live)
+    QString terms = (options_.query + " " + kGenres[int(options_.genre)].words).trimmed();
+    if (terms.isEmpty()) terms = options_.filter == OnlineFilter::Pictures ? "landscape" : "timelapse";
+    if (options_.filter == OnlineFilter::Live)
         terms += " filetype:video";
-    else if (filter_ == OnlineFilter::Pictures)
+    else if (options_.filter == OnlineFilter::Pictures)
         terms += " filetype:bitmap";
     else
         terms += " filetype:video|bitmap";
     // Wide enough to fill a screen.
     terms += " filew:>1279";
     terms += kCommonsExclude;
+    if (options_.hideAi) terms += " -\"AI-generated\" -midjourney -\"stable diffusion\"";
 
     QUrlQuery params;
     params.addQueryItem("action", "query");
@@ -219,7 +273,9 @@ void OnlineLibrary::searchCommons(int generation) {
     params.addQueryItem("gsrsearch", terms);
     params.addQueryItem("gsrlimit", QString::number(kPageSize));
     params.addQueryItem("gsroffset", QString::number(offset));
-    params.addQueryItem("prop", "videoinfo");
+    params.addQueryItem("prop", "videoinfo|categories");
+    params.addQueryItem("clshow", "!hidden");
+    params.addQueryItem("cllimit", "max");
     params.addQueryItem("viprop", "url|size|mime|derivatives");
     params.addQueryItem("viurlwidth", "480");
     QUrl url("https://commons.wikimedia.org/w/api.php");
@@ -246,6 +302,8 @@ void OnlineLibrary::searchCommons(int generation) {
             w.title = page.value("title").toString().remove(QRegularExpression("^File:")).section('.', 0, -2);
             w.video = mime.startsWith("video/") || mime == "application/ogg";
             w.thumbUrl = info.value("thumburl").toString();
+            for (const QJsonValue &c : page.value("categories").toArray())
+                w.tags << c.toObject().value("title").toString().remove(QRegularExpression("^Category:"));
             w.fullUrl = info.value("url").toString();
             w.fileSize = info.value("size").toVariant().toLongLong();
             int width = info.value("width").toInt(), height = info.value("height").toInt();
@@ -284,63 +342,148 @@ void OnlineLibrary::searchCommons(int generation) {
 
 // --- MotionBgs: live wallpapers -------------------------------------------------
 
-void OnlineLibrary::searchMotionBgs(int generation) {
-    int page = page_.value(OnlineSource::MotionBgs, 1);
-    QString tag = kGenres[int(genre_)].motionTag;
-    QUrl url;
-    if (!query_.isEmpty()) {
-        // Its search sends single words that are also genres to the genre
-        // page; following redirects handles that.
-        QUrlQuery params;
-        params.addQueryItem("q", (query_ + " " + kGenres[int(genre_)].words).trimmed());
-        if (page > 1) params.addQueryItem("page", QString::number(page));
-        url = QUrl("https://motionbgs.com/search");
-        url.setQuery(params);
-    } else if (!tag.isEmpty()) {
-        url = QUrl("https://motionbgs.com/tag:" + tag + "/" + (page > 1 ? QString::number(page) + "/" : ""));
-    } else {
-        url = QUrl("https://motionbgs.com/" + (page > 1 ? QString::number(page) + "/" : ""));
-    }
+namespace {
 
-    QNetworkReply *reply = get(url.toString());
-    connect(reply, &QNetworkReply::finished, this, [this, reply, generation, page] {
-        reply->deleteLater();
-        if (reply->error() != QNetworkReply::NoError) {
-            // Past the last page the site answers "not found".
-            if (generation == generation_ && page == 1) emit failed("MotionBgs: " + reply->errorString());
-            sourceDone(generation, OnlineSource::MotionBgs, false);
+// Reads the wallpaper tiles from a MotionBgs page, one at a time so a title
+// is never paired with the next tile's video. Each is
+//   <a title="NAME live wallpaper" href=/SLUG> ... src=/i/c/364x205/media/ID/FILE[.WxH].jpg
+QList<OnlineWallpaper> parseMotionPage(const QString &html) {
+    static const QRegularExpression head("^([^\"]*?) live wallpaper\" href=/([a-z0-9-]+)>");
+    static const QRegularExpression image("src=/i/c/364x205/media/(\\d+)/([^ >]+?)(\\.\\d+x\\d+)?\\.jpg");
+    QList<OnlineWallpaper> items;
+    QStringList tiles = html.split("<a title=\"");
+    for (int i = 1; i < tiles.size(); ++i) {
+        auto h = head.match(tiles[i]);
+        auto m = image.match(tiles[i]);
+        if (!h.hasMatch() || !m.hasMatch()) continue;
+        OnlineWallpaper w;
+        w.source = OnlineSource::MotionBgs;
+        w.id = m.captured(1);
+        w.title = h.captured(1);
+        w.video = true;
+        QString base = m.captured(2);
+        w.thumbUrl = "https://motionbgs.com/i/c/364x205/media/" + w.id + "/" + base + m.captured(3) + ".jpg";
+        w.previewUrl = "https://motionbgs.com/media/" + w.id + "/" + base + ".960x540.mp4";
+        // The 1080p copy rather than 4K: a few MB instead of tens.
+        w.fullUrl = "https://motionbgs.com/dl/hd/" + w.id + "/";
+        w.resolution = "1920x1080";
+        items << w;
+    }
+    return items;
+}
+
+QString motionFilterFile() { return paths::thumbs() + "/../motionbgs-filter.txt"; }
+
+} // namespace
+
+void OnlineLibrary::loadMotionFilter() {
+    if (motionFilterState_ != FilterState::Missing) return;
+    // Cached for a week.
+    QFile cache(motionFilterFile());
+    if (cache.open(QIODevice::ReadOnly)) {
+        QStringList lines = QString::fromUtf8(cache.readAll()).split('\n', Qt::SkipEmptyParts);
+        qint64 saved = lines.isEmpty() ? 0 : lines.first().toLongLong();
+        if (QDateTime::currentSecsSinceEpoch() - saved < 7 * 24 * 3600) {
+            for (int i = 1; i < lines.size(); ++i) motionFiltered_.insert(lines[i]);
+            motionFilterState_ = FilterState::Ready;
             return;
         }
-        // No API: read the wallpaper tiles from the page, one at a time so
-        // a title is never paired with the next tile's video. Each is
-        //   <a title="NAME live wallpaper" href=/SLUG> ... src=/i/c/364x205/media/ID/FILE[.WxH].jpg
-        QString html = QString::fromUtf8(reply->readAll());
-        static const QRegularExpression head("^([^\"]*?) live wallpaper\" href=/([a-z0-9-]+)>");
-        static const QRegularExpression image("src=/i/c/364x205/media/(\\d+)/([^ >]+?)(\\.\\d+x\\d+)?\\.jpg");
-        QList<OnlineWallpaper> items;
-        QStringList tiles = html.split("<a title=\"");
-        for (int i = 1; i < tiles.size(); ++i) {
-            auto h = head.match(tiles[i]);
-            auto m = image.match(tiles[i]);
-            if (!h.hasMatch() || !m.hasMatch()) continue;
-            OnlineWallpaper w;
-            w.source = OnlineSource::MotionBgs;
-            w.id = m.captured(1);
-            w.title = h.captured(1);
-            w.video = true;
-            QString base = m.captured(2);
-            w.thumbUrl = "https://motionbgs.com/i/c/364x205/media/" + w.id + "/" + base + m.captured(3) + ".jpg";
-            w.previewUrl = "https://motionbgs.com/media/" + w.id + "/" + base + ".960x540.mp4";
-            // The 1080p copy rather than 4K: a few MB instead of tens.
-            w.fullUrl = "https://motionbgs.com/dl/hd/" + w.id + "/";
-            w.resolution = "1920x1080";
-            items << w;
-        }
-        page_[OnlineSource::MotionBgs] = page + 1;
-        deliver(generation, items);
-        // A full page means there may be another.
-        sourceDone(generation, OnlineSource::MotionBgs, items.size() >= 20);
-    });
+    }
+    motionFilterState_ = FilterState::Loading;
+    motionFilterBatch_.clear();
+    motionFilterEnd_ = false;
+    fetchMotionFilterPages(1);
+}
+
+// Fetches the tag's pages eight at a time until one comes back empty.
+void OnlineLibrary::fetchMotionFilterPages(int first) {
+    const int batch = 8;
+    motionFilterPending_ = batch;
+    for (int page = first; page < first + batch; ++page) {
+        QString url = "https://motionbgs.com/tag:girl/" + (page > 1 ? QString::number(page) + "/" : QString());
+        QNetworkReply *reply = get(url);
+        connect(reply, &QNetworkReply::finished, this, [this, reply, first, batch] {
+            reply->deleteLater();
+            QList<OnlineWallpaper> items =
+                reply->error() == QNetworkReply::NoError ? parseMotionPage(QString::fromUtf8(reply->readAll()))
+                                                         : QList<OnlineWallpaper>();
+            if (items.isEmpty()) motionFilterEnd_ = true;
+            for (const OnlineWallpaper &w : items) motionFilterBatch_.insert(w.id);
+            if (--motionFilterPending_ > 0) return;
+            if (!motionFilterEnd_ && first < 120) {
+                fetchMotionFilterPages(first + batch);
+                return;
+            }
+            motionFiltered_ = motionFilterBatch_;
+            motionFilterState_ = FilterState::Ready;
+            QFile cache(motionFilterFile());
+            if (cache.open(QIODevice::WriteOnly)) {
+                cache.write(QByteArray::number(QDateTime::currentSecsSinceEpoch()) + "\n");
+                for (const QString &id : motionFiltered_) cache.write(id.toUtf8() + "\n");
+            }
+            QList<int> waiting = motionWaiting_;
+            motionWaiting_.clear();
+            for (int generation : waiting)
+                if (generation == generation_) searchMotionBgs(generation);
+        });
+    }
+}
+
+void OnlineLibrary::searchMotionBgs(int generation) {
+    if (options_.strict && motionFilterState_ != FilterState::Ready) {
+        // Hold the results back until the filter can be applied.
+        motionWaiting_ << generation;
+        loadMotionFilter();
+        return;
+    }
+    int page = page_.value(OnlineSource::MotionBgs, 1);
+    QString tag = kGenres[int(options_.genre)].motionTag;
+    QString genreWords = kGenres[int(options_.genre)].words;
+
+    // Its search only matches names, so a search also opens the genre
+    // pages ("tags") for each word: MotionBgs tags describe what is in the
+    // wallpaper, like "eyes", "rain" or "car".
+    QStringList urls;
+    if (!options_.query.isEmpty()) {
+        QUrlQuery params;
+        params.addQueryItem("q", (options_.query + " " + genreWords).trimmed());
+        if (page > 1) params.addQueryItem("page", QString::number(page));
+        QUrl url("https://motionbgs.com/search");
+        url.setQuery(params);
+        urls << url.toString();
+        QStringList words = options_.query.toLower().split(QRegularExpression("[^a-z0-9]+"), Qt::SkipEmptyParts);
+        QStringList tags;
+        if (words.size() > 1) tags << words.join('-');
+        for (const QString &word : words) tags += variants(word);
+        tags.removeDuplicates();
+        for (const QString &t : tags.mid(0, 6))
+            urls << "https://motionbgs.com/tag:" + t + "/" + (page > 1 ? QString::number(page) + "/" : QString());
+    } else if (!tag.isEmpty()) {
+        urls << "https://motionbgs.com/tag:" + tag + "/" + (page > 1 ? QString::number(page) + "/" : QString());
+    } else {
+        urls << "https://motionbgs.com/" + (page > 1 ? QString::number(page) + "/" : QString());
+    }
+
+    auto remaining = QSharedPointer<int>::create(urls.size());
+    auto anyFull = QSharedPointer<bool>::create(false);
+    auto gathered = QSharedPointer<QList<OnlineWallpaper>>::create();
+    for (const QString &url : urls) {
+        QNetworkReply *reply = get(url);
+        connect(reply, &QNetworkReply::finished, this, [this, reply, generation, page, remaining, anyFull, gathered] {
+            reply->deleteLater();
+            // Pages past the end, and tags that do not exist, answer "not
+            // found"; that just means nothing more there.
+            if (reply->error() == QNetworkReply::NoError) {
+                QList<OnlineWallpaper> items = parseMotionPage(QString::fromUtf8(reply->readAll()));
+                if (items.size() >= 20) *anyFull = true;
+                *gathered += items;
+            }
+            if (--*remaining > 0) return;
+            page_[OnlineSource::MotionBgs] = page + 1;
+            deliver(generation, *gathered);
+            sourceDone(generation, OnlineSource::MotionBgs, *anyFull);
+        });
+    }
 }
 
 // --- NASA: videos and pictures --------------------------------------------------
@@ -348,10 +491,10 @@ void OnlineLibrary::searchMotionBgs(int generation) {
 void OnlineLibrary::searchNasa(int generation) {
     int page = page_.value(OnlineSource::Nasa, 1);
     QUrlQuery params;
-    QString terms = query_.isEmpty() ? QString(genre_ == Genre::Scenery ? "earth" : "earth from space") : query_;
+    QString terms = options_.query.isEmpty() ? QString(options_.genre == Genre::Scenery ? "earth" : "earth from space") : options_.query;
     params.addQueryItem("q", terms);
-    params.addQueryItem("media_type", filter_ == OnlineFilter::Live       ? "video"
-                                      : filter_ == OnlineFilter::Pictures ? "image"
+    params.addQueryItem("media_type", options_.filter == OnlineFilter::Live       ? "video"
+                                      : options_.filter == OnlineFilter::Pictures ? "image"
                                                                           : "video,image");
     params.addQueryItem("page", QString::number(page));
     params.addQueryItem("page_size", QString::number(kPageSize));
