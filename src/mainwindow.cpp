@@ -17,8 +17,10 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QMediaPlayer>
 #include <QMessageBox>
 #include <QMimeData>
+#include <QMovie>
 #include <QPushButton>
 #include <QSlider>
 #include <QStackedWidget>
@@ -27,6 +29,7 @@
 #include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
+#include <QVideoWidget>
 
 namespace {
 
@@ -151,11 +154,20 @@ QWidget *MainWindow::buildWallpaperPage() {
     col->setContentsMargins(28, 24, 28, 24);
     col->addWidget(heading("Wallpaper"));
 
+    previewStack_ = new QStackedWidget;
+    previewStack_->setFixedSize(480, 270);
     currentPreview_ = new QLabel;
-    currentPreview_->setFixedSize(480, 270);
     currentPreview_->setAlignment(Qt::AlignCenter);
     currentPreview_->setStyleSheet("background: #181825; border-radius: 10px;");
-    col->addWidget(currentPreview_);
+    previewVideo_ = new QVideoWidget;
+    previewVideo_->setAspectRatioMode(Qt::KeepAspectRatio);
+    // No audio output: the preview is always silent.
+    previewPlayer_ = new QMediaPlayer(this);
+    previewPlayer_->setVideoOutput(previewVideo_);
+    previewPlayer_->setLoops(QMediaPlayer::Infinite);
+    previewStack_->addWidget(currentPreview_);
+    previewStack_->addWidget(previewVideo_);
+    col->addWidget(previewStack_);
     currentTitle_ = new QLabel;
     col->addWidget(currentTitle_);
     status_ = new QLabel;
@@ -221,20 +233,60 @@ QWidget *MainWindow::buildWallpaperPage() {
 }
 
 void MainWindow::refreshCurrent() {
+    showPreview();
+    if (settings_.file.isEmpty())
+        currentTitle_->clear();
+    else
+        currentTitle_->setText(settings_.title.isEmpty() ? QFileInfo(settings_.file).fileName() : settings_.title);
+    status_->setText(wallpaperRunning() ? "The wallpaper is running." : "The wallpaper is not running.");
+}
+
+void MainWindow::showPreview() {
+    if (previewFile_ == settings_.file && !previewFile_.isEmpty()) {
+        // Same wallpaper: just resume what was paused.
+        if (previewMovie_) previewMovie_->setPaused(false);
+        if (previewStack_->currentWidget() == previewVideo_) previewPlayer_->play();
+        return;
+    }
+    previewFile_ = settings_.file;
+    previewPlayer_->stop();
+    currentPreview_->clear();
+    delete previewMovie_;
+    previewMovie_ = nullptr;
+    previewStack_->setCurrentWidget(currentPreview_);
+
     if (settings_.file.isEmpty()) {
         currentPreview_->setText("No wallpaper yet: pick one in the Library");
-        currentTitle_->clear();
-    } else {
-        QString preview = kindOfFile(settings_.file) == Kind::Video ? videoThumbnail(settings_.file) : settings_.file;
-        QImage image = preview.isEmpty() ? QImage() : QImageReader(preview).read();
+        return;
+    }
+    switch (kindOfFile(settings_.file)) {
+    case Kind::Video:
+        previewStack_->setCurrentWidget(previewVideo_);
+        previewPlayer_->setSource(QUrl::fromLocalFile(settings_.file));
+        previewPlayer_->play();
+        return;
+    case Kind::Gif: {
+        previewMovie_ = new QMovie(settings_.file, QByteArray(), this);
+        QSize size = QImageReader(settings_.file).size();
+        if (size.isValid()) previewMovie_->setScaledSize(size.scaled(previewStack_->size(), Qt::KeepAspectRatio));
+        currentPreview_->setMovie(previewMovie_);
+        previewMovie_->start();
+        return;
+    }
+    default: {
+        QImage image = QImageReader(settings_.file).read();
         if (image.isNull())
             currentPreview_->setText(QFileInfo(settings_.file).fileName());
         else
             currentPreview_->setPixmap(QPixmap::fromImage(
-                image.scaled(currentPreview_->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation)));
-        currentTitle_->setText(settings_.title.isEmpty() ? QFileInfo(settings_.file).fileName() : settings_.title);
+                image.scaled(previewStack_->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation)));
     }
-    status_->setText(wallpaperRunning() ? "The wallpaper is running." : "The wallpaper is not running.");
+    }
+}
+
+void MainWindow::pausePreview() {
+    if (previewMovie_) previewMovie_->setPaused(true);
+    previewPlayer_->pause();
 }
 
 void MainWindow::saveOptions() {
@@ -535,6 +587,10 @@ void MainWindow::upload(const QStringList &files) {
 
 void MainWindow::showPage(int page) {
     pages_->setCurrentIndex(page);
-    if (page == 0) refreshCurrent();
+    // Only play the preview while it can be seen.
+    if (page == 0)
+        refreshCurrent();
+    else
+        pausePreview();
     if (page == 1) refreshLibrary();
 }

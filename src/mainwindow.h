@@ -14,6 +14,9 @@ class QLabel;
 class QLineEdit;
 class QListWidget;
 class QListWidgetItem;
+class QMediaPlayer;
+class QMovie;
+class QVideoWidget;
 class QPushButton;
 class QSlider;
 class QStackedWidget;
@@ -37,6 +40,8 @@ private:
 
     void showPage(int page);
     void refreshCurrent();
+    void showPreview();
+    void pausePreview();
     void refreshLibrary();
     void loadThumb(int row, const QString &path, bool video);
     void selectionChanged();
@@ -56,7 +61,13 @@ private:
     QListWidget *nav_;
     QStackedWidget *pages_;
 
+    // The preview plays GIFs and videos too, while the page is visible.
+    QStackedWidget *previewStack_;
     QLabel *currentPreview_, *currentTitle_, *status_;
+    QVideoWidget *previewVideo_;
+    QMediaPlayer *previewPlayer_;
+    QMovie *previewMovie_ = nullptr;
+    QString previewFile_;
     QComboBox *fit_;
     QCheckBox *sound_, *autostart_;
     QSlider *volume_;
