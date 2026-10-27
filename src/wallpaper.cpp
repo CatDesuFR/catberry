@@ -9,6 +9,10 @@
 
 #include <QApplication>
 #include <QAudioOutput>
+#include <QCryptographicHash>
+#include <QDir>
+#include <QFileInfo>
+#include <QImageReader>
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QMediaPlayer>
@@ -17,10 +21,12 @@
 #include <QPointer>
 #include <QProcess>
 #include <QScreen>
+#include <QStandardPaths>
 #include <QVideoWidget>
 #include <QWidget>
 #include <QWindow>
 
+#include <malloc.h>
 #include <unistd.h>
 
 #include <cstdio>
@@ -58,7 +64,9 @@ public:
         layer->setScope("desktop");
     }
 
-    void apply(const Settings &s) {
+    // `play` is the file to show: the setting's file, or a copy of a video
+    // scaled down to the screen.
+    void apply(const Settings &s, const QString &play) {
         settings_ = s;
         movie_.reset();
         if (player_) player_->stop();
@@ -68,20 +76,27 @@ public:
             if (!player_) {
                 player_ = new QMediaPlayer(this);
                 video_ = new QVideoWidget(this);
-                audio_ = new QAudioOutput(this);
                 player_->setVideoOutput(video_);
-                player_->setAudioOutput(audio_);
                 player_->setLoops(QMediaPlayer::Infinite);
+            }
+            // Sound only when it is on (and on one screen): without an audio
+            // output the sound is not even decoded.
+            bool sound = s.sound && withSound_;
+            if (sound && !audio_) {
+                audio_ = new QAudioOutput(this);
+                player_->setAudioOutput(audio_);
+            } else if (!sound && audio_) {
+                player_->setAudioOutput(nullptr);
+                delete audio_;
+                audio_ = nullptr;
             }
             video_->setAspectRatioMode(s.fit == "fit" || s.fit == "center" ? Qt::KeepAspectRatio
                                        : s.fit == "stretch"                 ? Qt::IgnoreAspectRatio
                                                                             : Qt::KeepAspectRatioByExpanding);
             video_->setGeometry(rect());
             video_->show();
-            // Only one screen plays the sound.
-            audio_->setMuted(!(s.sound && withSound_));
-            audio_->setVolume(s.volume / 100.0f);
-            player_->setSource(QUrl::fromLocalFile(s.file));
+            if (audio_) audio_->setVolume(s.volume / 100.0f);
+            player_->setSource(QUrl::fromLocalFile(play));
             player_->play();
         } else {
             if (video_) video_->hide();
@@ -91,7 +106,7 @@ public:
                 QObject::connect(movie_.get(), &QMovie::frameChanged, this, [this] { update(); });
                 movie_->start();
             } else if (kind == Kind::Image) {
-                image_.load(s.file);
+                image_ = loadForScreen(s);
             }
         }
         update();
@@ -121,6 +136,28 @@ protected:
     }
 
 private:
+    // Big pictures are shrunk to the screen as they load: an 8K picture
+    // would otherwise hold about 130 MB of memory, at screen size about 8.
+    QImage loadForScreen(const Settings &s) const {
+        QImageReader reader(s.file);
+        reader.setAutoTransform(true);
+        QSize original = reader.size(), screen = size();
+        if (original.isValid() && (original.width() > screen.width() || original.height() > screen.height())) {
+            if (s.fit == "center") {
+                // Only the middle part is ever visible.
+                reader.setClipRect(QRect((original.width() - screen.width()) / 2,
+                                         (original.height() - screen.height()) / 2, screen.width(), screen.height())
+                                       .intersected(QRect(QPoint(), original)));
+            } else {
+                QSize scaled = s.fit == "stretch" ? screen
+                               : s.fit == "fit"   ? original.scaled(screen, Qt::KeepAspectRatio)
+                                                  : original.scaled(screen, Qt::KeepAspectRatioByExpanding);
+                reader.setScaledSize(scaled);
+            }
+        }
+        return reader.read();
+    }
+
     bool withSound_;
     Settings settings_;
     QImage image_;
@@ -140,7 +177,8 @@ public:
 
     void reload() {
         Settings s = Settings::load();
-        for (auto &view : views_) view->apply(s);
+        QString play = kindOfFile(s.file) == Kind::Video ? screenCopy(s.file) : s.file;
+        for (auto &view : views_) view->apply(s, play);
         // The widgets go on the main screen, made after the wallpaper so
         // they sit on top of it.
         clock_.reset();
@@ -161,6 +199,74 @@ public:
     }
 
 private:
+    // The biggest screen; videos are scaled to cover it.
+    QSize screenSize() const {
+        QSize biggest;
+        for (QScreen *screen : QGuiApplication::screens()) {
+            QSize size = screen->size() * screen->devicePixelRatio();
+            if (size.width() * size.height() > biggest.width() * biggest.height()) biggest = size;
+        }
+        return biggest;
+    }
+
+    static QSize videoSize(const QString &file) {
+        QProcess probe;
+        probe.start("ffprobe", {"-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
+                                "-of", "csv=s=x:p=0", file});
+        if (!probe.waitForFinished(5000)) return QSize();
+        QStringList parts = QString::fromUtf8(probe.readAllStandardOutput()).trimmed().split('x');
+        return parts.size() == 2 ? QSize(parts[0].toInt(), parts[1].toInt()) : QSize();
+    }
+
+    // Decoding a video bigger than the screen costs memory for pixels that
+    // are never seen (a 4K video on a 1080p screen: about twice the memory
+    // of a 1080p one). So a copy scaled to the screen is made once, in the
+    // background, and used from then on. Until it is ready, the original
+    // plays.
+    QString screenCopy(const QString &file) {
+        QSize screen = screenSize(), video = videoSize(file);
+        if (!screen.isValid() || !video.isValid() || QStandardPaths::findExecutable("ffmpeg").isEmpty()) return file;
+        // Already about the screen's size or smaller.
+        if (video.width() <= screen.width() * 11 / 10 && video.height() <= screen.height() * 11 / 10) return file;
+
+        QString dir = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + "/catberry/roofce/scaled";
+        QDir().mkpath(dir);
+        QFileInfo info(file);
+        QByteArray key = (info.absoluteFilePath() + QString::number(info.lastModified().toSecsSinceEpoch())).toUtf8();
+        QString copy = dir + "/" + QCryptographicHash::hash(key, QCryptographicHash::Sha1).toHex().left(16) + "-" +
+                       QString("%1x%2").arg(screen.width()).arg(screen.height()) + ".mp4";
+        if (QFile::exists(copy)) return copy;
+        if (converting_ == copy) return file;
+
+        // Only the current wallpaper's copy is kept.
+        for (const QFileInfo &old : QDir(dir).entryInfoList(QDir::Files)) QFile::remove(old.absoluteFilePath());
+        delete converter_;
+        converter_ = new QProcess(this);
+        converting_ = copy;
+        QString scale = QString("scale=%1:%2:force_original_aspect_ratio=increase,scale=trunc(iw/2)*2:trunc(ih/2)*2")
+                            .arg(screen.width())
+                            .arg(screen.height());
+        // Low priority and few threads, so it does not slow anything down.
+        QStringList args = {"-n", "19", "ffmpeg", "-v", "error", "-y", "-i", file, "-vf", scale, "-c:v", "libx264",
+                            "-preset", "veryfast", "-crf", "21", "-pix_fmt", "yuv420p", "-c:a", "copy",
+                            "-movflags", "+faststart", "-threads", "4", copy + ".part.mp4"};
+        connect(converter_, &QProcess::finished, this, [this, file, copy](int code, QProcess::ExitStatus status) {
+            converting_.clear();
+            if (status != QProcess::NormalExit || code != 0) {
+                QFile::remove(copy + ".part.mp4");
+                return;
+            }
+            QFile::rename(copy + ".part.mp4", copy);
+            // Switch over if it is still the wallpaper.
+            if (Settings::load().file == file) reload();
+        });
+        converter_->start("nice", args);
+        return file;
+    }
+
+    QProcess *converter_ = nullptr;
+    QString converting_;
+
     void rebuild() {
         views_.clear();
         bool first = true;
@@ -215,6 +321,10 @@ int runWallpaper(int argc, char **argv) {
     }
     // Layer-shell surfaces exist only on Wayland, never through XWayland.
     qputenv("QT_QPA_PLATFORM", "wayland");
+    // Video decoding runs many threads; by default each gets its own memory
+    // pool, which mostly sits unused. Two pools are plenty.
+    mallopt(M_ARENA_MAX, 2);
+    mallopt(M_TRIM_THRESHOLD, 128 * 1024);
     QApplication app(argc, argv);
     app.setQuitOnLastWindowClosed(false);
     app.setApplicationName("catberry-roofce");
