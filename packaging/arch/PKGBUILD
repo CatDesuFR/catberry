@@ -7,8 +7,9 @@ pkgdesc='Roof Carton Engine: live and still wallpapers for Wayland desktops (cat
 arch=('x86_64')
 url='https://github.com/CatDesuFR/catberry/tree/roof-carton-engine'
 license=('custom')
-depends=('catberry' 'qt6-base' 'qt6-multimedia' 'qt6-multimedia-ffmpeg' 'layer-shell-qt' 'ffmpeg' 'unzip')
+depends=('qt6-base' 'qt6-multimedia' 'qt6-multimedia-ffmpeg' 'layer-shell-qt' 'ffmpeg' 'unzip')
 makedepends=('cmake' 'gcc' 'make')
+optdepends=('catberry: the catberry command, to run it as "catberry roofce"')
 options=('!debug')
 source=()
 

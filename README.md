@@ -25,13 +25,20 @@ videos (H.264) and for the memory-saving video copies.
 
 ### CachyOS, Garuda and other Arch-based distros
 
+One command; pacman also installs the Qt, layer-shell and FFmpeg packages it needs:
+
+```bash
+curl -LO https://github.com/CatDesuFR/catberry/raw/roof-carton-engine/release/v1.2.1/catberry-roofce-1.2.1-1-x86_64.pkg.tar.zst && sudo pacman -U catberry-roofce-1.2.1-1-x86_64.pkg.tar.zst
+```
+
+Or build it yourself:
+
 ```bash
 git clone -b roof-carton-engine https://github.com/CatDesuFR/catberry.git catberry-roofce
 cd catberry-roofce/packaging/arch && makepkg -si
 ```
 
-`makepkg -si` installs the build tools and libraries it needs, builds the
-package and installs it with pacman. Remove it with `sudo pacman -R catberry-roofce`.
+Remove it with `sudo pacman -R catberry-roofce`.
 
 Both put **Roof Carton Engine** in your app menu.
 
