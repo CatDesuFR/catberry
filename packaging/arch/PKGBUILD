@@ -1,0 +1,27 @@
+# Builds the Arch package from the source tree this file sits in:
+#   cd packaging/arch && makepkg -si
+pkgname=catberry-roofce
+pkgver=1.2.1
+pkgrel=1
+pkgdesc='Roof Carton Engine: live and still wallpapers for Wayland desktops (catberry roofce)'
+arch=('x86_64')
+url='https://github.com/CatDesuFR/catberry/tree/roof-carton-engine'
+license=('custom')
+depends=('catberry' 'qt6-base' 'qt6-multimedia' 'qt6-multimedia-ffmpeg' 'layer-shell-qt' 'ffmpeg' 'unzip')
+makedepends=('cmake' 'gcc' 'make')
+options=('!debug')
+source=()
+
+build() {
+    rm -rf "$srcdir/$pkgname"
+    mkdir -p "$srcdir/$pkgname"
+    cp -r "$startdir/../../src" "$startdir/../../data" "$startdir/../../CMakeLists.txt" "$srcdir/$pkgname/"
+    cmake -S "$srcdir/$pkgname" -B "$srcdir/build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
+    cmake --build "$srcdir/build"
+}
+
+package() {
+    install -Dm755 "$srcdir/build/catberry-roofce" "$pkgdir/usr/bin/catberry-roofce"
+    install -Dm644 "$srcdir/$pkgname/data/catberry-roofce.desktop" "$pkgdir/usr/share/applications/catberry-roofce.desktop"
+    install -Dm644 "$startdir/../../README.md" "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

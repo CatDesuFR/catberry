@@ -1,102 +1,108 @@
-# catberry
+# catberry roofce — Roof Carton Engine
 
-`catberry` is one command for a set of input tools, on **Linux** and
-**Windows 10/11**. This branch is the `catberry` command itself (version
-1.1.0). Each tool lives on its own branch and is installed separately:
+A wallpaper manager for **Linux on Wayland** (KDE Plasma on Fedora, CachyOS,
+Garuda; also Hyprland and Sway), version **1.2.1**. Your wallpaper is drawn
+by roofce itself, as part of the desktop, not in a window: live videos,
+GIFs and pictures, with a Mond-style clock and a music player on top.
 
-| Tool | Branch | Version | What it does |
-| --- | --- | --- | --- |
-| `catberry ac` | [`ac`](https://github.com/CatDesuFR/catberry/tree/ac) | 1.1.2 | Autoclicker: clicks, scrolls or presses a key at a set rate |
-| `catberry mtools` | [`mtools`](https://github.com/CatDesuFR/catberry/tree/mtools) | 1.1.0 | Macro recorder, plus hotkey macros (`catberry -config`) |
+This branch holds only roofce. The `catberry` command it runs under lives on
+the [`main` branch](https://github.com/CatDesuFR/catberry); install that first.
 
-Install this launcher first, then the tools you want.
+GNOME is not supported: it does not let apps provide the wallpaper.
 
 ## Install
 
+### Fedora
+
+```bash
+sudo dnf install qt6-qtbase-devel qt6-qtmultimedia-devel layer-shell-qt-devel cmake gcc-c++ ffmpeg unzip
+git clone -b roof-carton-engine https://github.com/CatDesuFR/catberry.git catberry-roofce
+cd catberry-roofce && make install
+```
+
+`ffmpeg` with full codec support comes from RPM Fusion; it is needed for most
+videos (H.264) and for the memory-saving video copies.
+
 ### CachyOS, Garuda and other Arch-based distros
 
-Everything (launcher, autoclicker and mtools) in one command:
-
 ```bash
-curl -LO https://github.com/CatDesuFR/catberry/raw/main/release/v1.1.0/catberry-1.1.0-1-x86_64.pkg.tar.zst \
-     -LO https://github.com/CatDesuFR/catberry/raw/ac/release/v1.1.2/catberry-ac-1.1.2-1-x86_64.pkg.tar.zst \
-     -LO https://github.com/CatDesuFR/catberry/raw/mtools/release/v1.1.0/catberry-mtools-1.1.0-1-x86_64.pkg.tar.zst \
-  && sudo pacman -U catberry-1.1.0-1-x86_64.pkg.tar.zst catberry-ac-1.1.2-1-x86_64.pkg.tar.zst catberry-mtools-1.1.0-1-x86_64.pkg.tar.zst
+git clone -b roof-carton-engine https://github.com/CatDesuFR/catberry.git catberry-roofce
+cd catberry-roofce/packaging/arch && makepkg -si
 ```
 
-Leave out a tool's file to skip it. This also replaces the older all-in-one
-`catberry` 1.0.2 package. Remove everything with
-`sudo pacman -R catberry-ac catberry-mtools catberry`.
+`makepkg -si` installs the build tools and libraries it needs, builds the
+package and installs it with pacman. Remove it with `sudo pacman -R catberry-roofce`.
 
-### Other Linux distros
-
-Download [`catberry-linux-x86_64`](https://github.com/CatDesuFR/catberry/raw/main/release/v1.1.0/catberry-linux-x86_64)
-(needs glibc 2.38 or newer: Fedora 39+, Ubuntu 24.04+, Debian 13+) and
-install it as `catberry`:
-
-```bash
-install -Dm755 ~/Downloads/catberry-linux-x86_64 ~/.local/bin/catberry
-```
-
-Then install the tools from their branches into the same folder. Or build
-it: `make install` on this branch.
-
-### Windows
-
-Download [`catberry-windows.zip`](https://github.com/CatDesuFR/catberry/raw/main/release/v1.1.0/catberry-windows.zip),
-extract it and double-click `install.bat` (if Windows shows "Windows protected
-your PC", click **More info** → **Run anyway**). Then do the same with
-`catberry-ac-windows.zip` and `catberry-mtools-windows.zip` from the tool
-branches. All of them go into `%LOCALAPPDATA%\Programs\catberry`, which is
-added to your PATH; open a new terminal afterwards.
-
-### Linux permission (once)
-
-The hotkeys and macro recording read the keyboard directly. Run this, then
-log out and back in:
-
-```bash
-sudo usermod -aG input $USER
-```
-
-Not needed on Windows.
+Both put **Roof Carton Engine** in your app menu.
 
 ## Use
 
 ```
-catberry -help                  show the help
-catberry -v                     print the versions of catberry and its tools
-
-catberry ac gui                 open the autoclicker
-catberry mtools gui             open the macro recorder
-catberry -config NAME KEYS HOTKEY COUNT
-                                save a hotkey macro, eg: -config EasyEdit E,LMB F6 1
-catberry -configload NAME       start a saved macro in the background
-catberry -configunload [NAME]   stop one loaded macro, or all of them
+catberry roofce gui     open the wallpaper manager
+catberry roofce start   show the saved wallpaper
+catberry roofce stop    stop showing it
+catberry roofce -v      print the version
 ```
 
-`catberry -v` shows which tools are installed:
+`gui` returns the terminal straight away. The wallpaper keeps running after
+the window is closed, and (if you leave the option on) starts when you log in.
 
-```
-catberry 1.1.0
-  ac      1.1.2
-  mtools  1.1.0
-```
+### Wallpaper
 
-`catberry ac ...` runs the `catberry-ac` program and `catberry mtools ...` (and
-the `-config` commands) run `catberry-mtools`. The launcher looks for them
-next to itself first, then on your PATH. See each branch's README for how the
-tools work.
+The current wallpaper with a live preview, how it fits the screen
+(fill, fit, stretch, center), video sound, and start/stop.
 
-## Build
+### Library
 
-| Target | Command | Output |
-| --- | --- | --- |
-| Linux program | `make` | `catberry` |
-| Install on Linux | `make install` | `~/.local/bin/catberry` |
-| Windows package | `make windows` | `dist/catberry-windows.zip` |
-| Arch package | `cd packaging/arch && makepkg` | `catberry-1.1.0-1-x86_64.pkg.tar.zst` |
+- **My wallpapers**: your uploads and every online wallpaper you set.
+- **Wallpaper Engine**: if you own Wallpaper Engine on Steam, the Workshop
+  wallpapers you subscribe to appear here, played straight from Steam's
+  folder (no copy). Video wallpapers work; scene and web ones do not yet.
+- **Online (free)**: MotionBgs (live wallpapers), Wallhaven, Wikimedia
+  Commons and NASA, no account needed. Search (it also searches the sites'
+  tags, so "eyes" finds wallpapers showing eyes), filter by live or pictures,
+  genre, resolution (1080p, 2K, 4K, 8K) and source, and sort by resolution
+  or size. Hover a tile to play it; nothing is saved until you set it.
+- **Strict filter** and **Hide AI art** are on by default.
+- wallpapers.com does not allow apps to use it; **Browse wallpapers.com**
+  opens it in your browser, and what you download there can be uploaded.
 
-Ready-built downloads are in [`release/v1.1.0`](release/v1.1.0), with a
-`SHA256SUMS` file to check them against. The Windows package is
-cross-compiled with MinGW-w64.
+### Upload wallpaper
+
+Drop images (PNG, JPG, WebP), GIFs or videos (MP4, WebM, MKV, MOV) on the
+window, or choose them.
+
+### Widgets
+
+- **Clock** in the style of the Mond Rainmeter skin: position, size, colour,
+  font, 12/24-hour, seconds.
+- **Music player**: what Spotify is playing (or any other player when
+  Spotify is not), with previous / play-pause / next and a progress bar you
+  can click. No Spotify login needed.
+- Drag both around the desktop (the clock by its text); they stay put.
+  **Reset positions** puts them back.
+
+### Font library and Saved fonts
+
+Popular free fonts for the clock, with suggested ones first and **Anurati**
+(the Mond font) on top. Click **Download** and a font is installed for you.
+Anurati and fonts from other sites: download them in the browser, then
+**Saved fonts → Import fonts...** (.ttf, .otf or a .zip).
+
+## Where things are kept
+
+| What | Where |
+| --- | --- |
+| Settings | `~/.config/catberry/roofce.conf` |
+| Uploaded and downloaded wallpapers | `~/.local/share/catberry/roofce/` |
+| Fonts | `~/.local/share/fonts/catberry/` |
+| Previews and screen-sized video copies (safe to delete) | `~/.cache/catberry/roofce/` |
+
+## Memory
+
+Videos bigger than the screen are copied once at the screen's size in the
+background (with ffmpeg) and played from that copy, roughly halving memory
+for 4K videos on a 1080p screen.
+
+Wallpapers and fonts belong to their creators; online sources are used for
+personal wallpapers only.
