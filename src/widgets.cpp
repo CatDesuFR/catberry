@@ -28,6 +28,12 @@ const QColor kAccent(0x1d, 0xb9, 0x54); // Spotify green, for shuffle/repeat whe
 // Clear of the screen edges and of a bottom panel.
 const int kEdge = 48, kBottomEdge = 72;
 
+// Every desktop widget alive, so each can keep out of the others' way.
+QList<DesktopWidget *> &allWidgets() {
+    static QList<DesktopWidget *> widgets;
+    return widgets;
+}
+
 // A dark outline under light text keeps it readable on any wallpaper.
 void drawText(QPainter &p, const QRectF &rect, int flags, const QString &text, const QColor &color) {
     p.setPen(QColor(0, 0, 0, 110));
@@ -202,13 +208,77 @@ DesktopWidget::DesktopWidget(QScreen *screen, const QString &name, Place place, 
                                             : area.height() - size.height() - kBottomEdge;
         pos = QPoint(x, y);
     }
-    moveTo(pos);
+    pos = clampToScreen(pos);
+    // On top of a widget made earlier (the clock is made first): moved next
+    // to it, and that spot saved.
+    QPoint free = freeSpotNear(pos);
+    if (free != pos) Settings::savePosition(name_, free);
+    allWidgets().append(this);
+    moveTo(free);
+}
+
+DesktopWidget::~DesktopWidget() { allWidgets().removeAll(this); }
+
+QPoint DesktopWidget::clampToScreen(QPoint topLeft) const {
+    QSize area = screen_->size();
+    return QPoint(qBound(0, topLeft.x(), qMax(0, area.width() - width())),
+                  qBound(0, topLeft.y(), qMax(0, area.height() - height())));
+}
+
+bool DesktopWidget::overlapsOthers(QPoint topLeft) const {
+    QRect mine(topLeft, size());
+    for (const DesktopWidget *other : allWidgets())
+        if (other != this && other->screen_ == screen_ && mine.intersects(other->box())) return true;
+    return false;
+}
+
+QPoint DesktopWidget::slide(QPoint from, QPoint to) const {
+    // Across first, then up or down from where that ended; a widget in the
+    // way stops the move at its edge, even when the mouse jumped past it.
+    int w = width(), h = height();
+    int x = from.x(), y = from.y(), tx = to.x(), ty = to.y();
+    for (const DesktopWidget *other : allWidgets()) {
+        if (other == this || other->screen_ != screen_) continue;
+        QRect o = other->box();
+        if (y >= o.y() + o.height() || y + h <= o.y()) continue; // not level with it
+        if (tx > x && x + w <= o.x()) tx = qMin(tx, o.x() - w);
+        if (tx < x && x >= o.x() + o.width()) tx = qMax(tx, o.x() + o.width());
+    }
+    x = tx;
+    for (const DesktopWidget *other : allWidgets()) {
+        if (other == this || other->screen_ != screen_) continue;
+        QRect o = other->box();
+        if (x >= o.x() + o.width() || x + w <= o.x()) continue; // not above or below it
+        if (ty > y && y + h <= o.y()) ty = qMin(ty, o.y() - h);
+        if (ty < y && y >= o.y() + o.height()) ty = qMax(ty, o.y() + o.height());
+    }
+    return QPoint(x, ty);
+}
+
+QPoint DesktopWidget::freeSpotNear(QPoint topLeft) const {
+    if (!overlapsOthers(topLeft)) return topLeft;
+    // Right next to a widget in the way: left of it, right of it, above or
+    // below it. The closest one that fits on the screen wins.
+    QPoint best = topLeft;
+    qint64 bestDistance = -1;
+    for (const DesktopWidget *other : allWidgets()) {
+        if (other == this || other->screen_ != screen_) continue;
+        QRect o = other->box();
+        for (QPoint candidate : {QPoint(o.x() - width(), topLeft.y()), QPoint(o.x() + o.width(), topLeft.y()),
+                                 QPoint(topLeft.x(), o.y() - height()), QPoint(topLeft.x(), o.y() + o.height())}) {
+            if (clampToScreen(candidate) != candidate || overlapsOthers(candidate)) continue;
+            QPoint d = candidate - topLeft;
+            qint64 distance = qint64(d.x()) * d.x() + qint64(d.y()) * d.y();
+            if (bestDistance < 0 || distance < bestDistance) {
+                best = candidate;
+                bestDistance = distance;
+            }
+        }
+    }
+    return best; // no room anywhere: left where it was
 }
 
 void DesktopWidget::moveTo(QPoint topLeft) {
-    QSize area = screen_->size();
-    topLeft.setX(qBound(0, topLeft.x(), qMax(0, area.width() - width())));
-    topLeft.setY(qBound(0, topLeft.y(), qMax(0, area.height() - height())));
     topLeft_ = topLeft;
     layer_->setMargins(QMargins(topLeft.x(), topLeft.y(), 0, 0));
     update(); // the move takes effect with the next frame
@@ -218,47 +288,21 @@ void DesktopWidget::mousePressEvent(QMouseEvent *event) {
     if (event->button() == Qt::LeftButton && draggableAt(event->position())) {
         dragging_ = true;
         grab_ = event->position();
-        update();
     }
 }
 
 void DesktopWidget::mouseMoveEvent(QMouseEvent *event) {
     if (!dragging_) return;
-    // The point grabbed stays under the mouse.
+    // The point grabbed stays under the mouse, unless another widget is in
+    // the way.
     QPointF delta = event->position() - grab_;
-    moveTo(topLeft_ + delta.toPoint());
+    moveTo(slide(topLeft_, clampToScreen(topLeft_ + delta.toPoint())));
 }
 
 void DesktopWidget::mouseReleaseEvent(QMouseEvent *) {
     if (!dragging_) return;
     dragging_ = false;
     Settings::savePosition(name_, topLeft_);
-    update();
-}
-
-void DesktopWidget::enterEvent(QEnterEvent *) {
-    hovered_ = true;
-    update();
-}
-
-void DesktopWidget::leaveEvent(QEvent *) {
-    hovered_ = false;
-    update();
-}
-
-void DesktopWidget::paintArrangeFrame(QPainter &p) {
-    if (!arrange_ && !hovered_ && !dragging_) return;
-    p.save();
-    QPen pen(QColor(137, 180, 250), 2, Qt::DashLine);
-    p.setPen(pen);
-    p.setBrush(QColor(137, 180, 250, 25));
-    p.drawRoundedRect(QRectF(rect()).adjusted(1, 1, -1, -1), 12, 12);
-    QFont f = font();
-    f.setPixelSize(13);
-    p.setFont(f);
-    p.setPen(QColor(205, 214, 244));
-    p.drawText(QRectF(rect()).adjusted(10, 6, -10, -6), Qt::AlignTop | Qt::AlignLeft, "Drag to move");
-    p.restore();
 }
 
 // --- ClockWidget ----------------------------------------------------------------
@@ -293,7 +337,6 @@ void ClockWidget::paintEvent(QPaintEvent *) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
     p.setRenderHint(QPainter::TextAntialiasing);
-    paintArrangeFrame(p);
     QColor color(settings_.clockColor);
     QDateTime now = QDateTime::currentDateTime();
     QLocale english(QLocale::English);
@@ -484,7 +527,6 @@ void MusicWidget::paintEvent(QPaintEvent *) {
                       bar.height() / 2, bar.height() / 2);
     p.drawEllipse(QPointF(bar.left() + bar.width() * done, bar.center().y()), 5.5 * s, 5.5 * s);
 
-    paintArrangeFrame(p);
 }
 
 void MusicWidget::mousePressEvent(QMouseEvent *event) {

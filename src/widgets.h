@@ -1,7 +1,8 @@
 // Desktop widgets drawn over the wallpaper: a Mond-style clock and a music
 // player. Each is its own small, transparent layer-shell surface just
 // above the wallpaper, so it also shows over video wallpapers. Both can be
-// dragged around: the player by its card, the clock by its text.
+// dragged around: the player by its card, the clock by its text. They never
+// overlap: each widget's whole surface is a wall the other stops at.
 #pragma once
 
 #include "settings.h"
@@ -64,11 +65,13 @@ private:
 };
 
 // A transparent surface on the wallpaper. It sits at its Position setting,
-// or wherever it was last dragged to.
+// or wherever it was last dragged to. Widgets on the same screen block each
+// other, hidden ones too (a hidden player keeps its spot).
 class DesktopWidget : public QWidget {
 public:
     DesktopWidget(QScreen *screen, const QString &name, Place place, QPoint pos, QSize size, bool clickable,
                   bool arrange);
+    ~DesktopWidget() override;
 
 protected:
     // True when a press at `pos` starts a drag (not on a button).
@@ -76,15 +79,18 @@ protected:
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
-    void enterEvent(QEnterEvent *event) override;
-    void leaveEvent(QEvent *event) override;
-    // The dashed "Drag to move" outline, shown while the mouse is over the
-    // widget or dragging it.
-    void paintArrangeFrame(QPainter &p);
 
     bool arrange_;
 
 private:
+    QRect box() const { return QRect(topLeft_, size()); }
+    QPoint clampToScreen(QPoint topLeft) const;
+    bool overlapsOthers(QPoint topLeft) const;
+    // How far from `from` towards `to` it can go before touching another
+    // widget; it slides along that widget's edge.
+    QPoint slide(QPoint from, QPoint to) const;
+    // The nearest spot to `topLeft` that touches no other widget.
+    QPoint freeSpotNear(QPoint topLeft) const;
     void moveTo(QPoint topLeft);
 
     QString name_;
@@ -92,7 +98,6 @@ private:
     LayerShellQt::Window *layer_;
     QPoint topLeft_;
     bool dragging_ = false;
-    bool hovered_ = false;
     QPointF grab_;
 };
 
