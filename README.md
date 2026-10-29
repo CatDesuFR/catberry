@@ -31,7 +31,13 @@ One command; pacman also installs the Qt, layer-shell and FFmpeg packages it nee
 curl -LO https://github.com/CatDesuFR/catberry/raw/roof-carton-engine/release/v1.2.1/catberry-roofce-1.2.1-1-x86_64.pkg.tar.zst && sudo pacman -U catberry-roofce-1.2.1-1-x86_64.pkg.tar.zst
 ```
 
-Or build it yourself:
+Or build it yourself. First install what it needs:
+
+```bash
+sudo pacman -S --needed base-devel git cmake qt6-base qt6-multimedia qt6-multimedia-ffmpeg layer-shell-qt ffmpeg unzip
+```
+
+Then build it as a package (recommended):
 
 ```bash
 git clone -b roof-carton-engine https://github.com/CatDesuFR/catberry.git catberry-roofce
@@ -39,6 +45,15 @@ cd catberry-roofce/packaging/arch && makepkg -si
 ```
 
 Remove it with `sudo pacman -R catberry-roofce`.
+
+Or build and install it just for your user (into `~/.local`), without a package:
+
+```bash
+git clone -b roof-carton-engine https://github.com/CatDesuFR/catberry.git catberry-roofce
+cd catberry-roofce && make install
+```
+
+Remove that one with `make uninstall` in the same folder.
 
 Both put **Roof Carton Engine** in your app menu.
 
