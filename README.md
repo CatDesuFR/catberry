@@ -30,6 +30,24 @@ Leave out a tool's file to skip it. This also replaces the older all-in-one
 `catberry` 1.0.2 package. Remove everything with
 `sudo pacman -R catberry-ac catberry-mtools catberry-roofce catberry`.
 
+To build everything yourself instead, install what it needs:
+
+```bash
+sudo pacman -S --needed base-devel git cmake qt6-base qt6-multimedia qt6-multimedia-ffmpeg layer-shell-qt ffmpeg unzip libx11 libxtst
+```
+
+Then build and install each package (launcher first; skip the tools you don't want):
+
+```bash
+git clone -b main https://github.com/CatDesuFR/catberry.git catberry && (cd catberry/packaging/arch && makepkg -si)
+git clone -b ac https://github.com/CatDesuFR/catberry.git catberry-ac && (cd catberry-ac/packaging/arch && makepkg -si)
+git clone -b mtools https://github.com/CatDesuFR/catberry.git catberry-mtools && (cd catberry-mtools/packaging/arch && makepkg -si)
+git clone -b roof-carton-engine https://github.com/CatDesuFR/catberry.git catberry-roofce && (cd catberry-roofce/packaging/arch && makepkg -si)
+```
+
+`libx11` and `libxtst` are for ac and mtools; `cmake`, the Qt, layer-shell,
+`ffmpeg` and `unzip` packages are for roofce.
+
 ### Other Linux distros
 
 Download [`catberry-linux-x86_64`](https://github.com/CatDesuFR/catberry/raw/main/release/v1.2.0/catberry-linux-x86_64)
