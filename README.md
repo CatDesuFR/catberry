@@ -8,7 +8,7 @@
 | --- | --- | --- | --- |
 | `catberry ac` | [`ac`](https://github.com/CatDesuFR/catberry/tree/ac) | 1.1.2 | Autoclicker: clicks, scrolls or presses a key at a set rate |
 | `catberry mtools` | [`mtools`](https://github.com/CatDesuFR/catberry/tree/mtools) | 1.1.0 | Macro recorder, plus hotkey macros (`catberry -config`) |
-| `catberry roofce` | [`roof-carton-engine`](https://github.com/CatDesuFR/catberry/tree/roof-carton-engine) | 1.2.1 | Roof Carton Engine: live wallpapers, clock and music widgets (Linux, Wayland) |
+| `catberry roofce` | [`roof-carton-engine`](https://github.com/CatDesuFR/catberry/tree/roof-carton-engine) | 1.2.2 | Roof Carton Engine: live wallpapers, clock and music widgets (Linux, Wayland) |
 
 Install this launcher first, then the tools you want.
 
@@ -22,8 +22,8 @@ Everything (launcher, autoclicker, mtools and roofce) in one command:
 curl -LO https://github.com/CatDesuFR/catberry/raw/main/release/v1.2.0/catberry-1.2.0-1-x86_64.pkg.tar.zst \
      -LO https://github.com/CatDesuFR/catberry/raw/ac/release/v1.1.2/catberry-ac-1.1.2-1-x86_64.pkg.tar.zst \
      -LO https://github.com/CatDesuFR/catberry/raw/mtools/release/v1.1.0/catberry-mtools-1.1.0-1-x86_64.pkg.tar.zst \
-     -LO https://github.com/CatDesuFR/catberry/raw/roof-carton-engine/release/v1.2.1/catberry-roofce-1.2.1-1-x86_64.pkg.tar.zst \
-  && sudo pacman -U catberry-1.2.0-1-x86_64.pkg.tar.zst catberry-ac-1.1.2-1-x86_64.pkg.tar.zst catberry-mtools-1.1.0-1-x86_64.pkg.tar.zst catberry-roofce-1.2.1-1-x86_64.pkg.tar.zst
+     -LO https://github.com/CatDesuFR/catberry/releases/download/roofce-v1.2.2/catberry-roofce-1.2.2-1-x86_64.pkg.tar.zst \
+  && sudo pacman -U catberry-1.2.0-1-x86_64.pkg.tar.zst catberry-ac-1.1.2-1-x86_64.pkg.tar.zst catberry-mtools-1.1.0-1-x86_64.pkg.tar.zst catberry-roofce-1.2.2-1-x86_64.pkg.tar.zst
 ```
 
 Leave out a tool's file to skip it. This also replaces the older all-in-one
@@ -103,7 +103,7 @@ catberry roofce gui             open the wallpaper manager (Linux, Wayland)
 catberry 1.2.0
   ac      1.1.2
   mtools  1.1.0
-  roofce  1.2.1
+  roofce  1.2.2
 ```
 
 `catberry ac ...` runs the `catberry-ac` program, `catberry mtools ...` (and
