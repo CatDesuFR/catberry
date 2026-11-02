@@ -1,2 +1,5 @@
 /catberry-ac
 /dist/
+/packaging/arch/pkg/
+/packaging/arch/src/
+/packaging/arch/*.pkg.tar.zst
