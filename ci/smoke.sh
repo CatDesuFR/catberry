@@ -33,11 +33,26 @@ files=("$pkgdir"/$pattern)
 [ -n "$launcherdir" ] && files+=("$launcherdir"/$pattern)
 [ ${#files[@]} -gt 0 ] || { echo "no $pattern in $pkgdir" >&2; exit 1; }
 
+# Only hard dependencies (no recommended/weak packages), so a missing
+# Depends shows up here instead of on someone's desktop.
 case "$target" in
 arch) pacman -Syu --noconfirm && pacman -U --noconfirm "${files[@]}" ;;
-fedora) dnf install -y "${files[@]}" ;;
-*) apt_install "${files[@]}" ;;
+fedora) dnf install -y --setopt=install_weak_deps=False "${files[@]}" ;;
+*) apt_install --no-install-recommends "${files[@]}" ;;
 esac
+
+# roofce loads these Qt plugins at runtime; no library link pulls them in.
+if [ "$PROGRAM" = catberry-roofce ]; then
+    plugin() { find /usr/lib /usr/lib64 -path '*qt6/plugins/*' -name "$1" 2>/dev/null | grep -q .; }
+    missing=()
+    plugin liblayer-shell.so || missing+=("layer-shell (wayland-shell-integration)")
+    plugin libqwayland.so || plugin libqwayland-generic.so || missing+=("Wayland platform")
+    plugin libffmpegmediaplugin.so || missing+=("FFmpeg media backend")
+    if [ ${#missing[@]} -gt 0 ]; then
+        echo "Qt plugins missing after install: ${missing[*]}" >&2
+        exit 1
+    fi
+fi
 
 out=$(QT_QPA_PLATFORM=offscreen "$PROGRAM" -v 2>&1)
 echo "$out"

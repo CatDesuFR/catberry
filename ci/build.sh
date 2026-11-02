@@ -62,7 +62,7 @@ debian13 | ubuntu26.04)
     mkdir -p shlibs/debian && echo "Source: $PROGRAM" >shlibs/debian/control
     shlibs=$(cd shlibs && dpkg-shlibdeps -O "../root/usr/bin/$PROGRAM" | sed 's/^shlibs:Depends=//')
     mkdir -p root/DEBIAN
-    sed -e "s/@VERSION@/$debver/" -e "s/@SHLIBS@/$shlibs/" packaging/debian/control >root/DEBIAN/control
+    sed -e "/^#/d" -e "s/@VERSION@/$debver/" -e "s/@SHLIBS@/$shlibs/" packaging/debian/control >root/DEBIAN/control
     if [ -f packaging/debian/postinst ]; then install -m755 packaging/debian/postinst root/DEBIAN/postinst; fi
     dpkg-deb --build --root-owner-group root "$out/${PROGRAM}_${debver}_amd64.deb"
     ;;
