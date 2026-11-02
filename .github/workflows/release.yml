@@ -43,8 +43,14 @@ jobs:
           esac
       - uses: actions/checkout@v4
         with:
+          path: release-ci
+          sparse-checkout: ci
+      - uses: actions/checkout@v4
+        with:
           ref: ${{ steps.tool.outputs.branch }}
+          path: src
       - id: version
+        working-directory: src
         run: |
           version=$(sed -n 's/^pkgver=//p' packaging/arch/PKGBUILD)
           rel=$(sed -n 's/^pkgrel=//p' packaging/arch/PKGBUILD)
@@ -59,8 +65,8 @@ jobs:
           existing=no
           if [ -n "$(git ls-remote --tags origin "refs/tags/$tag")" ]; then
             git fetch -q --depth=1 origin "refs/tags/$tag:refs/tags/$tag"
-            git fetch -q --deepen=1000 origin
-            if ! git diff --quiet "$tag" HEAD -- src Makefile CMakeLists.txt data; then
+            source ../release-ci/ci/lib.sh
+            if program_changed "$tag" HEAD; then
               echo "::error::$tag exists and the program changed since then: raise pkgver"; exit 1
             fi
             existing=yes

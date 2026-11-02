@@ -20,6 +20,7 @@ esac
 
 repo=CatDesuFR/catberry
 ci=$(cd "$(dirname "$0")" && pwd)
+source "$ci/lib.sh"
 git fetch -q origin "$branch"
 sha=$(git rev-parse "origin/$branch")
 pkgbuild=$(git show "$sha:packaging/arch/PKGBUILD")
@@ -37,7 +38,7 @@ fi
 existing_tag=no
 if [ -n "$(git ls-remote --tags origin "refs/tags/$tag")" ]; then
     git fetch -q origin "refs/tags/$tag:refs/tags/$tag"
-    if ! git diff --quiet "$tag" "$sha" -- src Makefile CMakeLists.txt data; then
+    if program_changed "$tag" "$sha"; then
         echo "$tag exists and the program changed since then: raise pkgver in packaging/arch/PKGBUILD" >&2
         exit 1
     fi
