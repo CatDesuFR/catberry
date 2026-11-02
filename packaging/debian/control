@@ -1,0 +1,10 @@
+Package: catberry
+Version: @VERSION@
+Architecture: amd64
+Maintainer: CatDesuFR <stefan.zara.tudor@gmail.com>
+Depends: @SHLIBS@
+Suggests: catberry-ac, catberry-mtools, catberry-roofce
+Homepage: https://github.com/CatDesuFR/catberry
+Description: catberry launcher: runs the catberry tools
+ The catberry command. It runs the catberry tools (catberry ac, catberry
+ mtools, catberry roofce), which are installed separately.
