@@ -16,6 +16,18 @@ debian13 | ubuntu26.04) pattern="*+${target}_amd64.deb" ;;
 *) echo "unknown target $target" >&2; exit 2 ;;
 esac
 
+# apt with retries: Ubuntu's mirrors sometimes serve a file mid-update
+# ("Hash Sum mismatch"); a fresh try usually gets the right one.
+apt_install() {
+    for try in 1 2 3; do
+        apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y -o Acquire::Retries=3 "$@" && return 0
+        echo "apt failed (try $try), retrying" >&2
+        rm -rf /var/lib/apt/lists/partial/* /var/cache/apt/archives/partial/*
+        sleep 10
+    done
+    return 1
+}
+
 shopt -s nullglob
 files=("$pkgdir"/$pattern)
 [ -n "$launcherdir" ] && files+=("$launcherdir"/$pattern)
@@ -24,7 +36,7 @@ files=("$pkgdir"/$pattern)
 case "$target" in
 arch) pacman -Syu --noconfirm && pacman -U --noconfirm "${files[@]}" ;;
 fedora) dnf install -y "${files[@]}" ;;
-*) apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y "${files[@]}" ;;
+*) apt_install "${files[@]}" ;;
 esac
 
 out=$(QT_QPA_PLATFORM=offscreen "$PROGRAM" -v 2>&1)

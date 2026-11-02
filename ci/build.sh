@@ -10,6 +10,18 @@ out=$(realpath -m "$2")
 : "${TOOL:?}" "${PROGRAM:?}" "${VERSION:?}" "${REL:?}"
 mkdir -p "$out"
 
+# apt with retries: Ubuntu's mirrors sometimes serve a file mid-update
+# ("Hash Sum mismatch"); a fresh try usually gets the right one.
+apt_install() {
+    for try in 1 2 3; do
+        apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y -o Acquire::Retries=3 "$@" && return 0
+        echo "apt failed (try $try), retrying" >&2
+        rm -rf /var/lib/apt/lists/partial/* /var/cache/apt/archives/partial/*
+        sleep 10
+    done
+    return 1
+}
+
 case "$target" in
 arch)
     case "$TOOL" in
@@ -40,8 +52,7 @@ debian13 | ubuntu26.04)
     roofce) extra="cmake qt6-base-dev qt6-multimedia-dev liblayershellqtinterface-dev" ;;
     *) extra="" ;;
     esac
-    apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential dpkg-dev $extra
+    apt_install --no-install-recommends build-essential dpkg-dev $extra
     debver="$VERSION-$REL+$target"
     rm -rf root shlibs
     packaging/stage.sh "$PWD/root"
@@ -54,8 +65,7 @@ debian13 | ubuntu26.04)
     dpkg-deb --build --root-owner-group root "$out/${PROGRAM}_${debver}_amd64.deb"
     ;;
 windows)
-    apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends g++-mingw-w64-x86-64 make zip
+    apt_install --no-install-recommends g++-mingw-w64-x86-64 make zip
     make windows WINCXX=x86_64-w64-mingw32-g++-posix
     cp "dist/$PROGRAM-windows.zip" "$out/"
     ;;
