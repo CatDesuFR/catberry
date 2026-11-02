@@ -1,0 +1,8 @@
+Package: catberry-mtools
+Version: @VERSION@
+Architecture: amd64
+Maintainer: CatDesuFR <stefan.zara.tudor@gmail.com>
+Depends: catberry, @SHLIBS@
+Homepage: https://github.com/CatDesuFR/catberry/tree/mtools
+Description: catberry macro recorder and background hotkey macros
+ Run it with: catberry mtools gui
