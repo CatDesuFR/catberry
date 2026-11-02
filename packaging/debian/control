@@ -1,0 +1,10 @@
+Package: catberry-roofce
+Version: @VERSION@
+Architecture: amd64
+Maintainer: CatDesuFR <stefan.zara.tudor@gmail.com>
+Depends: @SHLIBS@, ffmpeg, unzip
+Suggests: catberry
+Homepage: https://github.com/CatDesuFR/catberry/tree/roof-carton-engine
+Description: Roof Carton Engine: live and still wallpapers for Wayland desktops
+ Live and still wallpapers for Wayland desktops, with a clock and a music
+ player on top. Open it from the app menu (Roof Carton Engine).
