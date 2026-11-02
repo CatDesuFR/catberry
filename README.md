@@ -1,7 +1,7 @@
 # catberry roofce — Roof Carton Engine
 
 A wallpaper manager for **Linux on Wayland** (KDE Plasma on Fedora, CachyOS,
-Garuda; also Hyprland and Sway), version **1.2.1**. Your wallpaper is drawn
+Garuda; also Hyprland and Sway), version **1.2.2**. Your wallpaper is drawn
 by roofce itself, as part of the desktop, not in a window: live videos,
 GIFs and pictures, with a Mond-style clock and a music player on top.
 
@@ -28,7 +28,7 @@ videos (H.264) and for the memory-saving video copies.
 One command; pacman also installs the Qt, layer-shell and FFmpeg packages it needs:
 
 ```bash
-curl -LO https://github.com/CatDesuFR/catberry/raw/roof-carton-engine/release/v1.2.1/catberry-roofce-1.2.1-1-x86_64.pkg.tar.zst && sudo pacman -U catberry-roofce-1.2.1-1-x86_64.pkg.tar.zst
+curl -LO https://github.com/CatDesuFR/catberry/releases/download/roofce-v1.2.2/catberry-roofce-1.2.2-1-x86_64.pkg.tar.zst && sudo pacman -U catberry-roofce-1.2.2-1-x86_64.pkg.tar.zst
 ```
 
 Or build it yourself. First install what it needs:

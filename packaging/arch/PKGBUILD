@@ -1,7 +1,7 @@
 # Builds the Arch package from the source tree this file sits in:
 #   cd packaging/arch && makepkg -si
 pkgname=catberry-roofce
-pkgver=1.2.1
+pkgver=1.2.2
 pkgrel=1
 pkgdesc='Roof Carton Engine: live and still wallpapers for Wayland desktops (catberry roofce)'
 arch=('x86_64')
