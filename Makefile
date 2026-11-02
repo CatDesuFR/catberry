@@ -7,9 +7,19 @@ PREFIX ?= $(HOME)/.local
 
 PROGRAM = catberry
 WINDOWS_DIST = dist/$(PROGRAM)-windows
+SRCS = $(wildcard src/*.cpp)
+HEADERS = $(wildcard src/*.h)
+# Everything but main(), for the tests.
+LIB_SRCS = $(filter-out src/main.cpp,$(SRCS))
+TEST_SRCS = $(wildcard tests/*.cpp)
 
-$(PROGRAM): src/main.cpp
-	$(CXX) $(CXXFLAGS) -std=c++17 $< -o $@
+$(PROGRAM): $(SRCS) $(HEADERS)
+	$(CXX) $(CXXFLAGS) -std=c++17 $(SRCS) -o $@
+
+# Unit tests of the launcher's logic: make test
+test: $(LIB_SRCS) $(TEST_SRCS) $(HEADERS) tests/test.h
+	$(CXX) $(CXXFLAGS) -std=c++17 $(LIB_SRCS) $(TEST_SRCS) -o tests/run-tests
+	cd tests && ./run-tests
 
 install: $(PROGRAM)
 	install -Dm755 $(PROGRAM) $(DESTDIR)$(PREFIX)/bin/$(PROGRAM)
@@ -25,9 +35,9 @@ windows: $(WINDOWS_DIST)/$(PROGRAM).exe $(WINDOWS_DIST)/install.bat $(WINDOWS_DI
 		echo "Built dist/$(PROGRAM)-windows.zip"; \
 	else echo "Built $(WINDOWS_DIST)/"; fi
 
-$(WINDOWS_DIST)/$(PROGRAM).exe: src/main.cpp
+$(WINDOWS_DIST)/$(PROGRAM).exe: $(SRCS) $(HEADERS)
 	mkdir -p $(@D)
-	$(WINCXX) $(CXXFLAGS) -std=c++17 -static -s $< -o $@
+	$(WINCXX) $(CXXFLAGS) -std=c++17 -static -s $(SRCS) -o $@
 
 # Batch files need Windows line endings.
 $(WINDOWS_DIST)/%.bat: windows/%.bat
@@ -35,6 +45,6 @@ $(WINDOWS_DIST)/%.bat: windows/%.bat
 	sed 's/\r*$$/\r/' $< > $@
 
 clean:
-	rm -rf $(PROGRAM) dist
+	rm -rf $(PROGRAM) dist tests/run-tests
 
-.PHONY: install uninstall windows clean
+.PHONY: install uninstall windows clean test
