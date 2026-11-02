@@ -1,8 +1,10 @@
+# Depends: @SHLIBS@ covers linked libraries; layer-shell-qt and qt6-wayland
+# are Qt plugins loaded at runtime, which no library link pulls in.
 Package: catberry-roofce
 Version: @VERSION@
 Architecture: amd64
 Maintainer: CatDesuFR <stefan.zara.tudor@gmail.com>
-Depends: @SHLIBS@, ffmpeg, unzip
+Depends: @SHLIBS@, layer-shell-qt, qt6-wayland, ffmpeg, unzip
 Suggests: catberry
 Homepage: https://github.com/CatDesuFR/catberry/tree/roof-carton-engine
 Description: Roof Carton Engine: live and still wallpapers for Wayland desktops
