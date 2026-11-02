@@ -27,9 +27,21 @@ version=$(sed -n 's/^pkgver=//p' <<<"$pkgbuild")
 rel=$(sed -n 's/^pkgrel=//p' <<<"$pkgbuild")
 tag="$tool-v$version"
 [ -n "$version" ] && [ -n "$rel" ] || { echo "no pkgver/pkgrel in the PKGBUILD" >&2; exit 1; }
-if gh release view "$tag" -R "$repo" >/dev/null 2>&1 || [ -n "$(git ls-remote --tags origin "refs/tags/$tag")" ]; then
+if gh release view "$tag" -R "$repo" >/dev/null 2>&1; then
     echo "$tag is already released" >&2
     exit 1
+fi
+# A tag without a release (versions tagged before releases existed): the
+# release goes on that tag, built from the branch as it is now (only it has
+# the packaging files), as long as the program itself has not changed.
+existing_tag=no
+if [ -n "$(git ls-remote --tags origin "refs/tags/$tag")" ]; then
+    git fetch -q origin "refs/tags/$tag:refs/tags/$tag"
+    if ! git diff --quiet "$tag" "$sha" -- src Makefile CMakeLists.txt data; then
+        echo "$tag exists and the program changed since then: raise pkgver in packaging/arch/PKGBUILD" >&2
+        exit 1
+    fi
+    existing_tag=yes
 fi
 echo "== $tool $version-$rel from $branch ($sha)"
 
@@ -89,5 +101,6 @@ if [ "$publish" = no ]; then
     exit 0
 fi
 echo "== publish $tag"
-(cd "$work/files" && gh release create "$tag" -R "$repo" --target "$sha" \
+if [ "$existing_tag" = yes ]; then target=(--verify-tag); else target=(--target "$sha"); fi
+(cd "$work/files" && gh release create "$tag" -R "$repo" "${target[@]}" \
     --title "$tool $version" --notes "$program $version" --latest=false -- *)

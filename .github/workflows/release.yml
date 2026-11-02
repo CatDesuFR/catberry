@@ -30,6 +30,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       rel: ${{ steps.version.outputs.rel }}
       tag: ${{ steps.version.outputs.tag }}
+      existing: ${{ steps.version.outputs.existing }}
       sha: ${{ steps.version.outputs.sha }}
     steps:
       - id: tool
@@ -51,10 +52,20 @@ jobs:
           if [ -z "$version" ] || [ -z "$rel" ]; then
             echo "::error::no pkgver/pkgrel in packaging/arch/PKGBUILD"; exit 1
           fi
-          if gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
-             [ -n "$(git ls-remote --tags origin "refs/tags/$tag")" ]; then
+          if gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "::error::$tag is already released"; exit 1
           fi
+          # A tag without a release: the release goes on it, if the program is unchanged.
+          existing=no
+          if [ -n "$(git ls-remote --tags origin "refs/tags/$tag")" ]; then
+            git fetch -q --depth=1 origin "refs/tags/$tag:refs/tags/$tag"
+            git fetch -q --deepen=1000 origin
+            if ! git diff --quiet "$tag" HEAD -- src Makefile CMakeLists.txt data; then
+              echo "::error::$tag exists and the program changed since then: raise pkgver"; exit 1
+            fi
+            existing=yes
+          fi
+          echo "existing=$existing" >> "$GITHUB_OUTPUT"
           {
             echo "version=$version"
             echo "rel=$rel"
@@ -168,7 +179,7 @@ jobs:
           sha256sum -- * > SHA256SUMS
           cat SHA256SUMS
           gh release create "${{ needs.meta.outputs.tag }}" -R "$GITHUB_REPOSITORY" \
-            --target "${{ needs.meta.outputs.sha }}" \
+            $([ "${{ needs.meta.outputs.existing }}" = yes ] && echo --verify-tag || echo --target "${{ needs.meta.outputs.sha }}") \
             --title "$TOOL ${{ needs.meta.outputs.version }}" \
             --notes "${{ needs.meta.outputs.program }} ${{ needs.meta.outputs.version }}" \
             --latest=false -- *
