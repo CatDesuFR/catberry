@@ -1,0 +1,7 @@
+#!/bin/sh
+set -e
+echo ":: catberry ac installed. Start it with: catberry ac gui"
+echo ":: For the hotkey to work in every window, run once:"
+echo "::     sudo usermod -aG input \$USER"
+echo ":: then log out and back in."
+exit 0

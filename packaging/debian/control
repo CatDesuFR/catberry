@@ -1,0 +1,8 @@
+Package: catberry-ac
+Version: @VERSION@
+Architecture: amd64
+Maintainer: CatDesuFR <stefan.zara.tudor@gmail.com>
+Depends: catberry, @SHLIBS@
+Homepage: https://github.com/CatDesuFR/catberry/tree/ac
+Description: catberry autoclicker: clicks or presses a key at a set rate
+ Run it with: catberry ac gui
