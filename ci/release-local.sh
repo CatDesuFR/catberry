@@ -74,7 +74,9 @@ targets=(arch fedora debian13 ubuntu26.04)
 for target in "${targets[@]}"; do
     echo "== build $target"
     src="$work/src-$target"
-    rm -rf "$src" && mkdir -p "$src" "$work/out-$target"
+    # Files the Arch build's container user made belong to a sub-UID here.
+    rm -rf "$src" 2>/dev/null || podman unshare rm -rf "$src"
+    mkdir -p "$src" "$work/out-$target"
     git archive "$sha" | tar -x -C "$src"
     podman run --rm -v "$src:/src:Z" -v "$ci:/ci:ro,Z" -v "$work/out-$target:/out:Z" -w /src \
         -e TOOL="$tool" -e PROGRAM="$program" -e VERSION="$version" -e REL="$rel" \

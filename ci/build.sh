@@ -35,6 +35,8 @@ arch)
     id builder >/dev/null 2>&1 || useradd -m builder
     chown -R builder: .
     su builder -c 'cd packaging/arch && makepkg --nodeps --noconfirm --force'
+    # Back to root, so the files belong to whoever started the container.
+    chown -R root: .
     cp packaging/arch/*.pkg.tar.zst "$out/"
     ;;
 fedora)
