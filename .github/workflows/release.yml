@@ -1,0 +1,265 @@
+# Builds, tests and publishes one version of one catberry tool as a GitHub
+# Release. Started by hand:
+#   gh workflow run release.yml -f tool=ac
+# The version comes from the tool branch's packaging/arch/PKGBUILD. A version
+# that is already released is never rebuilt or overwritten.
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tool:
+        description: Which tool to release
+        required: true
+        type: choice
+        options: [catberry, ac, mtools, roofce]
+
+permissions:
+  contents: write
+
+env:
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  meta:
+    runs-on: ubuntu-latest
+    outputs:
+      branch: ${{ steps.tool.outputs.branch }}
+      program: ${{ steps.tool.outputs.program }}
+      version: ${{ steps.version.outputs.version }}
+      rel: ${{ steps.version.outputs.rel }}
+      tag: ${{ steps.version.outputs.tag }}
+      sha: ${{ steps.version.outputs.sha }}
+    steps:
+      - id: tool
+        run: |
+          case "${{ inputs.tool }}" in
+            catberry) echo "branch=main" >> "$GITHUB_OUTPUT"; echo "program=catberry" >> "$GITHUB_OUTPUT" ;;
+            ac) echo "branch=ac" >> "$GITHUB_OUTPUT"; echo "program=catberry-ac" >> "$GITHUB_OUTPUT" ;;
+            mtools) echo "branch=mtools" >> "$GITHUB_OUTPUT"; echo "program=catberry-mtools" >> "$GITHUB_OUTPUT" ;;
+            roofce) echo "branch=roof-carton-engine" >> "$GITHUB_OUTPUT"; echo "program=catberry-roofce" >> "$GITHUB_OUTPUT" ;;
+          esac
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tool.outputs.branch }}
+      - id: version
+        run: |
+          version=$(sed -n 's/^pkgver=//p' packaging/arch/PKGBUILD)
+          rel=$(sed -n 's/^pkgrel=//p' packaging/arch/PKGBUILD)
+          tag="${{ inputs.tool }}-v$version"
+          if [ -z "$version" ] || [ -z "$rel" ]; then
+            echo "::error::no pkgver/pkgrel in packaging/arch/PKGBUILD"; exit 1
+          fi
+          if gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
+             [ -n "$(git ls-remote --tags origin "refs/tags/$tag")" ]; then
+            echo "::error::$tag is already released"; exit 1
+          fi
+          {
+            echo "version=$version"
+            echo "rel=$rel"
+            echo "tag=$tag"
+            echo "sha=$(git rev-parse HEAD)"
+          } >> "$GITHUB_OUTPUT"
+      # The tools need the launcher installed to be tested: take its newest release.
+      - name: Fetch the launcher for the smoke tests
+        if: inputs.tool == 'ac' || inputs.tool == 'mtools'
+        run: |
+          launcher=$(gh release list -R "$GITHUB_REPOSITORY" --limit 200 --json tagName -q '.[].tagName' |
+                     grep '^catberry-v' | sort -V | tail -1)
+          if [ -z "$launcher" ]; then
+            echo "::error::no catberry-v* release yet: publish catberry first"; exit 1
+          fi
+          mkdir launcher
+          gh release download "$launcher" -R "$GITHUB_REPOSITORY" -D launcher \
+            -p '*.pkg.tar.zst' -p '*.rpm' -p '*.deb'
+      - if: inputs.tool == 'ac' || inputs.tool == 'mtools'
+        uses: actions/upload-artifact@v4
+        with:
+          name: launcher
+          path: launcher/
+
+  arch:
+    needs: meta
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Build tools
+        run: |
+          case "${{ inputs.tool }}" in
+            ac|mtools) extra="libx11 libxtst" ;;
+            roofce) extra="cmake qt6-base qt6-multimedia layer-shell-qt" ;;
+            *) extra="" ;;
+          esac
+          pacman -Syu --noconfirm --needed base-devel git $extra
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.meta.outputs.sha }}
+      # makepkg refuses to run as root. Dependencies are installed above, so
+      # --nodeps (the tools depend on the catberry package, not in Arch's repos).
+      - run: |
+          useradd -m builder
+          chown -R builder: .
+          su builder -c 'cd packaging/arch && makepkg --nodeps --noconfirm'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-arch
+          path: packaging/arch/*.pkg.tar.zst
+
+  fedora:
+    needs: meta
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - run: dnf install -y rpm-build dnf-plugins-core git
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.meta.outputs.sha }}
+      - run: |
+          spec="packaging/fedora/${{ needs.meta.outputs.program }}.spec"
+          defs=(--define "pkgver ${{ needs.meta.outputs.version }}" --define "pkgrel ${{ needs.meta.outputs.rel }}")
+          dnf builddep -y "${defs[@]}" "$spec"
+          rpmbuild -bb --build-in-place "${defs[@]}" --define "debug_package %{nil}" \
+            --define "_topdir $PWD/rpmbuild" "$spec"
+          mkdir out && cp rpmbuild/RPMS/x86_64/*.rpm out/
+        shell: bash
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-fedora
+          path: out/*.rpm
+
+  deb:
+    needs: meta
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - image: debian:13
+            suffix: debian13
+          - image: ubuntu:26.04
+            suffix: ubuntu26.04
+    container: ${{ matrix.image }}
+    steps:
+      - name: Build tools
+        run: |
+          case "${{ inputs.tool }}" in
+            ac|mtools) extra="libx11-dev libxtst-dev" ;;
+            roofce) extra="cmake qt6-base-dev qt6-multimedia-dev liblayershellqtinterface-dev" ;;
+            *) extra="" ;;
+          esac
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            build-essential dpkg-dev git ca-certificates $extra
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.meta.outputs.sha }}
+      - run: |
+          program="${{ needs.meta.outputs.program }}"
+          debver="${{ needs.meta.outputs.version }}-${{ needs.meta.outputs.rel }}+${{ matrix.suffix }}"
+          packaging/stage.sh "$PWD/root"
+          # Library dependencies, in this distro's package names.
+          mkdir -p shlibs/debian && echo "Source: $program" > shlibs/debian/control
+          shlibs=$(cd shlibs && dpkg-shlibdeps -O "../root/usr/bin/$program" | sed 's/^shlibs:Depends=//')
+          mkdir -p root/DEBIAN
+          sed -e "s/@VERSION@/$debver/" -e "s/@SHLIBS@/$shlibs/" packaging/debian/control > root/DEBIAN/control
+          if [ -f packaging/debian/postinst ]; then install -m755 packaging/debian/postinst root/DEBIAN/postinst; fi
+          mkdir out
+          dpkg-deb --build --root-owner-group root "out/${program}_${debver}_amd64.deb"
+        shell: bash
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-${{ matrix.suffix }}
+          path: out/*.deb
+
+  windows:
+    needs: meta
+    if: inputs.tool != 'roofce'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.meta.outputs.sha }}
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-mingw-w64-x86-64 zip
+          make windows WINCXX=x86_64-w64-mingw32-g++-posix
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/${{ needs.meta.outputs.program }}-windows.zip
+
+  # Each package installed in a fresh container of its distro, with only
+  # what the package manager pulls in, then run.
+  smoke:
+    needs: [meta, arch, fedora, deb]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: archlinux:latest
+            artifact: pkg-arch
+            pattern: '*.pkg.tar.zst'
+          - image: fedora:latest
+            artifact: pkg-fedora
+            pattern: '*.rpm'
+          - image: debian:13
+            artifact: pkg-debian13
+            pattern: '*+debian13_amd64.deb'
+          - image: ubuntu:26.04
+            artifact: pkg-ubuntu26.04
+            pattern: '*+ubuntu26.04_amd64.deb'
+    container: ${{ matrix.image }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: pkg
+      - if: inputs.tool == 'ac' || inputs.tool == 'mtools'
+        uses: actions/download-artifact@v4
+        with:
+          name: launcher
+          path: launcher
+      - name: Install
+        shell: bash
+        run: |
+          shopt -s nullglob
+          files=(pkg/${{ matrix.pattern }} launcher/${{ matrix.pattern }})
+          case "${{ matrix.image }}" in
+            archlinux:*) pacman -Syu --noconfirm && pacman -U --noconfirm "${files[@]}" ;;
+            fedora:*) dnf install -y "${files[@]/#/./}" ;;
+            *) apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y "${files[@]/#/./}" ;;
+          esac
+      - name: Run it
+        shell: bash
+        run: |
+          out=$(QT_QPA_PLATFORM=offscreen "${{ needs.meta.outputs.program }}" -v 2>&1)
+          echo "$out"
+          grep -q "${{ needs.meta.outputs.version }}" <<<"$out" || {
+            echo "::error::-v does not print ${{ needs.meta.outputs.version }}"; exit 1; }
+
+  publish:
+    needs: [meta, smoke, windows]
+    if: >-
+      always() && needs.smoke.result == 'success' &&
+      (needs.windows.result == 'success' || needs.windows.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pkg-*
+          path: files
+          merge-multiple: true
+      - if: needs.windows.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: windows
+          path: files
+      - run: |
+          cd files
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+          gh release create "${{ needs.meta.outputs.tag }}" -R "$GITHUB_REPOSITORY" \
+            --target "${{ needs.meta.outputs.sha }}" \
+            --title "${{ inputs.tool }} ${{ needs.meta.outputs.version }}" \
+            --notes "${{ needs.meta.outputs.program }} ${{ needs.meta.outputs.version }}" \
+            --latest=false *
