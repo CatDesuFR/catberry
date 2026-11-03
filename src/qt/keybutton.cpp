@@ -41,7 +41,7 @@ void KeyButton::setCode(int code) {
 
 void KeyButton::refresh() {
     setObjectName(capturing_ ? "accent" : "");
-    setText(capturing_ ? "Press a key..." : code_ >= 0 ? QString::fromStdString(keyName(code_)) : emptyText_);
+    setText(capturing_ ? "Press a key..." : code_ >= 0 ? prefix_ + QString::fromStdString(keyName(code_)) : emptyText_);
     style()->unpolish(this);
     style()->polish(this);
 }
@@ -52,6 +52,7 @@ void KeyButton::finish(int code) {
         code_ = code;
         emit changed(code);
     }
+    if (code >= 0) emit picked(code);
     captured_.start();
     refresh();
 }

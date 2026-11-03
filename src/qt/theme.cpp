@@ -16,6 +16,8 @@ const char *catberryStyleSheet() {
         background: #313244; color: #6c7086; border: 1px solid #45475a; font-weight: normal; }
     QSpinBox, QDoubleSpinBox, QLineEdit { background: #181825; border: 1px solid #45475a; border-radius: 6px;
                                           padding: 4px 8px; selection-background-color: #89b4fa; }
+    /* The spin boxes have no arrows (NoButtons): give them no room either. */
+    QAbstractSpinBox::up-button, QAbstractSpinBox::down-button { width: 0px; border: none; }
     QListWidget, QTableWidget { background: #181825; border: 1px solid #45475a; border-radius: 6px;
                                 alternate-background-color: #1e1e2e; }
     QListWidget::item:selected, QTableWidget::item:selected { background: #313244; color: #89b4fa; }
