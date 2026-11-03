@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Catberry Macro Recorder
+Comment=Record and play back keys and clicks; hotkey macros
+Exec=catberry-mtools gui
+Icon=media-record
+Terminal=false
+Categories=Utility;

@@ -6,19 +6,23 @@ PREFIX ?= $(HOME)/.local
 
 PROGRAM = catberry-mtools
 COMMON_SRCS = src/main.cpp $(wildcard src/common/*.cpp)
-LINUX_SRCS = $(COMMON_SRCS) $(wildcard src/linux/*.cpp)
 WINDOWS_SRCS = $(COMMON_SRCS) $(wildcard src/windows/*.cpp)
 HEADERS = $(wildcard src/*/*.h)
 WINDOWS_DIST = dist/$(PROGRAM)-windows
+BUILD = build
 
-$(PROGRAM): $(LINUX_SRCS) $(HEADERS)
-	$(CXX) $(CXXFLAGS) -std=c++17 -pthread $(LINUX_SRCS) -o $@ -lX11 -lXtst
+# Linux: Qt 6, built with CMake (make, make install, make uninstall).
+$(PROGRAM): CMakeLists.txt $(wildcard src/*.cpp src/*/*.cpp) $(HEADERS)
+	cmake -S . -B $(BUILD) -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$(PREFIX) >/dev/null
+	cmake --build $(BUILD) -j$$(nproc)
+	cp $(BUILD)/$(PROGRAM) $@
 
 install: $(PROGRAM)
 	install -Dm755 $(PROGRAM) $(DESTDIR)$(PREFIX)/bin/$(PROGRAM)
+	install -Dm644 data/$(PROGRAM).desktop $(DESTDIR)$(PREFIX)/share/applications/$(PROGRAM).desktop
 
 uninstall:
-	rm -f $(DESTDIR)$(PREFIX)/bin/$(PROGRAM)
+	rm -f $(DESTDIR)$(PREFIX)/bin/$(PROGRAM) $(DESTDIR)$(PREFIX)/share/applications/$(PROGRAM).desktop
 
 # Windows build, cross-compiled with MinGW-w64: a folder with the exe,
 # install.bat and uninstall.bat, plus a zip of it when zip is available.
@@ -39,13 +43,13 @@ $(WINDOWS_DIST)/%.bat: windows/%.bat
 	sed 's/\r*$$/\r/' $< > $@
 
 clean:
-	rm -rf $(PROGRAM) dist tests/run-tests
+	rm -rf $(PROGRAM) $(BUILD) dist tests/run-tests
 
 # Unit tests of the non-window logic: make test
 TEST_SRCS = $(filter-out src/main.cpp src/common/gui.cpp src/common/mtools.cpp,$(COMMON_SRCS)) \
-	$(filter-out src/linux/host.cpp,$(wildcard src/linux/*.cpp)) $(wildcard tests/*.cpp)
+	$(wildcard src/linux/*.cpp) $(wildcard tests/*.cpp)
 test: $(TEST_SRCS) $(HEADERS) tests/test.h
-	$(CXX) $(CXXFLAGS) -std=c++17 -pthread $(TEST_SRCS) -o tests/run-tests -lX11 -lXtst
+	$(CXX) $(CXXFLAGS) -std=c++17 -pthread $(TEST_SRCS) -o tests/run-tests
 	./tests/run-tests
 
 .PHONY: install uninstall windows clean test

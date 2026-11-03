@@ -3,11 +3,16 @@
 // `catberry -config ...`.
 
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 
 static const char *const kVersion = "1.1.0";
 
+#ifdef _WIN32
 int mtoolsGui();
+#else
+int mtoolsGui(int quitAfterMs);
+#endif
 int configSave(int argc, char **argv);
 int configLoad(int argc, char **argv);
 int configUnload(int argc, char **argv);
@@ -27,7 +32,13 @@ static void usage(FILE *out) {
 
 int main(int argc, char **argv) {
     std::string command = argc > 1 ? argv[1] : "";
+#ifdef _WIN32
     if (command == "gui" && argc == 2) return mtoolsGui();
+#else
+    // --quit-after MS closes the window after MS milliseconds (for tests).
+    if (command == "gui" && argc == 2) return mtoolsGui(0);
+    if (command == "gui" && argc == 4 && std::string(argv[2]) == "--quit-after") return mtoolsGui(std::atoi(argv[3]));
+#endif
     if (command == "-config") return configSave(argc - 2, argv + 2);
     if (command == "-configload") return configLoad(argc - 2, argv + 2);
     if (command == "-configunload") return configUnload(argc - 2, argv + 2);
