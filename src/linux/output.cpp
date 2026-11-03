@@ -26,6 +26,8 @@ static_assert(keycode::MouseLeft == BTN_LEFT && keycode::MouseRight == BTN_RIGHT
 const int kVendor = 0x1209;
 const int kMouseProduct = 0xcab0;
 const int kKeyboardProduct = 0xcab1;
+const int kPointerProduct = 0xcab2;
+const int kAbsMax = 32767;
 
 const char *const kInputGroupCommand = "sudo usermod -aG input $USER";
 
@@ -38,7 +40,7 @@ namespace {
 
 class UinputOutput : public Output {
 public:
-    static std::unique_ptr<Output> create(bool withKeyboard) {
+    static std::unique_ptr<Output> create(bool withKeyboard, bool withPointer) {
         // libinput debounces mouse buttons (a state change is held back for
         // ~25 ms), which swallows fast clicks. Its stock quirks switch that
         // off for emulated mice by matching exactly this device name
@@ -54,11 +56,35 @@ public:
                 return nullptr;
             }
         }
-        return std::unique_ptr<Output>(new UinputOutput(mouse, keyboard));
+        // Quick click: an absolute pointer (like a drawing tablet), which the
+        // compositor maps onto the whole desktop.
+        int pointer = -1;
+        if (withPointer) {
+            pointer = createPointer();
+            if (pointer < 0) {
+                destroyDevice(mouse);
+                if (keyboard >= 0) destroyDevice(keyboard);
+                return nullptr;
+            }
+        }
+        return std::unique_ptr<Output>(new UinputOutput(mouse, keyboard, pointer));
     }
     ~UinputOutput() override {
         destroyDevice(mouse_);
         if (keyboard_ >= 0) destroyDevice(keyboard_);
+        if (pointer_ >= 0) destroyDevice(pointer_);
+    }
+    bool canPoint() const override { return pointer_ >= 0; }
+    void moveTo(int x, int y, int desktopW, int desktopH) override {
+        if (pointer_ < 0 || desktopW < 2 || desktopH < 2) return;
+        emit(pointer_, EV_ABS, ABS_X, int((long long)x * kAbsMax / (desktopW - 1)));
+        emit(pointer_, EV_ABS, ABS_Y, int((long long)y * kAbsMax / (desktopH - 1)));
+        emit(pointer_, EV_SYN, SYN_REPORT, 0);
+    }
+    void pointerButton(int code, bool down) override {
+        if (pointer_ < 0 || (code != BTN_LEFT && code != BTN_RIGHT && code != BTN_MIDDLE)) return key(code, down);
+        emit(pointer_, EV_KEY, code, down ? 1 : 0);
+        emit(pointer_, EV_SYN, SYN_REPORT, 0);
     }
     const char *name() const override { return "uinput"; }
     void key(int code, bool down) override {
@@ -75,7 +101,32 @@ public:
     }
 
 private:
-    UinputOutput(int mouse, int keyboard) : mouse_(mouse), keyboard_(keyboard) {}
+    UinputOutput(int mouse, int keyboard, int pointer) : mouse_(mouse), keyboard_(keyboard), pointer_(pointer) {}
+
+    static int createPointer() {
+        int fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK | O_CLOEXEC);
+        if (fd < 0) return -1;
+        bool ok = ioctl(fd, UI_SET_EVBIT, EV_KEY) == 0 && ioctl(fd, UI_SET_EVBIT, EV_ABS) == 0;
+        for (int button : {BTN_LEFT, BTN_RIGHT, BTN_MIDDLE}) ok = ok && ioctl(fd, UI_SET_KEYBIT, button) == 0;
+        for (int axis : {ABS_X, ABS_Y}) {
+            uinput_abs_setup abs{};
+            abs.code = axis;
+            abs.absinfo.minimum = 0;
+            abs.absinfo.maximum = kAbsMax;
+            ok = ok && ioctl(fd, UI_ABS_SETUP, &abs) == 0;
+        }
+        uinput_setup setup{};
+        setup.id.bustype = BUS_VIRTUAL;
+        setup.id.vendor = kVendor;
+        setup.id.product = kPointerProduct;
+        std::snprintf(setup.name, sizeof setup.name, "catberry pointer");
+        ok = ok && ioctl(fd, UI_DEV_SETUP, &setup) == 0 && ioctl(fd, UI_DEV_CREATE) == 0;
+        if (!ok) {
+            close(fd);
+            return -1;
+        }
+        return fd;
+    }
 
     static int createDevice(const char *name, int product, bool mouse) {
         int fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK | O_CLOEXEC);
@@ -119,16 +170,18 @@ private:
 
     int mouse_;
     int keyboard_;
+    int pointer_;
 };
 
 } // namespace
 
-std::unique_ptr<Output> createOutput(const std::string &backend, bool withKeyboard, std::string &error) {
+std::unique_ptr<Output> createOutput(const std::string &backend, bool withKeyboard, std::string &error,
+                                     bool withPointer) {
     if (!backend.empty() && backend != "uinput") {
         error = "unknown backend '" + backend + "' (only uinput)";
         return nullptr;
     }
-    std::unique_ptr<Output> out = UinputOutput::create(withKeyboard);
+    std::unique_ptr<Output> out = UinputOutput::create(withKeyboard, withPointer);
     if (!out) error = "cannot use /dev/uinput (the catberry launcher package adds the rule that allows it)";
     return out;
 }

@@ -31,7 +31,8 @@ void EvdevInput::rescan() {
                       ioctl(fd, EVIOCGID, &id) >= 0 &&
                       // Never listen to our own virtual devices: a macro
                       // that sends its own hotkey would retrigger itself.
-                      !(id.vendor == kVendor && (id.product == kMouseProduct || id.product == kKeyboardProduct));
+                      !(id.vendor == kVendor && (id.product == kMouseProduct || id.product == kKeyboardProduct ||
+                                                    id.product == kPointerProduct));
         if (!wanted) {
             close(fd);
             continue;

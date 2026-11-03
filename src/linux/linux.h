@@ -15,6 +15,7 @@ extern const char *const kInputGroupCommand;
 extern const int kVendor;
 extern const int kMouseProduct;
 extern const int kKeyboardProduct;
+extern const int kPointerProduct;
 
 bool isWayland();
 

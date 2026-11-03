@@ -126,13 +126,25 @@ public:
         }
         SendInput(1, &in, sizeof in);
     }
+
+    bool canPoint() const override { return true; }
+    // 0-65535 over the whole virtual screen (all monitors).
+    void moveTo(int x, int y, int desktopW, int desktopH) override {
+        if (desktopW < 2 || desktopH < 2) return;
+        INPUT in{};
+        in.type = INPUT_MOUSE;
+        in.mi.dx = static_cast<LONG>((long long)x * 65535 / (desktopW - 1));
+        in.mi.dy = static_cast<LONG>((long long)y * 65535 / (desktopH - 1));
+        in.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
+        SendInput(1, &in, sizeof in);
+    }
 };
 
 HookInput *g_hooks = nullptr;
 
 } // namespace
 
-std::unique_ptr<Output> createOutput(const std::string &backend, bool, std::string &error) {
+std::unique_ptr<Output> createOutput(const std::string &backend, bool, std::string &error, bool) {
     if (!backend.empty()) {
         error = "--backend is not available on Windows (it always uses SendInput)";
         return nullptr;
