@@ -63,8 +63,9 @@ version=$(sed -n 's/^pkgver=//p' "$top/packaging/arch/PKGBUILD")
 failed=()
 for target in "${targets[@]}"; do
     echo "== $target: build the launcher package"
-    src="$work/src-$target" out="$work/pkg-$target"
-    mkdir -p "$src" "$out"
+    src=$(mktemp -d "$work/src-$target.XXXXXX") out="$work/pkg-$target"
+    mkdir -p "$out"
+    rm -f "$out"/* # packages of an earlier run
     (cd "$top" && git ls-files -co --exclude-standard -z | xargs -0 tar -c) | tar -x -C "$src"
     podman run --rm -v "$src:/src:Z" -v "$ci:/ci:ro,Z" -v "$out:/out:Z" -w /src \
         -e TOOL=catberry -e PROGRAM=catberry -e VERSION="$version" -e REL=1 \

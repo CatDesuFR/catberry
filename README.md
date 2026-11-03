@@ -2,7 +2,7 @@
 
 `catberry` is one command for a set of input tools, on **Linux** and
 **Windows 10/11**. This branch is the `catberry` command itself (version
-1.2.0). Each tool lives on its own branch and is installed separately:
+1.3.0). Each tool lives on its own branch and is installed separately:
 
 | Tool | Branch | Version | What it does |
 | --- | --- | --- | --- |
@@ -10,27 +10,71 @@
 | `catberry mtools` | [`mtools`](https://github.com/CatDesuFR/catberry/tree/mtools) | 1.1.0 | Macro recorder, plus hotkey macros (`catberry -config`) |
 | `catberry roofce` | [`roof-carton-engine`](https://github.com/CatDesuFR/catberry/tree/roof-carton-engine) | 1.2.2 | Roof Carton Engine: live wallpapers, clock and music widgets (Linux, Wayland) |
 
-Install this launcher first, then the tools you want.
+Install this launcher once; it then installs, updates and removes the tools.
 
 ## Install
 
-### CachyOS, Garuda and other Arch-based distros
+### 1. The launcher
 
-Everything (launcher, autoclicker, mtools and roofce) in one command:
+**CachyOS, Garuda and other Arch-based distros**
 
 ```bash
-curl -LO https://github.com/CatDesuFR/catberry/raw/main/release/v1.2.0/catberry-1.2.0-1-x86_64.pkg.tar.zst \
-     -LO https://github.com/CatDesuFR/catberry/raw/ac/release/v1.1.2/catberry-ac-1.1.2-1-x86_64.pkg.tar.zst \
-     -LO https://github.com/CatDesuFR/catberry/raw/mtools/release/v1.1.0/catberry-mtools-1.1.0-1-x86_64.pkg.tar.zst \
-     -LO https://github.com/CatDesuFR/catberry/releases/download/roofce-v1.2.2/catberry-roofce-1.2.2-1-x86_64.pkg.tar.zst \
-  && sudo pacman -U catberry-1.2.0-1-x86_64.pkg.tar.zst catberry-ac-1.1.2-1-x86_64.pkg.tar.zst catberry-mtools-1.1.0-1-x86_64.pkg.tar.zst catberry-roofce-1.2.2-1-x86_64.pkg.tar.zst
+curl -LO https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.0/catberry-1.3.0-1-x86_64.pkg.tar.zst && sudo pacman -U catberry-1.3.0-1-x86_64.pkg.tar.zst
 ```
 
-Leave out a tool's file to skip it. This also replaces the older all-in-one
-`catberry` 1.0.2 package. Remove everything with
-`sudo pacman -R catberry-ac catberry-mtools catberry-roofce catberry`.
+**Fedora**
 
-To build everything yourself instead, install what it needs:
+```bash
+sudo dnf install https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.0/catberry-1.3.0-1.fc44.x86_64.rpm
+```
+
+**Debian 13**
+
+```bash
+curl -LO https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.0/catberry_1.3.0-1+debian13_amd64.deb && sudo apt install ./catberry_1.3.0-1+debian13_amd64.deb
+```
+
+**Ubuntu 26.04 or newer** (and distros built on it, like Linux Mint)
+
+```bash
+curl -LO https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.0/catberry_1.3.0-1+ubuntu26.04_amd64.deb && sudo apt install ./catberry_1.3.0-1+ubuntu26.04_amd64.deb
+```
+
+**Windows 10/11**: download [`catberry-windows.zip`](https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.0/catberry-windows.zip),
+extract it and double-click `install.bat` (if Windows shows "Windows protected
+your PC", click **More info** → **Run anyway**). It goes into
+`%LOCALAPPDATA%\Programs\catberry`, which is added to your PATH; open a new
+terminal afterwards.
+
+All downloads, for every version: [Releases](https://github.com/CatDesuFR/catberry/releases).
+
+### 2. The tools
+
+```bash
+catberry install ac          # the autoclicker
+catberry install mtools      # the macro recorder
+catberry install roofce      # the wallpaper manager (Linux, Wayland)
+```
+
+catberry picks the right package for your system and installs it with
+pacman, dnf or apt (it asks for your password with `sudo`), or into the
+catberry folder on Windows.
+
+```
+catberry install TOOL [VERSION]   install a tool, or another version of it (default: latest)
+catberry install TOOL --reinstall install the same version again
+catberry install catberry         update the launcher itself
+catberry versions TOOL            list the published versions
+catberry uninstall TOOL           remove a tool; you choose whether to keep its settings
+catberry uninstall catberry       remove the launcher (and ac and mtools, which need it)
+```
+
+`catberry TOOL install`, `catberry TOOL uninstall` and `catberry TOOL versions`
+work too.
+
+### Build it yourself (Arch-based)
+
+Install what it needs:
 
 ```bash
 sudo pacman -S --needed base-devel git cmake qt6-base qt6-multimedia qt6-multimedia-ffmpeg layer-shell-qt ffmpeg unzip libx11 libxtst
@@ -46,30 +90,8 @@ git clone -b roof-carton-engine https://github.com/CatDesuFR/catberry.git catber
 ```
 
 `libx11` and `libxtst` are for ac and mtools; `cmake`, the Qt, layer-shell,
-`ffmpeg` and `unzip` packages are for roofce.
-
-### Other Linux distros
-
-Download [`catberry-linux-x86_64`](https://github.com/CatDesuFR/catberry/raw/main/release/v1.2.0/catberry-linux-x86_64)
-(needs glibc 2.38 or newer: Fedora 39+, Ubuntu 24.04+, Debian 13+) and
-install it as `catberry`:
-
-```bash
-install -Dm755 ~/Downloads/catberry-linux-x86_64 ~/.local/bin/catberry
-```
-
-Then install the tools from their branches into the same folder. Or build
-it: `make install` on this branch. roofce needs Qt 6; see its branch for how
-to install it on Fedora.
-
-### Windows
-
-Download [`catberry-windows.zip`](https://github.com/CatDesuFR/catberry/raw/main/release/v1.2.0/catberry-windows.zip),
-extract it and double-click `install.bat` (if Windows shows "Windows protected
-your PC", click **More info** → **Run anyway**). Then do the same with
-`catberry-ac-windows.zip` and `catberry-mtools-windows.zip` from the tool
-branches. All of them go into `%LOCALAPPDATA%\Programs\catberry`, which is
-added to your PATH; open a new terminal afterwards.
+`ffmpeg` and `unzip` packages are for roofce. Other systems: `make install`
+on each branch (roofce builds with CMake and needs Qt 6).
 
 ### Linux permission (once)
 
@@ -100,7 +122,7 @@ catberry roofce gui             open the wallpaper manager (Linux, Wayland)
 `catberry -v` shows which tools are installed:
 
 ```
-catberry 1.2.0
+catberry 1.3.0
   ac      1.1.2
   mtools  1.1.0
   roofce  1.2.2
@@ -119,8 +141,11 @@ tools work.
 | Linux program | `make` | `catberry` |
 | Install on Linux | `make install` | `~/.local/bin/catberry` |
 | Windows package | `make windows` | `dist/catberry-windows.zip` |
-| Arch package | `cd packaging/arch && makepkg` | `catberry-1.2.0-1-x86_64.pkg.tar.zst` |
+| Arch package | `cd packaging/arch && makepkg` | `catberry-1.3.0-1-x86_64.pkg.tar.zst` |
+| Unit tests | `make test` | |
+| Every package, tested and published | `ci/release-local.sh catberry` (podman) | a GitHub Release |
+| install/uninstall on every distro | `ci/test-install-local.sh` (podman) | |
 
-Ready-built downloads are in [`release/v1.2.0`](release/v1.2.0), with a
-`SHA256SUMS` file to check them against. The Windows package is
-cross-compiled with MinGW-w64.
+Ready-built downloads are on the [Releases](https://github.com/CatDesuFR/catberry/releases)
+page, each with a `SHA256SUMS` file to check them against. The Windows
+package is cross-compiled with MinGW-w64.

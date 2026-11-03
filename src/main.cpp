@@ -26,7 +26,6 @@
 
 namespace {
 
-
 void usage(FILE *out) {
     std::fprintf(out,
                  "catberry %s\n"
@@ -34,6 +33,13 @@ void usage(FILE *out) {
                  "usage:\n"
                  "  catberry -help                  show this help\n"
                  "  catberry -v                     print the versions of catberry and its tools\n"
+                 "\n"
+                 "  catberry install TOOL [VERSION] install a tool, or another version of it (default: latest)\n"
+                 "                                  TOOL is ac, mtools, roofce or catberry; add --reinstall\n"
+                 "                                  to install the same version again\n"
+                 "  catberry uninstall TOOL         remove a tool, then choose whether to keep its settings\n"
+                 "  catberry versions TOOL          list the published versions of a tool\n"
+                 "                                  (also: catberry TOOL install / uninstall / versions)\n"
                  "\n"
                  "  catberry ac gui                 open the autoclicker\n"
                  "  catberry ac -v                  print the autoclicker version\n"
@@ -46,7 +52,7 @@ void usage(FILE *out) {
                  "  catberry roofce gui             open the wallpaper manager (Linux, Wayland)\n"
                  "  catberry roofce -v              print the wallpaper manager version\n"
                  "\n"
-                 "ac, mtools and roofce are installed separately: %s\n",
+                 "Releases: %s/releases\n",
                  kVersion, kRepo);
 }
 
@@ -120,8 +126,8 @@ int dispatch(const Tool &tool, int argc, char **argv) {
     if (path.empty()) {
         std::fprintf(stderr,
                      "catberry: %s is not installed.\n"
-                     "Get it from the '%s' branch: %s/tree/%s\n",
-                     tool.name, tool.branch, kRepo, tool.branch);
+                     "Install it with: catberry install %s\n",
+                     tool.name, tool.name);
         return 1;
     }
     return runTool(path, argc, argv);

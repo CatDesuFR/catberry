@@ -37,7 +37,8 @@ arch)
     su builder -c 'cd packaging/arch && makepkg --nodeps --noconfirm --force'
     # Back to root, so the files belong to whoever started the container.
     chown -R root: .
-    cp packaging/arch/*.pkg.tar.zst "$out/"
+    # Only this version: a reused tree may hold packages of earlier builds.
+    cp packaging/arch/"$PROGRAM-$VERSION-$REL"-*.pkg.tar.zst "$out/"
     ;;
 fedora)
     dnf install -y rpm-build dnf-plugins-core
@@ -46,7 +47,7 @@ fedora)
     dnf builddep -y "${defs[@]}" "$spec"
     rpmbuild -bb --build-in-place "${defs[@]}" --define "debug_package %{nil}" \
         --define "_topdir $PWD/rpmbuild" "$spec"
-    cp rpmbuild/RPMS/x86_64/*.rpm "$out/"
+    cp rpmbuild/RPMS/x86_64/"$PROGRAM-$VERSION-$REL".*.rpm "$out/"
     ;;
 debian13 | ubuntu26.04)
     case "$TOOL" in
