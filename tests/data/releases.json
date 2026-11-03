@@ -1,0 +1,28 @@
+[
+  {
+    "url": "https://api.github.com/repos/CatDesuFR/catberry/releases/1",
+    "tag_name": "roofce-v1.2.2",
+    "name": "roofce 1.2.2",
+    "body": "catberry-roofce 1.2.2 (mentions \"tag_name\": \"ac-v9.9.9\" in text)"
+  },
+  {
+    "tag_name": "catberry-v1.2.0",
+    "name": "catberry 1.2.0"
+  },
+  {
+    "tag_name": "mtools-v1.1.0",
+    "name": "mtools 1.1.0"
+  },
+  {
+    "tag_name": "ac-v1.1.2",
+    "name": "ac 1.1.2"
+  },
+  {
+    "tag_name": "catberry-v1.10.0",
+    "name": "catberry 1.10.0"
+  },
+  {
+    "tag_name": "v1.0.2",
+    "name": "v1.0.2"
+  }
+]
