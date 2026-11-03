@@ -12,50 +12,49 @@ GNOME is not supported: it does not let apps provide the wallpaper.
 
 ## Install
 
-### Fedora
+Install the [`catberry` launcher](https://github.com/CatDesuFR/catberry#install)
+first, then:
 
 ```bash
-sudo dnf install qt6-qtbase-devel qt6-qtmultimedia-devel layer-shell-qt-devel cmake gcc-c++ ffmpeg unzip
-git clone -b roof-carton-engine https://github.com/CatDesuFR/catberry.git catberry-roofce
-cd catberry-roofce && make install
+catberry install roofce
 ```
 
-`ffmpeg` with full codec support comes from RPM Fusion; it is needed for most
-videos (H.264) and for the memory-saving video copies.
+It picks the right package for your system (Arch-based distros, Fedora,
+Debian 13, Ubuntu 26.04 or newer) and installs it. Other versions:
+`catberry versions roofce`, then `catberry install roofce <version>`. Remove it with
+`catberry uninstall roofce` (it asks whether to keep your settings). Every
+download is on the [Releases](https://github.com/CatDesuFR/catberry/releases)
+page (tags `roofce-v...`).
 
-### CachyOS, Garuda and other Arch-based distros
+Both put **Roof Carton Engine** in your app menu.
 
-One command; pacman also installs the Qt, layer-shell and FFmpeg packages it needs:
+### Build it yourself
+
+Install what it needs. Fedora:
 
 ```bash
-curl -LO https://github.com/CatDesuFR/catberry/releases/download/roofce-v1.2.2/catberry-roofce-1.2.2-1-x86_64.pkg.tar.zst && sudo pacman -U catberry-roofce-1.2.2-1-x86_64.pkg.tar.zst
+sudo dnf install qt6-qtbase-devel qt6-qtmultimedia-devel layer-shell-qt-devel cmake gcc-c++ ffmpeg-free unzip
 ```
 
-Or build it yourself. First install what it needs:
+(`ffmpeg` with full codec support comes from RPM Fusion; it is needed for
+most videos (H.264) and for the memory-saving video copies.)
+
+Arch-based:
 
 ```bash
 sudo pacman -S --needed base-devel git cmake qt6-base qt6-multimedia qt6-multimedia-ffmpeg layer-shell-qt ffmpeg unzip
 ```
 
-Then build it as a package (recommended):
-
-```bash
-git clone -b roof-carton-engine https://github.com/CatDesuFR/catberry.git catberry-roofce
-cd catberry-roofce/packaging/arch && makepkg -si
-```
-
-Remove it with `sudo pacman -R catberry-roofce`.
-
-Or build and install it just for your user (into `~/.local`), without a package:
+Then build and install it for your user (into `~/.local`):
 
 ```bash
 git clone -b roof-carton-engine https://github.com/CatDesuFR/catberry.git catberry-roofce
 cd catberry-roofce && make install
 ```
 
-Remove that one with `make uninstall` in the same folder.
-
-Both put **Roof Carton Engine** in your app menu.
+`make uninstall` in the same folder removes that copy (so does
+`catberry uninstall roofce`). On Arch-based distros you can build a
+package instead: `cd packaging/arch && makepkg -si`.
 
 ## Use
 
