@@ -138,7 +138,8 @@ void RecorderTab::globalInput(const InputEvent &ev) {
         playKey_->offerGlobal(ev);
         return;
     }
-    if (recordKey_->recentlyCaptured() || playKey_->recentlyCaptured()) return;
+    // Also a key button elsewhere (the hotkey macro dialog) choosing a key.
+    if (KeyButton::anyBusy()) return;
     if (ev.code == recordKey_->code() || ev.code == playKey_->code()) {
         if (!ev.down) return;
         if (ev.code == recordKey_->code())

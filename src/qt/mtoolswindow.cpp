@@ -52,7 +52,12 @@ MtoolsWindow::MtoolsWindow() {
     resize(560, 620);
 }
 
-MtoolsWindow::~MtoolsWindow() = default;
+MtoolsWindow::~MtoolsWindow() {
+    // The tabs go first, while output_ still exists: the Recorder stops its
+    // playback thread, which sends through output_. (Child widgets would
+    // otherwise only be deleted after the members, output_ included.)
+    delete takeCentralWidget();
+}
 
 void MtoolsWindow::keyPressEvent(QKeyEvent *event) {
     if (!event->isAutoRepeat()) {
@@ -63,7 +68,7 @@ void MtoolsWindow::keyPressEvent(QKeyEvent *event) {
 }
 
 void MtoolsWindow::closeEvent(QCloseEvent *event) {
-    // The tabs stop playback and save their settings as they go.
+    // Playback and settings are handled when the window is destroyed (above).
     QMainWindow::closeEvent(event);
 }
 

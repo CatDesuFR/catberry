@@ -4,6 +4,7 @@
 #include "../common/macro.h"
 
 #include <QCoreApplication>
+#include <QFileInfo>
 #include <algorithm>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -152,7 +153,10 @@ bool HotkeysTab::load(const QString &name) {
     // A fresh process, like the command (catberry -configload): it starts
     // the background config itself.
     QProcess process;
-    process.start(QCoreApplication::applicationFilePath(), {"-configload", name});
+    // After an update while the window is open, this program's own file is
+    // gone; the new one is on PATH.
+    QString self = QCoreApplication::applicationFilePath();
+    process.start(QFileInfo::exists(self) ? self : QString("catberry-mtools"), {"-configload", name});
     bool ok = process.waitForFinished(10000) && process.exitStatus() == QProcess::NormalExit && process.exitCode() == 0;
     if (!ok) {
         QString why = QString::fromLocal8Bit(process.readAllStandardError()).trimmed();

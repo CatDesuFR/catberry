@@ -22,13 +22,25 @@ bool isModifier(int code) {
     default: return false;
     }
 }
+int g_capturing = 0;        // key buttons waiting for a key, app-wide
+QElapsedTimer g_lastCapture; // when any of them last got one
 } // namespace
+
+bool KeyButton::anyBusy() { return g_capturing > 0 || (g_lastCapture.isValid() && g_lastCapture.elapsed() < 300); }
+
+KeyButton::~KeyButton() { setCapturing(false); }
+
+void KeyButton::setCapturing(bool on) {
+    if (on == capturing_) return;
+    capturing_ = on;
+    g_capturing += on ? 1 : -1;
+}
 
 KeyButton::KeyButton(int code, QWidget *parent) : QPushButton(parent), code_(code) {
     setFocusPolicy(Qt::StrongFocus);
     refresh();
     connect(this, &QPushButton::clicked, this, [this] {
-        capturing_ = !capturing_;
+        setCapturing(!capturing_);
         if (capturing_) setFocus();
         refresh();
     });
@@ -47,17 +59,22 @@ void KeyButton::refresh() {
 }
 
 void KeyButton::finish(int code) {
-    capturing_ = false;
+    setCapturing(false);
     if (code >= 0 && code != code_) {
         code_ = code;
         emit changed(code);
     }
     if (code >= 0) emit picked(code);
     captured_.start();
+    g_lastCapture.start();
     refresh();
 }
 
 void KeyButton::keyPressEvent(QKeyEvent *event) {
+    // The press that was just captured (it may arrive here after global
+    // input already took it): swallowed, so Space/Enter do not click this
+    // button again and Esc does not close a dialog.
+    if (!capturing_ && recentlyCaptured()) return event->accept();
     if (!capturing_) return QPushButton::keyPressEvent(event);
     if (event->isAutoRepeat()) return;
     if (event->key() == Qt::Key_Escape) return finish(-1);
@@ -76,9 +93,14 @@ void KeyButton::offerGlobal(const InputEvent &ev) {
     finish(ev.code);
 }
 
+void KeyButton::keyReleaseEvent(QKeyEvent *event) {
+    if (capturing_ || recentlyCaptured()) return event->accept();
+    QPushButton::keyReleaseEvent(event);
+}
+
 void KeyButton::focusOutEvent(QFocusEvent *event) {
     if (capturing_) {
-        capturing_ = false;
+        setCapturing(false);
         refresh();
     }
     QPushButton::focusOutEvent(event);
