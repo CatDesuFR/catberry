@@ -42,13 +42,22 @@ TempDir::~TempDir() {
     fs::remove_all(path_, ec);
 }
 
-bool download(const std::string &url, const std::string &file) {
+bool fetchUrl(const std::string &url, const std::string &file, int &status) {
 #ifdef _WIN32
     const char *curl = "curl.exe";
 #else
     const char *curl = "curl";
 #endif
-    return runProgram({curl, "-fsSL", "--retry", "2", "-o", file, url}) == 0;
+    // -s: no progress and no curl error lines; catberry says what went wrong.
+    std::string out;
+    bool ran = captureOutput({curl, "-sL", "--retry", "2", "-o", file, "-w", "%{http_code}", url}, out);
+    status = std::atoi(out.c_str());
+    return ran && (status == 0 || (status >= 200 && status < 300));
+}
+
+bool download(const std::string &url, const std::string &file) {
+    int status;
+    return fetchUrl(url, file, status);
 }
 
 namespace {

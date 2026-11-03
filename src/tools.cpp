@@ -14,7 +14,7 @@
 #include <unistd.h>
 #endif
 
-const char *const kVersion = "1.3.2";
+const char *const kVersion = "1.3.3";
 const char *const kRepo = "https://github.com/CatDesuFR/catberry";
 
 const Tool kTools[4] = {{"ac", "catberry-ac", "ac"},

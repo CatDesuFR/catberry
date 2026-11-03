@@ -8,6 +8,8 @@
 // From GitHub's release list (JSON), the versions of `tool`: every
 // "tag_name" of the form "<tool>-v<version>", newest first.
 std::vector<std::string> toolVersions(const std::string &releasesJson, const std::string &tool);
+// The same from a plain list of tags (as `gh release list` gives them).
+std::vector<std::string> versionsFromTags(const std::vector<std::string> &tags, const std::string &tool);
 
 struct SumEntry {
     std::string sha256, name;

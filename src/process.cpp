@@ -82,6 +82,11 @@ bool captureOutput(const std::vector<std::string> &argv, std::string &out) {
     return code == 0;
 }
 
+bool captureOutputQuiet(const std::vector<std::string> &argv) {
+    std::string out;
+    return captureOutput(argv, out);
+}
+
 bool isRoot() { return false; }
 std::vector<std::string> withSudo(std::vector<std::string> argv) { return argv; }
 
@@ -146,6 +151,11 @@ bool captureOutput(const std::vector<std::string> &argv, std::string &out) {
         if (n > 0) out.append(buf, size_t(n));
     close(fds[0]);
     return waitFor(pid) == 0;
+}
+
+bool captureOutputQuiet(const std::vector<std::string> &argv) {
+    std::string out;
+    return captureOutput(argv, out);
 }
 
 bool isRoot() { return geteuid() == 0; }

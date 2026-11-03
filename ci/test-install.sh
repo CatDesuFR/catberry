@@ -73,6 +73,12 @@ expect "--reinstall exits 0" test "$code" = 0
 expect "--reinstall installs" grep -q "ac 1.1.2 installed" <<<"$out"
 expect "--reinstall puts the program back" test -x /usr/bin/catberry-ac
 
+echo "== releases not there (404)"
+out=$(CATBERRY_RELEASES="$CATBERRY_RELEASES/no-such-copy" cb install mtools); code=$?
+expect "404 message" grep -q "GitHub says the catberry releases are not there (HTTP 404)" <<<"$out"
+expect "404 exits 1" test "$code" = 1
+expect "no curl error line" bash -c '! grep -q "^curl:" <<<"$1"' _ "$out"
+
 echo "== unknown version"
 out=$(cb install ac 9.9); code=$?
 expect "unknown version message" grep -q "ac has no version 9.9. Published: 1.1.2" <<<"$out"

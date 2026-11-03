@@ -7,8 +7,7 @@
 
 std::vector<std::string> toolVersions(const std::string &json, const std::string &tool) {
     const std::string key = "\"tag_name\"";
-    const std::string prefix = tool + "-v";
-    std::vector<std::string> found;
+    std::vector<std::string> tags;
     for (size_t at = json.find(key); at != std::string::npos; at = json.find(key, at + key.size())) {
         // A real key, not text inside another string (that would be \"tag_name\").
         if (at > 0 && json[at - 1] == '\\') continue;
@@ -20,9 +19,16 @@ std::vector<std::string> toolVersions(const std::string &json, const std::string
         if (p >= json.size() || json[p] != '"') continue;
         size_t end = json.find('"', p + 1);
         if (end == std::string::npos) break;
-        std::string tag = json.substr(p + 1, end - p - 1);
-        if (tag.compare(0, prefix.size(), prefix) == 0) found.push_back(tag.substr(prefix.size()));
+        tags.push_back(json.substr(p + 1, end - p - 1));
     }
+    return versionsFromTags(tags, tool);
+}
+
+std::vector<std::string> versionsFromTags(const std::vector<std::string> &tags, const std::string &tool) {
+    const std::string prefix = tool + "-v";
+    std::vector<std::string> found;
+    for (const std::string &tag : tags)
+        if (tag.compare(0, prefix.size(), prefix) == 0) found.push_back(tag.substr(prefix.size()));
     return sortNewestFirst(found);
 }
 

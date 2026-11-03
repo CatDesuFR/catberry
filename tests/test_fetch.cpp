@@ -28,6 +28,10 @@ void testFetch() {
         CHECK(download("file://" + file, dir.path() + "/copy.txt"));
         CHECK(sha256Matches(dir.path() + "/copy.txt", "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"));
         CHECK(!download("file://" + dir.path() + "/missing", dir.path() + "/x"));
+        // The server's answer is kept: 404 means "not there", not "no internet".
+        int status = -1;
+        CHECK(fetchUrl("file://" + file, dir.path() + "/copy2.txt", status) && status == 0);
+        CHECK(!fetchUrl("http://127.0.0.1:9/nothing", dir.path() + "/y", status) && status == 0);
         std::ofstream(dir.path() + "/sub-file") << "x";
     }
     CHECK(!exists(dirPath)); // removed with everything in it

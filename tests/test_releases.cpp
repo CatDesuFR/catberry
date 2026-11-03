@@ -31,6 +31,10 @@ void testReleases() {
     CHECK((toolVersions(json, "roofce") == List{"1.2.2"}));
     CHECK((toolVersions(json, "mtools") == List{"1.1.0"}));
     CHECK(toolVersions("[]", "ac").empty());
+    // The same from a plain list of tags (what gh release list gives).
+    CHECK((versionsFromTags({"roofce-v1.2.2", "catberry-v1.2.0", "catberry-v1.10.0", "v1.0.2", "ac-v1.1.2", ""},
+                            "catberry") == List{"1.10.0", "1.2.0"}));
+    CHECK((versionsFromTags({"roofce-v1.2.2"}, "ac").empty()));
 
     SumEntry e;
     CHECK(findAsset(kSums, "catberry", ".pkg.tar.zst", e) && e.name == "catberry-1.2.0-1-x86_64.pkg.tar.zst" &&

@@ -9,6 +9,8 @@
 int runProgram(const std::vector<std::string> &argv);
 // Runs a program and collects what it prints; true when it exits with 0.
 bool captureOutput(const std::vector<std::string> &argv, std::string &out);
+// Runs a program, throwing away what it prints; true when it exits with 0.
+bool captureOutputQuiet(const std::vector<std::string> &argv);
 bool isRoot();
 // The command prefixed with sudo, unless already root (Linux); unchanged on Windows.
 std::vector<std::string> withSudo(std::vector<std::string> argv);

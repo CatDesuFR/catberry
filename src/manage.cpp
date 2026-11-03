@@ -57,13 +57,75 @@ std::string joinList(const std::vector<std::string> &items) {
 
 // The published versions of a tool, newest first; false (with a message)
 // when GitHub cannot be reached.
-bool publishedVersions(const std::string &tool, const TempDir &tmp, std::vector<std::string> &out) {
-    std::string file = tmp.path() + "/releases.json";
-    if (!download(releaseListUrl(), file)) {
-        std::fprintf(stderr, "catberry: could not get the list of releases from GitHub (no internet connection?)\n");
+const char *const kRepoName = "CatDesuFR/catberry";
+
+// Set once GitHub's public download has refused this run and the gh
+// command (logged in) is used instead.
+bool g_viaGh = false;
+
+bool ghLoggedIn() { return captureOutputQuiet({"gh", "auth", "status"}); }
+
+bool ghTags(std::vector<std::string> &tags) {
+    std::string out;
+    if (!captureOutput({"gh", "release", "list", "-R", kRepoName, "--limit", "200", "--json", "tagName", "--jq",
+                        ".[].tagName"},
+                       out))
         return false;
+    std::istringstream lines(out);
+    std::string line;
+    while (std::getline(lines, line))
+        if (!line.empty()) tags.push_back(line);
+    return true;
+}
+
+// One file of a release, the same way the list was got.
+bool fetchAsset(const std::string &tag, const std::string &name, const std::string &file) {
+    if (g_viaGh)
+        return captureOutputQuiet({"gh", "release", "download", tag, "-R", kRepoName, "-p", name, "-O", file,
+                                   "--clobber"});
+    return download(assetUrl(tag, name), file);
+}
+
+// The published versions of a tool, newest first; false (with a message)
+// when GitHub cannot be reached.
+bool publishedVersions(const std::string &tool, const TempDir &tmp, std::vector<std::string> &out) {
+    const std::string file = tmp.path() + "/releases.json";
+    int status = 0;
+    if (g_viaGh) {
+        std::vector<std::string> tags;
+        if (!ghTags(tags)) {
+            std::fprintf(stderr, "catberry: gh could not list the releases.\n");
+            return false;
+        }
+        out = versionsFromTags(tags, tool);
+    } else if (fetchUrl(releaseListUrl(), file, status)) {
+        out = toolVersions(readFile(file), tool);
+    } else {
+        // GitHub refused (a hidden account, or limits): gh, when logged in,
+        // can still see the releases. Not for a test copy (CATBERRY_RELEASES).
+        const char *testCopy = std::getenv("CATBERRY_RELEASES");
+        std::vector<std::string> tags;
+        if (status != 0 && !(testCopy && *testCopy) && ghLoggedIn() && ghTags(tags)) {
+            g_viaGh = true;
+            std::printf("GitHub's public downloads are not available (HTTP %d); using your gh login instead.\n",
+                        status);
+            out = versionsFromTags(tags, tool);
+        } else if (status == 404) {
+            std::fprintf(stderr,
+                         "catberry: GitHub says the catberry releases are not there (HTTP 404). The repository may "
+                         "be hidden or private: https://github.com/%s/releases\n"
+                         "If you can see them there while logged in, install and log in to gh (GitHub's command "
+                         "line tool), and catberry uses it.\n",
+                         kRepoName);
+            return false;
+        } else if (status != 0) {
+            std::fprintf(stderr, "catberry: GitHub refused the list of releases (HTTP %d). Try again later.\n", status);
+            return false;
+        } else {
+            std::fprintf(stderr, "catberry: could not reach GitHub (no internet connection?)\n");
+            return false;
+        }
     }
-    out = toolVersions(readFile(file), tool);
     if (out.empty()) {
         std::fprintf(stderr, "catberry: %s has no published versions yet.\n", tool.c_str());
         return false;
@@ -157,13 +219,13 @@ int installPackage(const SystemInfo &sys, const Tool &tool, const std::string &v
     const std::string tag = std::string(tool.name) + "-v" + version;
     const std::string sumsFile = tmp.path() + "/SHA256SUMS-" + tag;
     SumEntry asset;
-    if (!download(assetUrl(tag, "SHA256SUMS"), sumsFile) ||
+    if (!fetchAsset(tag, "SHA256SUMS", sumsFile) ||
         !findAsset(readFile(sumsFile), tool.program, assetSuffix(sys.family), asset)) {
         std::fprintf(stderr, "catberry: %s %s has no package for this system.\n", tool.name, version.c_str());
         return 1;
     }
     const std::string file = tmp.path() + "/" + asset.name;
-    if (!download(assetUrl(tag, asset.name), file) || !sha256Matches(file, asset.sha256)) {
+    if (!fetchAsset(tag, asset.name, file) || !sha256Matches(file, asset.sha256)) {
         std::fprintf(stderr, "catberry: download damaged, nothing was installed.\n");
         return 1;
     }
@@ -543,12 +605,12 @@ int installTool(const std::string &name, const std::string &wanted, bool reinsta
 
     const std::string tag = name + "-v" + version, sums = tmp.path() + "\\SHA256SUMS";
     SumEntry asset;
-    if (!download(assetUrl(tag, "SHA256SUMS"), sums) || !findAsset(readFile(sums), tool->program, "-windows.zip", asset)) {
+    if (!fetchAsset(tag, "SHA256SUMS", sums) || !findAsset(readFile(sums), tool->program, "-windows.zip", asset)) {
         std::fprintf(stderr, "catberry: %s %s has no Windows download.\n", tool->name, version.c_str());
         return 1;
     }
     const std::string zip = tmp.path() + "\\" + asset.name;
-    if (!download(assetUrl(tag, asset.name), zip) || !sha256Matches(zip, asset.sha256)) {
+    if (!fetchAsset(tag, asset.name, zip) || !sha256Matches(zip, asset.sha256)) {
         std::fprintf(stderr, "catberry: download damaged, nothing was installed.\n");
         return 1;
     }
