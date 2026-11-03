@@ -10,6 +10,8 @@
 #include <cstring>
 #include <string>
 
+#include "args.h"
+
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -205,20 +207,23 @@ int printVersions() {
 } // namespace
 
 int main(int argc, char **argv) {
-    std::string command = argc > 1 ? argv[1] : "";
-
-    if (command == "-help" || command == "-h" || command == "--help") {
+    Command command = parseCommand(argc, argv);
+    switch (command.kind) {
+    case Command::Help:
         usage(stdout);
         return 0;
+    case Command::Versions_:
+        return printVersions();
+    case Command::RunTool:
+        for (const Tool &tool : kTools)
+            if (command.tool == tool.name)
+                return dispatch(tool, argc - command.toolArgStart, argv + command.toolArgStart);
+        break;
+    default:
+        break;
     }
-    if (command == "-v" || command == "--version") return printVersions();
-    for (const Tool &tool : kTools)
-        if (command == tool.name) return dispatch(tool, argc - 2, argv + 2);
-    // The hotkey macro commands belong to mtools but keep their short form.
-    if (command == "-config" || command == "-configload" || command == "-configunload")
-        return dispatch(kTools[1], argc - 1, argv + 1);
 
-    if (!command.empty()) std::fprintf(stderr, "catberry: unknown command '%s'\n\n", command.c_str());
+    if (argc > 1) std::fprintf(stderr, "catberry: unknown command '%s'\n\n", argv[1]);
     usage(stderr);
     return 2;
 }
