@@ -6,8 +6,8 @@
 
 | Tool | Branch | Version | What it does |
 | --- | --- | --- | --- |
-| `catberry ac` | [`ac`](https://github.com/CatDesuFR/catberry/tree/ac) | 1.1.2 | Autoclicker: clicks, scrolls or presses a key at a set rate |
-| `catberry mtools` | [`mtools`](https://github.com/CatDesuFR/catberry/tree/mtools) | 1.1.0 | Macro recorder, plus hotkey macros (`catberry -config`) |
+| `catberry ac` | [`ac`](https://github.com/CatDesuFR/catberry/tree/ac) | 2.0.0 | Autoclicker: clicks, scrolls or presses a key at a set rate |
+| `catberry mtools` | [`mtools`](https://github.com/CatDesuFR/catberry/tree/mtools) | 2.0.0 | Macro recorder, plus hotkey macros (`catberry -config`) |
 | `catberry roofce` | [`roof-carton-engine`](https://github.com/CatDesuFR/catberry/tree/roof-carton-engine) | 1.2.2 | Roof Carton Engine: live wallpapers, clock and music widgets (Linux, Wayland) |
 
 Install this launcher once; it then installs, updates and removes the tools.
@@ -123,8 +123,8 @@ catberry roofce gui             open the wallpaper manager (Linux, Wayland)
 
 ```
 catberry 1.3.2
-  ac      1.1.2
-  mtools  1.1.0
+  ac      2.0.0
+  mtools  2.0.0
   roofce  1.2.2
 ```
 
