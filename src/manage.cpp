@@ -296,10 +296,9 @@ std::vector<std::string> personalFiles(const std::string &tool) {
 // Copies of the program outside the package manager.
 std::vector<std::string> looseCopies(const Tool &tool) {
     std::vector<std::string> all = {userBin() + "/" + tool.program};
-    if (std::string(tool.name) == "roofce") {
-        all.push_back(configHome() + "/autostart/catberry-roofce.desktop");
-        all.push_back(dataHome() + "/applications/catberry-roofce.desktop"); // from make install
-    }
+    // The app-menu entry that make install puts in ~/.local.
+    if (std::string(tool.name) != "catberry") all.push_back(dataHome() + "/applications/" + tool.program + ".desktop");
+    if (std::string(tool.name) == "roofce") all.push_back(configHome() + "/autostart/catberry-roofce.desktop");
     std::vector<std::string> found;
     for (const std::string &p : all)
         if (exists(p)) found.push_back(p);

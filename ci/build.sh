@@ -25,7 +25,7 @@ apt_install() {
 case "$target" in
 arch)
     case "$TOOL" in
-    ac | mtools) extra="libx11 libxtst" ;;
+    ac | mtools) extra="cmake qt6-base" ;;
     roofce) extra="cmake qt6-base qt6-multimedia layer-shell-qt" ;;
     *) extra="" ;;
     esac
@@ -51,7 +51,7 @@ fedora)
     ;;
 debian13 | ubuntu26.04)
     case "$TOOL" in
-    ac | mtools) extra="libx11-dev libxtst-dev" ;;
+    ac | mtools) extra="cmake qt6-base-dev" ;;
     roofce) extra="cmake qt6-base-dev qt6-multimedia-dev liblayershellqtinterface-dev" ;;
     *) extra="" ;;
     esac

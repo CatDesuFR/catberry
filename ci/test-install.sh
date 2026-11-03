@@ -103,10 +103,12 @@ expect "sudo uninstall removed nothing" has_pkg catberry-ac
 
 echo "== uninstall ac, keeping files"
 mkdir -p $cfg/catberry && echo x >$cfg/catberry/ac.conf
+mkdir -p $share/applications && echo x >$share/applications/catberry-ac.desktop
 out=$(un '\n' uninstall ac); code=$?
 expect "uninstall ac exits 0" test "$code" = 0
 expect "catberry-ac package removed" no_pkg catberry-ac
 expect "ac.conf kept on Enter" test -f $cfg/catberry/ac.conf
+expect "make install's ac app-menu entry removed" test ! -e $share/applications/catberry-ac.desktop
 expect "says ac uninstalled" grep -q "^ac uninstalled." <<<"$out"
 expect "says files were kept" grep -q "Your settings and files were kept." <<<"$out"
 

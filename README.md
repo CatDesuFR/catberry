@@ -2,7 +2,7 @@
 
 `catberry` is one command for a set of input tools, on **Linux** and
 **Windows 10/11**. This branch is the `catberry` command itself (version
-1.3.1). Each tool lives on its own branch and is installed separately:
+1.3.2). Each tool lives on its own branch and is installed separately:
 
 | Tool | Branch | Version | What it does |
 | --- | --- | --- | --- |
@@ -19,28 +19,28 @@ Install this launcher once; it then installs, updates and removes the tools.
 **CachyOS, Garuda and other Arch-based distros**
 
 ```bash
-curl -LO https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.1/catberry-1.3.1-1-x86_64.pkg.tar.zst && sudo pacman -U catberry-1.3.1-1-x86_64.pkg.tar.zst
+curl -LO https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.2/catberry-1.3.2-1-x86_64.pkg.tar.zst && sudo pacman -U catberry-1.3.2-1-x86_64.pkg.tar.zst
 ```
 
 **Fedora**
 
 ```bash
-sudo dnf install https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.1/catberry-1.3.1-1.fc44.x86_64.rpm
+sudo dnf install https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.2/catberry-1.3.2-1.fc44.x86_64.rpm
 ```
 
 **Debian 13**
 
 ```bash
-curl -LO https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.1/catberry_1.3.1-1+debian13_amd64.deb && sudo apt install ./catberry_1.3.1-1+debian13_amd64.deb
+curl -LO https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.2/catberry_1.3.2-1+debian13_amd64.deb && sudo apt install ./catberry_1.3.2-1+debian13_amd64.deb
 ```
 
 **Ubuntu 26.04 or newer** (and distros built on it, like Linux Mint)
 
 ```bash
-curl -LO https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.1/catberry_1.3.1-1+ubuntu26.04_amd64.deb && sudo apt install ./catberry_1.3.1-1+ubuntu26.04_amd64.deb
+curl -LO https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.2/catberry_1.3.2-1+ubuntu26.04_amd64.deb && sudo apt install ./catberry_1.3.2-1+ubuntu26.04_amd64.deb
 ```
 
-**Windows 10/11**: download [`catberry-windows.zip`](https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.1/catberry-windows.zip),
+**Windows 10/11**: download [`catberry-windows.zip`](https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.2/catberry-windows.zip),
 extract it and double-click `install.bat` (if Windows shows "Windows protected
 your PC", click **More info** → **Run anyway**). It goes into
 `%LOCALAPPDATA%\Programs\catberry`, which is added to your PATH; open a new
@@ -77,7 +77,7 @@ work too.
 Install what it needs:
 
 ```bash
-sudo pacman -S --needed base-devel git cmake qt6-base qt6-multimedia qt6-multimedia-ffmpeg layer-shell-qt ffmpeg unzip libx11 libxtst
+sudo pacman -S --needed base-devel git cmake qt6-base qt6-multimedia qt6-multimedia-ffmpeg layer-shell-qt ffmpeg unzip
 ```
 
 Then build and install each package (launcher first; skip the tools you don't want):
@@ -89,8 +89,8 @@ git clone -b mtools https://github.com/CatDesuFR/catberry.git catberry-mtools &&
 git clone -b roof-carton-engine https://github.com/CatDesuFR/catberry.git catberry-roofce && (cd catberry-roofce/packaging/arch && makepkg -si)
 ```
 
-`libx11` and `libxtst` are for ac and mtools; `cmake`, the Qt, layer-shell,
-`ffmpeg` and `unzip` packages are for roofce. Other systems: `make install`
+`cmake` and `qt6-base` are for ac, mtools and roofce; the multimedia,
+layer-shell, `ffmpeg` and `unzip` packages are for roofce. Other systems: `make install`
 on each branch (roofce builds with CMake and needs Qt 6).
 
 ### Linux permission (once)
@@ -122,7 +122,7 @@ catberry roofce gui             open the wallpaper manager (Linux, Wayland)
 `catberry -v` shows which tools are installed:
 
 ```
-catberry 1.3.1
+catberry 1.3.2
   ac      1.1.2
   mtools  1.1.0
   roofce  1.2.2
@@ -141,7 +141,7 @@ tools work.
 | Linux program | `make` | `catberry` |
 | Install on Linux | `make install` | `~/.local/bin/catberry` |
 | Windows package | `make windows` | `dist/catberry-windows.zip` |
-| Arch package | `cd packaging/arch && makepkg` | `catberry-1.3.1-1-x86_64.pkg.tar.zst` |
+| Arch package | `cd packaging/arch && makepkg` | `catberry-1.3.2-1-x86_64.pkg.tar.zst` |
 | Unit tests | `make test` | |
 | Every package, tested and published | `ci/release-local.sh catberry` (podman) | a GitHub Release |
 | install/uninstall on every distro | `ci/test-install-local.sh` (podman) | |

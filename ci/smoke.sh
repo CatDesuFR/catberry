@@ -54,6 +54,15 @@ if [ "$PROGRAM" = catberry-roofce ]; then
     fi
 fi
 
+# ac and mtools: their Qt windows need the Wayland plugin, and must open
+# and close cleanly (offscreen, in a throwaway config folder).
+if [ "$PROGRAM" = catberry-ac ] || [ "$PROGRAM" = catberry-mtools ]; then
+    find /usr/lib /usr/lib64 -path '*qt6/plugins/platforms/*' \( -name libqwayland.so -o -name libqwayland-generic.so \) \
+        2>/dev/null | grep -q . || { echo "Qt Wayland platform plugin missing after install" >&2; exit 1; }
+    XDG_CONFIG_HOME=$(mktemp -d) QT_QPA_PLATFORM=offscreen "$PROGRAM" gui --quit-after 1000 ||
+        { echo "$PROGRAM gui did not open and close cleanly" >&2; exit 1; }
+fi
+
 out=$(QT_QPA_PLATFORM=offscreen "$PROGRAM" -v 2>&1)
 echo "$out"
 grep -q "$VERSION" <<<"$out" || { echo "$PROGRAM -v does not print $VERSION" >&2; exit 1; }
