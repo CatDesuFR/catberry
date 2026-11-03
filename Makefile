@@ -39,6 +39,13 @@ $(WINDOWS_DIST)/%.bat: windows/%.bat
 	sed 's/\r*$$/\r/' $< > $@
 
 clean:
-	rm -rf $(PROGRAM) dist
+	rm -rf $(PROGRAM) dist tests/run-tests
 
-.PHONY: install uninstall windows clean
+# Unit tests of the non-window logic: make test
+TEST_SRCS = $(filter-out src/main.cpp src/common/gui.cpp src/common/mtools.cpp,$(COMMON_SRCS)) \
+	$(filter-out src/linux/host.cpp,$(wildcard src/linux/*.cpp)) $(wildcard tests/*.cpp)
+test: $(TEST_SRCS) $(HEADERS) tests/test.h
+	$(CXX) $(CXXFLAGS) -std=c++17 -pthread $(TEST_SRCS) -o tests/run-tests -lX11 -lXtst
+	./tests/run-tests
+
+.PHONY: install uninstall windows clean test

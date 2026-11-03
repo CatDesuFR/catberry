@@ -3,6 +3,7 @@
 #include "output.h"
 #include "daemon.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdlib>
 #include <fstream>
@@ -21,6 +22,16 @@ fs::path subdir(const char *name) {
 fs::path macroPath(const std::string &name) { return subdir("macros") / (name + ".macro"); }
 fs::path configPath(const std::string &name) { return subdir("configs") / (name + ".conf"); }
 fs::path pidPath(const std::string &name) { return runtimeDir() / (name + ".pid"); }
+
+// The names of the files in `dir` ending in `ext`, sorted.
+std::vector<std::string> namesIn(const fs::path &dir, const char *ext) {
+    std::vector<std::string> names;
+    std::error_code ec;
+    for (const auto &entry : fs::directory_iterator(dir, ec))
+        if (entry.is_regular_file(ec) && entry.path().extension() == ext) names.push_back(entry.path().stem().string());
+    std::sort(names.begin(), names.end());
+    return names;
+}
 
 // Watches for the hotkey and plays the key list when it goes down.
 void serveMacro(const MacroConfig &cfg, KeyWatcher &keys, Output &output) {
@@ -55,6 +66,28 @@ void serveMacro(const MacroConfig &cfg, KeyWatcher &keys, Output &output) {
 }
 
 } // namespace
+
+std::vector<std::string> macroNames() { return namesIn(subdir("macros"), ".macro"); }
+
+bool deleteMacro(const std::string &name) {
+    std::error_code ec;
+    return validName(name) && fs::remove(macroPath(name), ec);
+}
+
+bool renameMacro(const std::string &from, const std::string &to) {
+    std::error_code ec;
+    if (!validName(from) || !validName(to) || !fs::exists(macroPath(from), ec) || fs::exists(macroPath(to), ec))
+        return false;
+    fs::rename(macroPath(from), macroPath(to), ec);
+    return !ec;
+}
+
+std::vector<std::string> configNames() { return namesIn(subdir("configs"), ".conf"); }
+
+bool deleteConfig(const std::string &name) {
+    std::error_code ec;
+    return validName(name) && fs::remove(configPath(name), ec);
+}
 
 bool saveMacro(const std::string &name, const Macro &macro) {
     std::ofstream out(macroPath(name));

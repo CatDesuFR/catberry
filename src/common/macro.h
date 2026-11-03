@@ -20,6 +20,11 @@ struct Macro {
 
 bool saveMacro(const std::string &name, const Macro &macro);
 bool loadMacro(const std::string &name, Macro &macro);
+// Saved macros, by name, sorted.
+std::vector<std::string> macroNames();
+bool deleteMacro(const std::string &name);
+// False when `from` does not exist, `to` already does, or `to` is not a valid name.
+bool renameMacro(const std::string &from, const std::string &to);
 
 struct MacroConfig {
     std::string keysText;
@@ -36,6 +41,9 @@ bool validName(const std::string &name);
 bool parseKeyList(const std::string &text, std::vector<int> &keys, std::string &bad);
 bool readConfig(const std::string &name, MacroConfig &cfg, std::string &error);
 bool writeConfig(const std::string &name, const MacroConfig &cfg);
+// Saved hotkey configs, by name, sorted.
+std::vector<std::string> configNames();
+bool deleteConfig(const std::string &name);
 
 // The pid of the process serving config `name`, or 0. Clears stale pid files.
 long loadedPid(const std::string &name);
