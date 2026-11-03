@@ -10,36 +10,25 @@ the macro recorder on the [`mtools` branch](https://github.com/CatDesuFR/catberr
 
 ## Install
 
-All downloads are in [`release/v1.1.2`](release/v1.1.2).
-
-### CachyOS, Garuda and other Arch-based distros
-
-Installs the launcher and the autoclicker together in one command:
+Install the [`catberry` launcher](https://github.com/CatDesuFR/catberry#install)
+first, then:
 
 ```bash
-curl -LO https://github.com/CatDesuFR/catberry/raw/main/release/v1.1.0/catberry-1.1.0-1-x86_64.pkg.tar.zst && curl -LO https://github.com/CatDesuFR/catberry/raw/ac/release/v1.1.2/catberry-ac-1.1.2-1-x86_64.pkg.tar.zst && sudo pacman -U catberry-1.1.0-1-x86_64.pkg.tar.zst catberry-ac-1.1.2-1-x86_64.pkg.tar.zst
+catberry install ac
 ```
 
-Remove it with `sudo pacman -R catberry-ac`.
+It picks the right package for your system (Arch-based distros, Fedora,
+Debian 13, Ubuntu 26.04 or newer, Windows 10/11) and installs it. Other versions:
+`catberry versions ac`, then `catberry install ac <version>`. Remove it with
+`catberry uninstall ac` (it asks whether to keep your settings). Every
+download is on the [Releases](https://github.com/CatDesuFR/catberry/releases)
+page (tags `ac-v...`).
 
-### Other Linux distros
+### Build it yourself
 
-Download [`catberry-ac-linux-x86_64`](https://github.com/CatDesuFR/catberry/raw/ac/release/v1.1.2/catberry-ac-linux-x86_64)
-(needs glibc 2.38 or newer: Fedora 39+, Ubuntu 24.04+, Debian 13+) and put
-it next to the `catberry` launcher:
-
-```bash
-install -Dm755 ~/Downloads/catberry-ac-linux-x86_64 ~/.local/bin/catberry-ac
-```
-
-Or build it: `make install` on this branch (needs `g++`, `make` and the
-libX11/libXtst development packages).
-
-### Windows
-
-Download [`catberry-ac-windows.zip`](https://github.com/CatDesuFR/catberry/raw/ac/release/v1.1.2/catberry-ac-windows.zip),
-extract it and double-click `install.bat`. It goes into the same folder as
-the launcher (`%LOCALAPPDATA%\Programs\catberry`). `uninstall.bat` removes it.
+`make install` on this branch (needs `g++`, `make` and the libX11/libXtst
+development packages), or on Arch-based distros
+`cd packaging/arch && makepkg -si`.
 
 ### Global hotkey on Linux (once)
 
