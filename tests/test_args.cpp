@@ -37,6 +37,10 @@ void testArgs() {
     CHECK(c.kind == Command::RunTool && c.tool == "roofce" && c.toolArgStart == 2);
     c = parse({"-configload", "X"});
     CHECK(c.kind == Command::RunTool && c.tool == "mtools" && c.toolArgStart == 1);
+    for (const char *quick : {"-quickpick", "-quickload", "-quickunload"}) {
+        c = parse({quick, "Farm"});
+        CHECK(c.kind == Command::RunTool && c.tool == "mtools" && c.toolArgStart == 1);
+    }
 
     CHECK(parse({"install", "nope"}).kind == Command::Unknown);
     CHECK(parse({"install"}).kind == Command::Unknown);

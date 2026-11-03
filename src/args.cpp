@@ -58,8 +58,9 @@ Command parseCommand(int argc, char **argv) {
         c.kind = Command::RunTool;
         c.tool = first;
         c.toolArgStart = 2;
-    } else if (first == "-config" || first == "-configload" || first == "-configunload") {
-        // The hotkey macro commands belong to mtools but keep their short form.
+    } else if (first == "-config" || first == "-configload" || first == "-configunload" || first == "-quickpick" ||
+               first == "-quickload" || first == "-quickunload") {
+        // The hotkey macro and quick click commands belong to mtools but keep their short form.
         c.kind = Command::RunTool;
         c.tool = "mtools";
         c.toolArgStart = 1;
