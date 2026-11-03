@@ -1,7 +1,7 @@
 # catberry mtools
 
-The catberry **macro recorder** and **background hotkey macros** (version
-2.0.0), for Linux and Windows 10/11.
+The catberry **macro recorder**, **background hotkey macros** and **quick click** (version
+2.1.0), for Linux and Windows 10/11.
 
 This branch holds only mtools. The `catberry` command it runs under lives on
 the [`main` branch](https://github.com/CatDesuFR/catberry), and the
@@ -97,7 +97,32 @@ catberry -configunload EasyEdit        # stop it (no name: stop all)
 - Each config has a `delay_ms` line (default 15) for how long each key is held
   and the pause before the next one. Raise it if a game misses keys.
 
-Settings, macros and configs are saved in `~/.config/catberry/` (Linux) or
+### Quick click
+
+Pick points on the screen; every press of the hotkey clicks them all, in
+order, as fast as the desktop reliably takes it (0.1 ms apart by default:
+50 points in under 10 ms). Each point can be a Left, Right, Middle or Double
+click. Like hotkey macros, quick clicks run in the background, also after
+the window is closed.
+
+The **Quick click** tab lists them with their status: **New...** asks for a
+name, a hotkey (a key or a side mouse button) and the gap, then **Pick
+points...** covers the screen: click where it should click, **L / R / M / D**
+choose the click type, **Backspace** removes the last point, **Enter**
+saves, **Esc** cancels. **Edit...** changes a point's click type or order,
+or picks them again. Then **Load** / **Unload**. The same from the terminal:
+
+```bash
+catberry -quickpick Farm F7 0.1   # pick the points; F7 clicks them, 0.1 ms apart
+catberry -quickload Farm          # start it in the background
+catberry -quickunload Farm        # stop it (no name: stop all)
+```
+
+On KDE the "Shake cursor" effect (which enlarges the pointer when it moves
+fast) is switched off during a run and back on right after. A quick click
+needs the same `input` group as the hotkeys.
+
+Settings, macros, configs and quick clicks are saved in `~/.config/catberry/` (Linux) or
 `%APPDATA%\catberry\` (Windows), in the same format on both.
 
 Macros are against the rules of many online games, and catberry does nothing
@@ -110,7 +135,7 @@ to hide itself. Use it at your own risk.
 | Linux program | `make` | `catberry-mtools` |
 | Install on Linux | `make install` | `~/.local/bin/catberry-mtools` |
 | Windows package | `make windows` | `dist/catberry-mtools-windows.zip` |
-| Arch package | `cd packaging/arch && makepkg` | `catberry-mtools-2.0.0-1-x86_64.pkg.tar.zst` |
+| Arch package | `cd packaging/arch && makepkg` | `catberry-mtools-2.1.0-1-x86_64.pkg.tar.zst` |
 | Unit tests | `make test` | |
 
 On Linux, `make` builds with CMake and Qt 6 (`src/qt` is the window). On
