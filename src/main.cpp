@@ -11,6 +11,8 @@
 #include <string>
 
 #include "args.h"
+#include "manage.h"
+#include "tools.h"
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -24,16 +26,6 @@
 
 namespace {
 
-const char *const kVersion = "1.2.0";
-const char *const kRepo = "https://github.com/CatDesuFR/catberry";
-
-struct Tool {
-    const char *name;
-    const char *program;
-    const char *branch;
-};
-const Tool kTools[] = {
-    {"ac", "catberry-ac", "ac"}, {"mtools", "catberry-mtools", "mtools"}, {"roofce", "catberry-roofce", "roof-carton-engine"}};
 
 void usage(FILE *out) {
     std::fprintf(out,
@@ -60,20 +52,6 @@ void usage(FILE *out) {
 
 #ifdef _WIN32
 
-std::string exeName(const char *program) { return std::string(program) + ".exe"; }
-
-// Next to this launcher first, then on PATH.
-std::string findTool(const char *program) {
-    char self[MAX_PATH];
-    DWORD n = GetModuleFileNameA(nullptr, self, MAX_PATH);
-    std::string dir(self, n);
-    dir = dir.substr(0, dir.find_last_of("\\/") + 1);
-    std::string candidate = dir + exeName(program);
-    if (GetFileAttributesA(candidate.c_str()) != INVALID_FILE_ATTRIBUTES) return candidate;
-    char found[MAX_PATH];
-    if (SearchPathA(nullptr, exeName(program).c_str(), nullptr, MAX_PATH, found, nullptr)) return found;
-    return "";
-}
 
 // Windows passes one command line; quote arguments the way the C runtime
 // splits them again.
@@ -117,41 +95,9 @@ int runTool(const std::string &path, int argc, char **argv) {
     return static_cast<int>(code);
 }
 
-std::string toolVersion(const std::string &path) {
-    // cmd strips the outer quotes, leaving the quoted path intact.
-    std::string command = "\"\"" + path + "\" -v\"";
-    FILE *pipe = _popen(command.c_str(), "r");
-    if (!pipe) return "";
-    char line[128] = "";
-    if (!std::fgets(line, sizeof line, pipe)) line[0] = '\0';
-    _pclose(pipe);
-    return line;
-}
 
 #else
 
-// Next to this launcher first, then on PATH.
-std::string findTool(const char *program) {
-    char self[PATH_MAX];
-    ssize_t n = readlink("/proc/self/exe", self, sizeof self - 1);
-    if (n > 0) {
-        std::string dir(self, n);
-        std::string candidate = dir.substr(0, dir.rfind('/') + 1) + program;
-        if (access(candidate.c_str(), X_OK) == 0) return candidate;
-    }
-    const char *path = std::getenv("PATH");
-    std::string dirs = path ? path : "/usr/local/bin:/usr/bin";
-    size_t start = 0;
-    while (start <= dirs.size()) {
-        size_t end = dirs.find(':', start);
-        if (end == std::string::npos) end = dirs.size();
-        std::string candidate = dirs.substr(start, end - start);
-        candidate = (candidate.empty() ? "." : candidate) + "/" + program;
-        if (access(candidate.c_str(), X_OK) == 0) return candidate;
-        start = end + 1;
-    }
-    return "";
-}
 
 // Replaces this process with the tool, so signals, exit codes and the
 // background processes of -configload work exactly as if it was run directly.
@@ -166,15 +112,6 @@ int runTool(const std::string &path, int argc, char **argv) {
     return 1;
 }
 
-std::string toolVersion(const std::string &path) {
-    std::string command = "'" + path + "' -v 2>/dev/null";
-    FILE *pipe = popen(command.c_str(), "r");
-    if (!pipe) return "";
-    char line[128] = "";
-    if (!std::fgets(line, sizeof line, pipe)) line[0] = '\0';
-    pclose(pipe);
-    return line;
-}
 
 #endif
 
@@ -193,12 +130,9 @@ int dispatch(const Tool &tool, int argc, char **argv) {
 int printVersions() {
     std::printf("catberry %s\n", kVersion);
     for (const Tool &tool : kTools) {
+        if (std::string(tool.name) == "catberry") continue;
         std::string path = findTool(tool.program);
         std::string version = path.empty() ? "" : toolVersion(path);
-        // Tools answer "catberry <name> <version>".
-        size_t space = version.find_last_of(' ');
-        if (space != std::string::npos) version = version.substr(space + 1);
-        while (!version.empty() && (version.back() == '\n' || version.back() == '\r')) version.pop_back();
         std::printf("  %-7s %s\n", tool.name, path.empty() ? "not installed" : version.empty() ? "?" : version.c_str());
     }
     return 0;
@@ -214,6 +148,12 @@ int main(int argc, char **argv) {
         return 0;
     case Command::Versions_:
         return printVersions();
+    case Command::Install:
+        return installTool(command.tool, command.version, command.reinstall);
+    case Command::Uninstall:
+        return uninstallTool(command.tool);
+    case Command::ListVersions:
+        return listVersions(command.tool);
     case Command::RunTool:
         for (const Tool &tool : kTools)
             if (command.tool == tool.name)
