@@ -4,6 +4,7 @@
 
 #include "keys.h"
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -38,3 +39,15 @@ std::string quickPidName(const std::string &name);
 
 // A point picked on a desktop of fromW x fromH, on one of toW x toH.
 QuickPoint scaledPoint(const QuickPoint &p, int fromW, int fromH, int toW, int toH);
+
+class KeyWatcher;
+class Output;
+// Runs a loaded set: waits for the hotkey and clicks the points, until asked
+// to stop. `ready` is called once: "" when setup worked, otherwise why not.
+int serveQuickSet(const std::string &name, const QuickSet &set,
+                  const std::function<void(const std::string &error)> &ready);
+// One run of the points (pressing the hotkey again on `keys` stops it).
+// Positions go out as fractions of the desktop they were picked on, and the
+// absolute pointer maps fractions onto the desktop as it is now: a changed
+// resolution scales them by itself.
+void runQuickSet(const QuickSet &set, Output &output, KeyWatcher &keys);

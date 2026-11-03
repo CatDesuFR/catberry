@@ -199,6 +199,11 @@ std::vector<std::string> loadedNames() {
     return names;
 }
 
+void writeLoadedPid(const std::string &name) {
+    std::ofstream pidFile(pidPath(name));
+    pidFile << currentPid() << "\n";
+}
+
 void forgetLoaded(const std::string &name) {
     std::error_code ec;
     fs::remove(pidPath(name), ec);
@@ -213,10 +218,7 @@ int serveConfig(const std::string &name, const MacroConfig &cfg,
         ready(error);
         return 1;
     }
-    {
-        std::ofstream pidFile(pidPath(name));
-        pidFile << currentPid() << "\n";
-    }
+    writeLoadedPid(name);
     ready("");
     serveMacro(cfg, *keys, *output);
     // A newer instance may own the pid file by now.

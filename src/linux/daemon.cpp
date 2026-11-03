@@ -3,6 +3,7 @@
 
 #include "../common/daemon.h"
 #include "../common/macro.h"
+#include "../common/quickclick.h"
 #include "linux.h"
 
 #include <fcntl.h>
@@ -11,6 +12,7 @@
 
 #include <cstdio>
 #include <deque>
+#include <functional>
 #include <fstream>
 
 namespace {
@@ -33,16 +35,18 @@ public:
             if (g_stop) return false;
             // Wake up at least every 3 s to pick up newly plugged keyboards.
             int wait = 3000;
+            long long left = 1;
             if (timeoutMs >= 0) {
-                auto left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - Clock::now()).count();
-                if (left <= 0) return false;
-                wait = static_cast<int>(std::min<long long>(left, wait));
+                left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - Clock::now()).count();
+                wait = static_cast<int>(std::max<long long>(0, std::min<long long>(left, wait)));
             }
             std::vector<pollfd> fds;
             input_.addPollFds(fds);
             int ready = poll(fds.data(), fds.size(), wait);
-            if (ready == 0) input_.rescan();
+            if (ready == 0 && wait > 0) input_.rescan();
             for (const InputEvent &e : input_.read()) pending_.push_back(e);
+            // Out of time: one look at what was pending was all (timeout 0 too).
+            if (pending_.empty() && timeoutMs >= 0 && left <= 0) return false;
         }
     }
 
@@ -82,9 +86,13 @@ bool isCatberryProcess(long pid) {
 
 void stopProcess(long pid, const std::string &) { kill(static_cast<pid_t>(pid), SIGTERM); }
 
-bool launchDaemon(const std::string &name, const MacroConfig &cfg, std::string &error) {
-    // The child reports through this pipe whether it got its devices: an
-    // empty message means success.
+namespace {
+
+// Forks a background process that runs `serve`; it reports through a pipe
+// whether it got its devices (an empty message means it did).
+bool launchServe(const std::string &pidName,
+                 const std::function<int(const std::function<void(const std::string &)> &)> &serve,
+                 std::string &error) {
     int report[2];
     if (pipe(report) < 0) {
         error = "cannot start the background process";
@@ -100,7 +108,7 @@ bool launchDaemon(const std::string &name, const MacroConfig &cfg, std::string &
         close(report[0]);
         setsid();
         installStopSignals();
-        int code = serveConfig(name, cfg, [&](const std::string &err) {
+        int code = serve([&](const std::string &err) {
             if (write(report[1], err.data(), err.size()) < 0) {
             }
             close(report[1]);
@@ -120,12 +128,32 @@ bool launchDaemon(const std::string &name, const MacroConfig &cfg, std::string &
     ssize_t n;
     while ((n = read(report[0], buf, sizeof buf)) > 0) message.append(buf, n);
     close(report[0]);
-    if (message.empty() && loadedPid(name)) return true;
+    if (message.empty() && loadedPid(pidName)) return true;
     error = message.empty() ? "the background process failed to start" : message;
     return false;
 }
 
+} // namespace
+
+bool launchDaemon(const std::string &name, const MacroConfig &cfg, std::string &error) {
+    return launchServe(
+        name, [&](const std::function<void(const std::string &)> &ready) { return serveConfig(name, cfg, ready); },
+        error);
+}
+
+bool launchQuickDaemon(const std::string &name, const QuickSet &set, std::string &error) {
+    return launchServe(
+        quickPidName(name),
+        [&](const std::function<void(const std::string &)> &ready) { return serveQuickSet(name, set, ready); },
+        error);
+}
+
 int serveMain(int, char **) {
     std::fprintf(stderr, "catberry: --serve is only used on Windows\n");
+    return 2;
+}
+
+int serveQuickMain(int, char **) {
+    std::fprintf(stderr, "catberry: --serve-quick is only used on Windows\n");
     return 2;
 }

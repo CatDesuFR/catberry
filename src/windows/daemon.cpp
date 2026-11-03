@@ -3,6 +3,7 @@
 
 #include "../common/daemon.h"
 #include "../common/macro.h"
+#include "../common/quickclick.h"
 #include "win.h"
 
 #include <algorithm>
@@ -100,12 +101,16 @@ void stopProcess(long pid, const std::string &name) {
     CloseHandle(process);
 }
 
-bool launchDaemon(const std::string &name, const MacroConfig &, std::string &error) {
+namespace {
+
+// Starts `<this exe> <flag> <name>` detached; it writes `pidName`'s pid
+// file once it runs, or its error to `pidName`.err.
+bool launchServe(const wchar_t *flag, const std::string &name, const std::string &pidName, std::string &error) {
     wchar_t exe[MAX_PATH];
     GetModuleFileNameW(nullptr, exe, MAX_PATH);
-    std::wstring command = L"\"" + std::wstring(exe) + L"\" --serve " + widen(name);
+    std::wstring command = L"\"" + std::wstring(exe) + L"\" " + flag + L" " + widen(name);
     std::error_code ec;
-    fs::remove(errorPath(name), ec);
+    fs::remove(errorPath(pidName), ec);
 
     STARTUPINFOW startup{};
     startup.cb = sizeof startup;
@@ -120,19 +125,29 @@ bool launchDaemon(const std::string &name, const MacroConfig &, std::string &err
     bool started = false;
     for (int i = 0; i < 100 && !started; ++i) {
         if (WaitForSingleObject(info.hProcess, 50) == WAIT_OBJECT_0) break;
-        started = loadedPid(name) == static_cast<long>(info.dwProcessId);
+        started = loadedPid(pidName) == static_cast<long>(info.dwProcessId);
     }
     if (!started) {
-        std::ifstream in(errorPath(name));
+        std::ifstream in(errorPath(pidName));
         std::stringstream reason;
         reason << in.rdbuf();
         error = reason.str().empty() ? "the background process failed to start" : reason.str();
         in.close();
-        fs::remove(errorPath(name), ec);
+        fs::remove(errorPath(pidName), ec);
         TerminateProcess(info.hProcess, 1);
     }
     CloseHandle(info.hProcess);
     return started;
+}
+
+} // namespace
+
+bool launchDaemon(const std::string &name, const MacroConfig &, std::string &error) {
+    return launchServe(L"--serve", name, name, error);
+}
+
+bool launchQuickDaemon(const std::string &name, const QuickSet &, std::string &error) {
+    return launchServe(L"--serve-quick", name, quickPidName(name), error);
 }
 
 int serveMain(int argc, char **argv) {
@@ -146,6 +161,20 @@ int serveMain(int argc, char **argv) {
     }
     return serveConfig(name, cfg, [&](const std::string &err) {
         if (!err.empty()) std::ofstream(errorPath(name)) << err;
+    });
+}
+
+int serveQuickMain(int argc, char **argv) {
+    if (argc != 1 || !validName(argv[0])) return 2;
+    std::string name = argv[0], error, pidName = quickPidName(argv[0]);
+    QuickSet set;
+    FineTimer timer;
+    if (!readQuickSet(name, set, error)) {
+        std::ofstream(errorPath(pidName)) << error;
+        return 1;
+    }
+    return serveQuickSet(name, set, [&](const std::string &err) {
+        if (!err.empty()) std::ofstream(errorPath(pidName)) << err;
     });
 }
 

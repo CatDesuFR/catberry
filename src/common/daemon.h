@@ -13,6 +13,12 @@ bool launchDaemon(const std::string &name, const MacroConfig &cfg, std::string &
 // Hidden `catberry-mtools --serve NAME` entry point, where launchDaemon needs one.
 int serveMain(int argc, char **argv);
 
+struct QuickSet;
+// The same for a quick-click set (pid name "quick.<name>").
+bool launchQuickDaemon(const std::string &name, const QuickSet &set, std::string &error);
+// Hidden `catberry-mtools --serve-quick NAME` entry point (Windows).
+int serveQuickMain(int argc, char **argv);
+
 // Global key and mouse-button transitions for a background config.
 class KeyWatcher {
 public:

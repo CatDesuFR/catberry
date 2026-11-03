@@ -50,6 +50,8 @@ long loadedPid(const std::string &name);
 // Names that have a pid file, live or stale.
 std::vector<std::string> loadedNames();
 void forgetLoaded(const std::string &name);
+// Records this process as the one serving `name` (a config or "quick.<set>").
+void writeLoadedPid(const std::string &name);
 // Runs a loaded config until asked to stop. `ready` is called once, with an
 // empty string when setup worked or the reason it did not.
 int serveConfig(const std::string &name, const MacroConfig &cfg,

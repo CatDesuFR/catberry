@@ -112,7 +112,9 @@ void HotkeysTab::updateButtons() {
     delete_->setEnabled(!name.isEmpty());
     load_->setEnabled(!name.isEmpty() && !running);
     unload_->setEnabled(running);
-    unloadAll_->setEnabled(!loadedNames().empty());
+    bool anyLoaded = false;
+    for (const std::string &n : loadedNames()) anyLoaded = anyLoaded || validName(n); // not quick clicks
+    unloadAll_->setEnabled(anyLoaded);
 }
 
 void HotkeysTab::edit(const QString &name) {
@@ -178,5 +180,7 @@ void HotkeysTab::unload(const QString &name) {
 }
 
 void HotkeysTab::unloadAll() {
-    for (const std::string &name : loadedNames()) unload(QString::fromStdString(name));
+    // Hotkey macros only: loaded quick clicks are "quick.<name>", not a valid name.
+    for (const std::string &name : loadedNames())
+        if (validName(name)) unload(QString::fromStdString(name));
 }
