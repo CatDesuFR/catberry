@@ -4,6 +4,7 @@
 #include "hotkeystab.h"
 #include "keybutton.h"
 #include "problems.h"
+#include "quicktab.h"
 #include "recordertab.h"
 #include "theme.h"
 
@@ -45,6 +46,7 @@ MtoolsWindow::MtoolsWindow() {
     tabs->addTab(recorder_, "Recorder");
     hotkeys_ = new HotkeysTab(input_, tabs);
     tabs->addTab(hotkeys_, "Hotkey macros");
+    tabs->addTab(new QuickTab(input_, tabs), "Quick click");
     layout->addWidget(tabs, 1);
     setCentralWidget(central);
 

@@ -11,6 +11,8 @@ mkdir -p "$cfg/catberry/macros"
 printf 'catberry-macro 1\nduration 2000\n0 LMB 1\n1000 LMB 0\n' >"$cfg/catberry/macros/test.macro"
 printf 'repeat=2\nrecord_hotkey=F8\nplay_hotkey=F9\nname=test\n' >"$cfg/catberry/mtools.conf"
 "$prog" -config x E,LMB F6 1 >/dev/null
+mkdir -p "$cfg/catberry/quickclicks"
+printf 'desktop=1920x1080\nhotkey=F7\ngap_us=100\npoint=192,108,left\npoint=960,540,double\n' >"$cfg/catberry/quickclicks/farm.conf"
 "$prog" gui --quit-after 800
 grep -q '^name=test$' "$cfg/catberry/mtools.conf" # settings written back
 echo "smoke: OK"
