@@ -12,6 +12,7 @@ int main() {
     if (!mkdtemp(dir)) return 2;
     setenv("XDG_CONFIG_HOME", dir, 1);
     testMacro();
+    testQuickClick();
     std::system(("rm -rf '" + std::string(dir) + "'").c_str());
     std::printf("%d/%d checks passed\n", g_checks - g_failures, g_checks);
     return g_failures ? 1 : 0;

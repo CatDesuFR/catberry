@@ -15,3 +15,4 @@ extern int g_checks, g_failures;
     } while (0)
 
 void testMacro();
+void testQuickClick();
