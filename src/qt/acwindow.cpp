@@ -248,7 +248,7 @@ void AcWindow::globalInput(const InputEvent &ev) {
         keyButton_->offerGlobal(ev);
         return;
     }
-    if (hotkey_->recentlyCaptured() || keyButton_->recentlyCaptured()) return;
+    if (KeyButton::anyBusy()) return;
     if (ev.down && ev.code == hotkey_->code()) toggleNow();
 }
 

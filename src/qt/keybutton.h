@@ -12,6 +12,10 @@ class KeyButton : public QPushButton {
     Q_OBJECT
 public:
     explicit KeyButton(int code, QWidget *parent = nullptr);
+    ~KeyButton() override;
+    // Some key button anywhere in the app is waiting for a key, or just got
+    // one: hotkeys must not act on that press.
+    static bool anyBusy();
     int code() const { return code_; }
     void setCode(int code);
     void setForbidden(int code) { forbidden_ = code; }
@@ -34,10 +38,12 @@ signals:
 
 protected:
     void keyPressEvent(QKeyEvent *event) override;
+    void keyReleaseEvent(QKeyEvent *event) override;
     void focusOutEvent(QFocusEvent *event) override;
 
 private:
     void finish(int code); // -1 cancels
+    void setCapturing(bool on);
     void refresh();
 
     int code_;
