@@ -72,7 +72,7 @@ for target in "${targets[@]}"; do
         { echo "build failed: $work/build-$target.log"; failed+=("$target"); continue; }
     echo "== $target: test"
     podman run --rm -v "$ci:/ci:ro,Z" -v "$out:/pkg:ro,Z" \
-        -e CATBERRY_RELEASES="http://host.containers.internal:$port" -e TEST_UNINSTALL="${TEST_UNINSTALL:-}" \
+        -e CATBERRY_RELEASES="http://host.containers.internal:$port" \
         "$(image_of "$target")" bash /ci/test-install.sh "$target" /pkg 2>&1 | tee "$work/test-$target.log" |
         grep -E "^(ok|FAIL|==)" || true
     tail -1 "$work/test-$target.log" | grep -q " 0 failed" || failed+=("$target")

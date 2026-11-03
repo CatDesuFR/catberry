@@ -9,9 +9,17 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
+#include <system_error>
 #include <sstream>
 #include <vector>
+
+#ifndef _WIN32
+#include <unistd.h>
+#endif
+
+namespace fs = std::filesystem;
 
 namespace {
 
@@ -210,9 +218,178 @@ int installTool(const std::string &name, const std::string &wanted, bool reinsta
     return 0;
 }
 
-int uninstallTool(const std::string &) {
-    std::fprintf(stderr, "catberry: uninstall is not available yet\n");
-    return 2;
+namespace {
+
+std::string envDir(const char *var, const char *fallbackUnderHome) {
+    const char *v = std::getenv(var);
+    if (v && *v) return v;
+    const char *home = std::getenv("HOME");
+    return std::string(home ? home : ".") + "/" + fallbackUnderHome;
+}
+std::string configHome() { return envDir("XDG_CONFIG_HOME", ".config"); }
+std::string dataHome() { return envDir("XDG_DATA_HOME", ".local/share"); }
+std::string cacheHome() { return envDir("XDG_CACHE_HOME", ".cache"); }
+std::string userBin() {
+    const char *home = std::getenv("HOME");
+    return std::string(home ? home : ".") + "/.local/bin";
+}
+
+bool exists(const std::string &path) {
+    std::error_code ec;
+    return fs::exists(fs::symlink_status(path, ec));
+}
+
+// The user's own settings and files of a tool (only the ones that exist).
+std::vector<std::string> personalFiles(const std::string &tool) {
+    std::vector<std::string> all;
+    const std::string cfg = configHome() + "/catberry";
+    if (tool == "ac") all = {cfg + "/ac.conf"};
+    if (tool == "mtools") all = {cfg + "/mtools.conf", cfg + "/macros", cfg + "/configs"};
+    if (tool == "roofce")
+        all = {cfg + "/roofce.conf", dataHome() + "/catberry/roofce", cacheHome() + "/catberry/roofce",
+               dataHome() + "/fonts/catberry"};
+    std::vector<std::string> found;
+    for (const std::string &p : all)
+        if (exists(p)) found.push_back(p);
+    return found;
+}
+
+// Copies of the program outside the package manager.
+std::vector<std::string> looseCopies(const Tool &tool) {
+    std::vector<std::string> all = {userBin() + "/" + tool.program};
+    if (std::string(tool.name) == "roofce") all.push_back(configHome() + "/autostart/catberry-roofce.desktop");
+    std::vector<std::string> found;
+    for (const std::string &p : all)
+        if (exists(p)) found.push_back(p);
+    return found;
+}
+
+bool isInstalled(Family family, const Tool &tool) {
+    return installedAsPackage(family, tool.program) || !looseCopies(tool).empty();
+}
+
+// Reads one answer line straight from stdin (unbuffered, so nothing meant
+// for a later question is swallowed). Only "y"/"yes" is yes; no input is No.
+bool askYesNo(const std::string &question) {
+    std::printf("%s [y/N] ", question.c_str());
+    std::fflush(stdout);
+    std::string line;
+    char c;
+    while (read(0, &c, 1) == 1 && c != '\n') line += c;
+    std::printf("\n");
+    while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.pop_back();
+    return line == "y" || line == "Y" || line == "yes" || line == "Yes";
+}
+
+bool running(const char *program) {
+    std::string out;
+    return captureOutput({"pgrep", "-x", program}, out);
+}
+
+// Stops the tool if it is running (errors ignored).
+void stopTool(const Tool &tool) {
+    std::string name = tool.name;
+    // The launcher is this very process, uninstalling.
+    if (name == "catberry" || !running(tool.program)) return;
+    std::string path = findTool(tool.program);
+    if (name == "roofce" && !path.empty()) runProgram({path, "stop"});
+    if (name == "mtools" && !path.empty()) runProgram({path, "-configunload"});
+    runProgram({"pkill", "-x", tool.program});
+}
+
+// Removes the package and every loose copy. True when anything was there.
+bool removeCopies(const SystemInfo &sys, const Tool &tool, int &code) {
+    bool found = false;
+    stopTool(tool);
+    if (installedAsPackage(sys.family, tool.program)) {
+        found = true;
+        std::vector<std::string> command;
+        switch (sys.family) {
+        case Family::Arch: command = {"pacman", "-R", "--noconfirm", tool.program}; break;
+        case Family::Fedora: command = {"dnf", "remove", "-y", tool.program}; break;
+        default: command = {"apt", "remove", "-y", tool.program}; break;
+        }
+        int c = runProgram(withSudo(command));
+        if (c != 0) {
+            std::fprintf(stderr, "catberry: %s failed.\n", command[0].c_str());
+            code = c;
+        }
+    }
+    for (const std::string &p : looseCopies(tool)) {
+        found = true;
+        std::error_code ec;
+        fs::remove(p, ec);
+        if (ec) {
+            std::fprintf(stderr, "catberry: could not remove %s: %s\n", p.c_str(), ec.message().c_str());
+            code = 1;
+        }
+    }
+    return found;
+}
+
+// Asks once about all the files, deletes them on yes. True when kept.
+bool offerPersonalFiles(const std::vector<std::string> &files) {
+    if (files.empty()) return false;
+    std::printf("Your settings and files:\n");
+    for (const std::string &f : files) std::printf("  %s\n", f.c_str());
+    if (!askYesNo("Delete these too?")) return true;
+    for (const std::string &f : files) {
+        std::error_code ec;
+        fs::remove_all(f, ec);
+        if (ec) std::fprintf(stderr, "catberry: could not delete %s: %s\n", f.c_str(), ec.message().c_str());
+    }
+    // Our folders, if nothing else is left in them.
+    for (const std::string &dir : {configHome() + "/catberry", dataHome() + "/catberry", cacheHome() + "/catberry"}) {
+        std::error_code ec;
+        if (fs::is_directory(dir, ec) && fs::is_empty(dir, ec)) fs::remove(dir, ec);
+    }
+    return false;
+}
+
+} // namespace
+
+int uninstallTool(const std::string &name) {
+    const Tool *tool = toolByName(name);
+    if (!tool) return 2;
+    SystemInfo sys = thisSystem();
+    int code = 0;
+
+    if (name != "catberry") {
+        bool found = removeCopies(sys, *tool, code);
+        if (found)
+            std::printf("%s uninstalled.\n", tool->name);
+        else
+            std::printf("%s is not installed.\n", tool->name);
+        if (offerPersonalFiles(personalFiles(name))) std::printf("Your settings and files were kept.\n");
+        return code;
+    }
+
+    // The launcher: ac and mtools cannot run without it; roofce can.
+    std::vector<const Tool *> chosen;
+    std::vector<std::string> needing;
+    for (const char *dep : {"ac", "mtools"})
+        if (isInstalled(sys.family, *toolByName(dep))) needing.push_back(dep);
+    if (!needing.empty()) {
+        std::string who = needing.size() == 2 ? "ac and mtools need" : needing[0] + " needs";
+        if (!askYesNo(who + " the launcher and will be removed too. Continue?")) {
+            std::printf("Nothing was changed.\n");
+            return 0;
+        }
+        for (const std::string &dep : needing) chosen.push_back(toolByName(dep));
+    }
+    if (isInstalled(sys.family, *toolByName("roofce")) && askYesNo("Also remove roofce?"))
+        chosen.push_back(toolByName("roofce"));
+
+    std::vector<std::string> files;
+    for (const Tool *t : chosen) {
+        removeCopies(sys, *t, code);
+        std::printf("%s uninstalled.\n", t->name);
+        for (const std::string &f : personalFiles(t->name)) files.push_back(f);
+    }
+    bool found = removeCopies(sys, *tool, code);
+    std::printf(found ? "catberry uninstalled.\n" : "catberry is not installed as a package.\n");
+    if (offerPersonalFiles(files)) std::printf("Your settings and files were kept.\n");
+    return code;
 }
 
 #else

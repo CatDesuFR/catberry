@@ -89,10 +89,54 @@ expect "install roofce succeeds" test "$code" = 0
 expect "catberry-roofce package installed" has_pkg catberry-roofce
 expect "roofce restart hint" grep -q "catberry roofce stop; catberry roofce start" <<<"$out"
 
-if [ "${TEST_UNINSTALL:-}" = yes ]; then
-    # Uninstall scenarios (Task 7) are appended here.
-    :
-fi
+# Uninstall reads its own answers from stdin, one line each; no line = No.
+un() { printf "$1" | catberry "${@:2}" 2>&1; }
+cfg=/root/.config share=/root/.local/share
+
+echo "== uninstall ac, keeping files"
+mkdir -p $cfg/catberry && echo x >$cfg/catberry/ac.conf
+out=$(un '\n' uninstall ac); code=$?
+expect "uninstall ac exits 0" test "$code" = 0
+expect "catberry-ac package removed" no_pkg catberry-ac
+expect "ac.conf kept on Enter" test -f $cfg/catberry/ac.conf
+expect "says ac uninstalled" grep -q "^ac uninstalled." <<<"$out"
+expect "says files were kept" grep -q "Your settings and files were kept." <<<"$out"
+
+echo "== uninstall ac again: not installed, files still offered"
+out=$(un 'y\n' ac uninstall); code=$?
+expect "not installed message" grep -q "ac is not installed." <<<"$out"
+expect "not installed exits 0" test "$code" = 0
+expect "ac.conf deleted on y" test ! -e $cfg/catberry/ac.conf
+
+echo "== uninstall roofce: every copy, then its files"
+mkdir -p /root/.local/bin $cfg/autostart $cfg/catberry $share/catberry/roofce/wallpapers /root/.cache/catberry/roofce
+printf '#!/bin/sh\n' >/root/.local/bin/catberry-roofce && chmod +x /root/.local/bin/catberry-roofce
+echo x >$cfg/autostart/catberry-roofce.desktop
+echo x >$cfg/catberry/roofce.conf
+echo x >$share/catberry/roofce/wallpapers/a.png
+out=$(un 'n\n' uninstall roofce)
+expect "catberry-roofce package removed" no_pkg catberry-roofce
+expect "~/.local/bin copy removed" test ! -e /root/.local/bin/catberry-roofce
+expect "autostart entry removed" test ! -e $cfg/autostart/catberry-roofce.desktop
+expect "roofce.conf kept on n" test -f $cfg/catberry/roofce.conf
+expect "lists the wallpapers folder" grep -q "$share/catberry/roofce" <<<"$out"
+out=$(un 'y\n' uninstall roofce)
+expect "roofce files deleted on y" test ! -e $cfg/catberry/roofce.conf -a ! -e $share/catberry/roofce
+expect "empty catberry data folder removed" test ! -e $share/catberry
+expect "empty catberry config folder removed" test ! -e $cfg/catberry
+
+echo "== uninstall catberry"
+cb install ac >/dev/null; cb install mtools >/dev/null
+mkdir -p $cfg/catberry/macros && echo x >$cfg/catberry/macros/m.macro
+out=$(un 'n\n' uninstall catberry)
+expect "No: nothing removed" has_pkg catberry-ac
+expect "asks about ac and mtools" grep -q "ac and mtools need the launcher and will be removed too. Continue?" <<<"$out"
+out=$(un 'y\nn\n' catberry uninstall); code=$?
+expect "uninstall catberry exits 0" test "$code" = 0
+expect "catberry-ac removed with the launcher" no_pkg catberry-ac
+expect "catberry-mtools removed with the launcher" no_pkg catberry-mtools
+expect "catberry package removed" no_pkg catberry
+expect "macros kept on n" test -f $cfg/catberry/macros/m.macro
 
 echo "== unsupported system"
 # /etc/os-release is often a link to /usr/lib/os-release; writing through it
