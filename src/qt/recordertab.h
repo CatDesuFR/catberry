@@ -18,7 +18,7 @@ class KeyButton;
 class QLabel;
 class QListWidget;
 class QPushButton;
-class QSpinBox;
+class NumberEdit;
 
 class RecorderTab : public QWidget {
     Q_OBJECT
@@ -64,7 +64,7 @@ private:
     QString message_;
 
     QPushButton *record_, *play_, *saveAs_, *rename_, *delete_;
-    QSpinBox *repeat_;
+    NumberEdit *repeat_;
     KeyButton *recordKey_, *playKey_;
     QListWidget *list_;
     QLabel *status_;

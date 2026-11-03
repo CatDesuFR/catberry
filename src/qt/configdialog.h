@@ -10,7 +10,7 @@ class KeyButton;
 class QLabel;
 class QLineEdit;
 class QPushButton;
-class QSpinBox;
+class NumberEdit;
 
 class ConfigDialog : public QDialog {
 public:
@@ -26,6 +26,6 @@ private:
     QLineEdit *name_, *keys_;
     QLabel *problem_;
     KeyButton *hotkey_;
-    QSpinBox *count_, *delay_;
+    NumberEdit *count_, *delay_;
     QPushButton *ok_;
 };

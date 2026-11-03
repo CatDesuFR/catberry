@@ -3,6 +3,7 @@
 #include "../common/platform.h"
 #include "globalinput.h"
 #include "keybutton.h"
+#include "numberedit.h"
 
 #include <QFormLayout>
 #include <QHBoxLayout>
@@ -12,7 +13,6 @@
 #include <QMessageBox>
 #include <QMouseEvent>
 #include <QPushButton>
-#include <QSpinBox>
 #include <QStyle>
 #include <QVBoxLayout>
 
@@ -49,12 +49,8 @@ RecorderTab::RecorderTab(Output &output, GlobalInput *input, QWidget *parent)
     layout->addLayout(buttons);
 
     auto *form = new QFormLayout;
-    repeat_ = new QSpinBox(this);
-    repeat_->setRange(0, 100000);
+    repeat_ = new NumberEdit(0, 100000, 0, this);
     repeat_->setValue(1);
-    repeat_->setSpecialValueText("until stopped");
-    // The theme cannot draw the arrows; typing and the mouse wheel change it.
-    repeat_->setButtonSymbols(QAbstractSpinBox::NoButtons);
     recordKey_ = new KeyButton(keycode::F8, this);
     playKey_ = new KeyButton(keycode::F9, this);
     form->addRow("Repeat (0 = until stopped)", repeat_);
@@ -212,7 +208,7 @@ void RecorderTab::togglePlayback(bool delayed) {
 }
 
 void RecorderTab::startPlayback() {
-    player_.start(macro_, repeat_->value());
+    player_.start(macro_, int(repeat_->value()));
     refresh();
 }
 
@@ -381,7 +377,7 @@ void RecorderTab::loadSettings() {
 
 void RecorderTab::saveSettings() const {
     std::ofstream out(configDir() / "mtools.conf");
-    out << "repeat=" << repeat_->value() << "\n"
+    out << "repeat=" << int(repeat_->value()) << "\n"
         << "record_hotkey=" << keyName(recordKey_->code()) << "\n"
         << "play_hotkey=" << keyName(playKey_->code()) << "\n"
         << "name=" << currentName_.toStdString() << "\n";

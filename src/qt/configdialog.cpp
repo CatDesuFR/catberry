@@ -2,6 +2,7 @@
 
 #include "globalinput.h"
 #include "keybutton.h"
+#include "numberedit.h"
 
 #include <QDialogButtonBox>
 #include <QFormLayout>
@@ -9,7 +10,6 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QRegularExpressionValidator>
-#include <QSpinBox>
 #include <QVBoxLayout>
 
 ConfigDialog::ConfigDialog(const QString &name, const MacroConfig &cfg, GlobalInput *input, QWidget *parent)
@@ -27,21 +27,16 @@ ConfigDialog::ConfigDialog(const QString &name, const MacroConfig &cfg, GlobalIn
     hotkey_ = new KeyButton(cfg.hotkey, this);
     hotkey_->setEmptyText("Click, then press a key");
     hotkey_->setAcceptsMouse(true);
-    count_ = new QSpinBox(this);
-    count_->setRange(1, 1000000);
+    count_ = new NumberEdit(1, 1000000, 0, this);
     count_->setValue(cfg.count);
-    count_->setButtonSymbols(QAbstractSpinBox::NoButtons);
-    delay_ = new QSpinBox(this);
-    delay_->setRange(1, 1000);
-    delay_->setSuffix(" ms");
+    delay_ = new NumberEdit(1, 1000, 0, this);
     delay_->setValue(cfg.delayMs);
-    delay_->setButtonSymbols(QAbstractSpinBox::NoButtons);
 
     form->addRow("Name", name_);
     form->addRow("Keys, in order", keys_);
     form->addRow("Hotkey", hotkey_);
     form->addRow("Times per press", count_);
-    form->addRow("Hold / pause", delay_);
+    form->addRow("Hold / pause (ms)", delay_);
     layout->addLayout(form);
 
     auto *help = new QLabel("Keys: letters, digits, F1-F12, Space, Enter, Tab, Esc, Shift, Ctrl, Alt, "
@@ -93,7 +88,7 @@ MacroConfig ConfigDialog::config() const {
     std::string bad;
     parseKeyList(cfg.keysText, cfg.keys, bad);
     cfg.hotkey = hotkey_->code();
-    cfg.count = count_->value();
-    cfg.delayMs = delay_->value();
+    cfg.count = int(count_->value());
+    cfg.delayMs = int(delay_->value());
     return cfg;
 }
