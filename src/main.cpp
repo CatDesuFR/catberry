@@ -141,6 +141,7 @@ int printVersions() {
 } // namespace
 
 int main(int argc, char **argv) {
+    removeOldLauncher();
     Command command = parseCommand(argc, argv);
     switch (command.kind) {
     case Command::Help:

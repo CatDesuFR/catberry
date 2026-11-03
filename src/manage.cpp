@@ -15,7 +15,12 @@
 #include <sstream>
 #include <vector>
 
-#ifndef _WIN32
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#else
 #include <unistd.h>
 #endif
 
@@ -392,16 +397,209 @@ int uninstallTool(const std::string &name) {
     return code;
 }
 
+#else // Windows
+
+namespace {
+
+std::string envOr(const char *var, const std::string &fallback) {
+    const char *v = std::getenv(var);
+    return v && *v ? std::string(v) : fallback;
+}
+// The folder install.bat uses, shared by all catberry programs.
+std::string installDir() { return envOr("LOCALAPPDATA", ".") + "\\Programs\\catberry"; }
+std::string configDir() { return envOr("APPDATA", ".") + "\\catberry"; }
+std::string exePath(const Tool &tool) { return installDir() + "\\" + tool.program + ".exe"; }
+
+bool linuxOnly(const std::string &name) {
+    if (name != "roofce") return false;
+    std::fprintf(stderr, "roofce is Linux-only (Wayland).\n");
+    return true;
+}
+
+bool askYesNo(const std::string &question) {
+    std::printf("%s [y/N] ", question.c_str());
+    std::fflush(stdout);
+    std::string line;
+    int c;
+    while ((c = std::fgetc(stdin)) != EOF && c != '\n') line += char(c);
+    std::printf("\n");
+    while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.pop_back();
+    return line == "y" || line == "Y" || line == "yes" || line == "Yes";
+}
+
+// Adds the install folder to the user PATH, the same way install.bat does.
+void addToPath() {
+    runProgram({"powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
+                "$dir = Join-Path $env:LOCALAPPDATA 'Programs\\catberry';"
+                "$path = [Environment]::GetEnvironmentVariable('Path', 'User');"
+                "$parts = @($path -split ';' | Where-Object { $_ -ne '' });"
+                "if ($parts -notcontains $dir) { [Environment]::SetEnvironmentVariable('Path', (($parts + $dir) -join "
+                "';'), 'User'); 'Added catberry to your PATH. Open a new terminal to use it.' }"});
+}
+
+void removeFromPath() {
+    runProgram({"powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
+                "$dir = Join-Path $env:LOCALAPPDATA 'Programs\\catberry';"
+                "$path = [Environment]::GetEnvironmentVariable('Path', 'User');"
+                "$parts = @($path -split ';' | Where-Object { $_ -ne '' -and $_ -ne $dir });"
+                "[Environment]::SetEnvironmentVariable('Path', ($parts -join ';'), 'User')"});
+}
+
+std::vector<std::string> personalFiles(const std::string &tool) {
+    std::vector<std::string> all;
+    const std::string cfg = configDir();
+    if (tool == "ac") all = {cfg + "\\ac.conf"};
+    if (tool == "mtools") all = {cfg + "\\mtools.conf", cfg + "\\macros", cfg + "\\configs"};
+    std::vector<std::string> found;
+    std::error_code ec;
+    for (const std::string &p : all)
+        if (fs::exists(p, ec)) found.push_back(p);
+    return found;
+}
+
+bool offerPersonalFiles(const std::vector<std::string> &files) {
+    if (files.empty()) return false;
+    std::printf("Your settings and files:\n");
+    for (const std::string &f : files) std::printf("  %s\n", f.c_str());
+    if (!askYesNo("Delete these too?")) return true;
+    std::error_code ec;
+    for (const std::string &f : files) fs::remove_all(f, ec);
+    if (fs::is_directory(configDir(), ec) && fs::is_empty(configDir(), ec)) fs::remove(configDir(), ec);
+    return false;
+}
+
+// Stops the tool and deletes its exe. True when it was there.
+bool removeExe(const Tool &tool, int &code) {
+    std::string exe = exePath(tool);
+    std::error_code ec;
+    if (!fs::exists(exe, ec)) return false;
+    std::string ignored;
+    if (std::string(tool.name) == "mtools") runProgram({exe, "-configunload"});
+    captureOutput({"taskkill", "/im", std::string(tool.program) + ".exe", "/f"}, ignored);
+    fs::remove(exe, ec);
+    if (ec) {
+        std::fprintf(stderr, "catberry: could not delete %s: %s\n", exe.c_str(), ec.message().c_str());
+        code = 1;
+    }
+    return true;
+}
+
+} // namespace
+
+int installTool(const std::string &name, const std::string &wanted, bool reinstall) {
+    const Tool *tool = toolByName(name);
+    if (!tool || linuxOnly(name)) return tool ? 1 : 2;
+    TempDir tmp;
+    std::vector<std::string> published;
+    std::string version;
+    if (!publishedVersions(name, tmp, published) || !resolveVersion(name, wanted, published, version)) return 1;
+    std::string installed = installedVersion(*tool);
+    if (!installed.empty() && compareText(installed, version) == 0 && !reinstall) {
+        std::printf("%s %s is already installed.\n", tool->name, version.c_str());
+        return 0;
+    }
+
+    const std::string tag = name + "-v" + version, sums = tmp.path() + "\\SHA256SUMS";
+    SumEntry asset;
+    if (!download(assetUrl(tag, "SHA256SUMS"), sums) || !findAsset(readFile(sums), tool->program, "-windows.zip", asset)) {
+        std::fprintf(stderr, "catberry: %s %s has no Windows download.\n", tool->name, version.c_str());
+        return 1;
+    }
+    const std::string zip = tmp.path() + "\\" + asset.name;
+    if (!download(assetUrl(tag, asset.name), zip) || !sha256Matches(zip, asset.sha256)) {
+        std::fprintf(stderr, "catberry: download damaged, nothing was installed.\n");
+        return 1;
+    }
+    if (runProgram({"tar.exe", "-xf", zip, "-C", tmp.path()}) != 0) {
+        std::fprintf(stderr, "catberry: could not unpack %s; nothing was installed.\n", asset.name.c_str());
+        return 1;
+    }
+    const std::string fresh = tmp.path() + "\\" + tool->program + "-windows\\" + tool->program + ".exe";
+    std::error_code ec;
+    fs::create_directories(installDir(), ec);
+    const std::string dest = exePath(*tool);
+    // A running exe cannot be replaced, only renamed: the launcher moves
+    // itself aside (deleted on its next start); a tool is stopped.
+    if (name == "catberry") {
+        fs::remove(installDir() + "\\catberry.old.exe", ec);
+        if (fs::exists(dest, ec)) fs::rename(dest, installDir() + "\\catberry.old.exe", ec);
+    } else {
+        std::string ignored;
+        captureOutput({"taskkill", "/im", std::string(tool->program) + ".exe", "/f"}, ignored);
+    }
+    fs::copy_file(fresh, dest, fs::copy_options::overwrite_existing, ec);
+    if (ec) {
+        std::fprintf(stderr, "catberry: could not copy %s to %s: %s\n", fresh.c_str(), dest.c_str(), ec.message().c_str());
+        return 1;
+    }
+    addToPath();
+    std::printf("%s %s installed.\n", tool->name, version.c_str());
+    return 0;
+}
+
+int uninstallTool(const std::string &name) {
+    const Tool *tool = toolByName(name);
+    if (!tool || linuxOnly(name)) return tool ? 1 : 2;
+    int code = 0;
+    std::error_code ec;
+
+    if (name != "catberry") {
+        bool found = removeExe(*tool, code);
+        std::printf(found ? "%s uninstalled.\n" : "%s is not installed.\n", tool->name);
+        if (offerPersonalFiles(personalFiles(name))) std::printf("Your settings and files were kept.\n");
+        return code;
+    }
+
+    std::vector<std::string> needing;
+    for (const char *dep : {"ac", "mtools"})
+        if (fs::exists(exePath(*toolByName(dep)), ec)) needing.push_back(dep);
+    if (!needing.empty()) {
+        std::string who = needing.size() == 2 ? "ac and mtools need" : needing[0] + " needs";
+        if (!askYesNo(who + " the launcher and will be removed too. Continue?")) {
+            std::printf("Nothing was changed.\n");
+            return 0;
+        }
+    }
+    std::vector<std::string> files;
+    for (const std::string &dep : needing) {
+        removeExe(*toolByName(dep), code);
+        std::printf("%s uninstalled.\n", dep.c_str());
+        for (const std::string &f : personalFiles(dep)) files.push_back(f);
+    }
+    // This exe is running: move it aside, and delete it (and the folder,
+    // if then empty) from a separate process once this one has ended.
+    const std::string dest = exePath(*tool), old = installDir() + "\\catberry.old.exe";
+    if (fs::exists(dest, ec)) {
+        fs::remove(old, ec);
+        fs::rename(dest, old, ec);
+        std::string cleanup = "ping -n 3 127.0.0.1 >nul & del /f /q \"" + old + "\" & rmdir \"" + installDir() + "\" 2>nul";
+        std::string line = "cmd.exe /c " + cleanup;
+        STARTUPINFOA startup{};
+        startup.cb = sizeof startup;
+        PROCESS_INFORMATION info{};
+        if (CreateProcessA(nullptr, &line[0], nullptr, nullptr, FALSE, CREATE_NO_WINDOW | DETACHED_PROCESS, nullptr,
+                           nullptr, &startup, &info)) {
+            CloseHandle(info.hProcess);
+            CloseHandle(info.hThread);
+        }
+    }
+    bool othersLeft = false;
+    for (const auto &entry : fs::directory_iterator(installDir(), ec))
+        if (entry.path().filename() != "catberry.old.exe") othersLeft = true;
+    if (!othersLeft) removeFromPath();
+    std::printf("catberry uninstalled.\n");
+    if (offerPersonalFiles(files)) std::printf("Your settings and files were kept.\n");
+    return code;
+}
+
+#endif
+
+#ifdef _WIN32
+void removeOldLauncher() {
+    // Left behind when the launcher replaced itself.
+    std::error_code ec;
+    fs::remove(installDir() + "\\catberry.old.exe", ec);
+}
 #else
-
-int installTool(const std::string &, const std::string &, bool) {
-    std::fprintf(stderr, "catberry: install is not available on Windows yet\n");
-    return 2;
-}
-
-int uninstallTool(const std::string &) {
-    std::fprintf(stderr, "catberry: uninstall is not available on Windows yet\n");
-    return 2;
-}
-
+void removeOldLauncher() {}
 #endif
