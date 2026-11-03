@@ -6,7 +6,7 @@
 #include <cstdlib>
 #include <string>
 
-static const char *const kVersion = "1.1.0";
+static const char *const kVersion = "2.0.0";
 
 #ifdef _WIN32
 int mtoolsGui();

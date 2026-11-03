@@ -1,7 +1,7 @@
 # catberry mtools
 
 The catberry **macro recorder** and **background hotkey macros** (version
-1.1.0), for Linux and Windows 10/11.
+2.0.0), for Linux and Windows 10/11.
 
 This branch holds only mtools. The `catberry` command it runs under lives on
 the [`main` branch](https://github.com/CatDesuFR/catberry), and the
@@ -26,9 +26,9 @@ page (tags `mtools-v...`).
 
 ### Build it yourself
 
-`make install` on this branch (needs `g++`, `make` and the libX11/libXtst
-development packages), or on Arch-based distros
-`cd packaging/arch && makepkg -si`.
+`make install` on this branch (needs `g++`, `cmake` and Qt 6: `qt6-base` on
+Arch, `qt6-qtbase-devel` on Fedora, `qt6-base-dev` on Debian/Ubuntu), or on
+Arch-based distros `cd packaging/arch && makepkg -si`.
 
 ### Linux permission (once)
 
@@ -39,9 +39,14 @@ needs the `input` group. Run this, then log out and back in:
 sudo usermod -aG input $USER
 ```
 
-Not needed on Windows.
+Not needed on Windows. Until then the window shows this command, and
+recording is off. Playback goes through `/dev/uinput`, which the `catberry`
+launcher package allows.
 
 ## Use
+
+Open **Catberry Macro Recorder** from the app menu (on Linux a native
+Wayland window, Qt 6), or use the commands:
 
 ```
 catberry mtools gui             open the macro recorder
@@ -58,12 +63,23 @@ catberry -configunload [NAME]   stop one loaded macro, or all of them
 Records keyboard keys, mouse buttons and the scroll wheel with their timing,
 then plays them back (mouse movement is not recorded).
 
+The **Recorder** tab:
+
 - **Record** / **F8**: start and stop recording.
 - **Play** / **F9**: play it back. **Repeat** sets how many times (0 = until
-  stopped). The Play button waits 3 seconds first.
-- Type a name and press **Save** or **Load** to keep macros.
+  stopped). The Play button waits 3 seconds first; clicking the window stops
+  playback. Click a hotkey button and press a key to change it.
+- **Saved macros**: every saved macro with its length. Click one to load it;
+  **Save as...**, **Rename...** and **Delete** manage them. The last one is
+  loaded again next time.
 
 ### Hotkey macros
+
+A hotkey macro presses a list of keys every time you press its hotkey, in
+the background, also after the window is closed. The **Hotkey macros** tab
+lists them with their status: **New...** / **Edit...** (the keys are checked
+as you type; the hotkey can be a key or a side mouse button), **Delete**,
+**Load**, **Unload** and **Unload all**. The same from the terminal:
 
 ```bash
 catberry -config EasyEdit E,LMB F6 1   # F6 taps E, then left click, once
@@ -94,8 +110,10 @@ to hide itself. Use it at your own risk.
 | Linux program | `make` | `catberry-mtools` |
 | Install on Linux | `make install` | `~/.local/bin/catberry-mtools` |
 | Windows package | `make windows` | `dist/catberry-mtools-windows.zip` |
-| Arch package | `cd packaging/arch && makepkg` | `catberry-mtools-1.1.0-1-x86_64.pkg.tar.zst` |
+| Arch package | `cd packaging/arch && makepkg` | `catberry-mtools-2.0.0-1-x86_64.pkg.tar.zst` |
+| Unit tests | `make test` | |
 
-`src/common` is the window logic, recorder and configs, `src/linux` and
-`src/windows` the platform parts. The Windows package is cross-compiled with
-MinGW-w64.
+On Linux, `make` builds with CMake and Qt 6 (`src/qt` is the window). On
+Windows the window is drawn by `src/common/mtools.cpp` and `src/windows`.
+`src/common` also holds the recorder, player and configs, shared by both. The
+Windows package is cross-compiled with MinGW-w64.

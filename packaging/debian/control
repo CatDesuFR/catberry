@@ -1,8 +1,10 @@
+# @SHLIBS@ covers linked libraries; qt6-wayland is the Wayland platform
+# plugin, which Qt loads at runtime and no library link pulls in.
 Package: catberry-mtools
 Version: @VERSION@
 Architecture: amd64
 Maintainer: CatDesuFR <stefan.zara.tudor@gmail.com>
-Depends: catberry, @SHLIBS@
+Depends: catberry, @SHLIBS@, qt6-wayland
 Homepage: https://github.com/CatDesuFR/catberry/tree/mtools
 Description: catberry macro recorder and background hotkey macros
- Run it with: catberry mtools gui
+ Open it from the app menu, or run: catberry mtools gui

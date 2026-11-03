@@ -1,14 +1,14 @@
 # Builds the Arch package from the source tree this file sits in:
 #   cd packaging/arch && makepkg -si
 pkgname=catberry-mtools
-pkgver=1.1.0
+pkgver=2.0.0
 pkgrel=1
 pkgdesc='catberry macro recorder and background hotkey macros'
 arch=('x86_64')
 url='https://github.com/CatDesuFR/catberry/tree/mtools'
 license=('custom')
-depends=('catberry' 'gcc-libs' 'glibc' 'libx11' 'libxtst')
-makedepends=('gcc' 'make')
+depends=('catberry' 'qt6-base')
+makedepends=('cmake' 'gcc')
 install=catberry-mtools.install
 options=('!debug')
 source=()
@@ -16,13 +16,13 @@ source=()
 build() {
     rm -rf "$srcdir/$pkgname"
     mkdir -p "$srcdir/$pkgname"
-    cp -r "$startdir/../../src" "$startdir/../../Makefile" "$srcdir/$pkgname/"
-    cd "$srcdir/$pkgname"
-    make CXXFLAGS="$CXXFLAGS -Wall -Wextra" catberry-mtools
+    cp -r "$startdir/../../src" "$startdir/../../data" "$startdir/../../CMakeLists.txt" "$srcdir/$pkgname/"
+    cmake -S "$srcdir/$pkgname" -B "$srcdir/build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
+    cmake --build "$srcdir/build"
 }
 
 package() {
-    cd "$srcdir/$pkgname"
-    install -Dm755 catberry-mtools "$pkgdir/usr/bin/catberry-mtools"
+    install -Dm755 "$srcdir/build/catberry-mtools" "$pkgdir/usr/bin/catberry-mtools"
+    install -Dm644 "$srcdir/$pkgname/data/catberry-mtools.desktop" "$pkgdir/usr/share/applications/catberry-mtools.desktop"
     install -Dm644 "$startdir/../../README.md" "$pkgdir/usr/share/doc/$pkgname/README.md"
 }

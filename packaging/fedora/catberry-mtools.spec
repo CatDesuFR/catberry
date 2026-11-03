@@ -6,11 +6,11 @@ Release:        %{pkgrel}%{?dist}
 Summary:        catberry macro recorder and background hotkey macros
 License:        LicenseRef-custom
 URL:            https://github.com/CatDesuFR/catberry/tree/mtools
-BuildRequires:  gcc-c++ make libX11-devel libXtst-devel
+BuildRequires:  cmake gcc-c++ make qt6-qtbase-devel
 Requires:       catberry
 
 %description
-catberry macro recorder and background hotkey macros. Run it with: catberry mtools gui
+catberry macro recorder and background hotkey macros. Open it from the app menu, or run: catberry mtools gui
 
 %build
 
@@ -25,4 +25,5 @@ echo ":: then log out and back in."
 
 %files
 /usr/bin/catberry-mtools
+/usr/share/applications/catberry-mtools.desktop
 %doc /usr/share/doc/catberry-mtools/README.md
