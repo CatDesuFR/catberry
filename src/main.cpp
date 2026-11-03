@@ -17,6 +17,7 @@ int configSave(int argc, char **argv);
 int configLoad(int argc, char **argv);
 int configUnload(int argc, char **argv);
 int serveMain(int argc, char **argv);
+int quickPick(int argc, char **argv);
 int quickLoad(int argc, char **argv);
 int quickUnload(int argc, char **argv);
 int serveQuickMain(int argc, char **argv);
@@ -31,6 +32,8 @@ static void usage(FILE *out) {
                  "                                  save a hotkey macro, eg: -config EasyEdit E,LMB F6 1\n"
                  "  catberry -configload NAME       start a saved macro in the background\n"
                  "  catberry -configunload [NAME]   stop one loaded macro, or all of them\n"
+                 "  catberry -quickpick NAME HOTKEY [GAP_MS]\n"
+                 "                                  pick the points of a quick click, eg: -quickpick Farm F7 0.1\n"
                  "  catberry -quickload NAME        start a saved quick click in the background\n"
                  "  catberry -quickunload [NAME]    stop one loaded quick click, or all of them\n");
 }
@@ -48,6 +51,7 @@ int main(int argc, char **argv) {
     if (command == "-configload") return configLoad(argc - 2, argv + 2);
     if (command == "-configunload") return configUnload(argc - 2, argv + 2);
     if (command == "--serve") return serveMain(argc - 2, argv + 2);
+    if (command == "-quickpick") return quickPick(argc - 2, argv + 2);
     if (command == "-quickload") return quickLoad(argc - 2, argv + 2);
     if (command == "-quickunload") return quickUnload(argc - 2, argv + 2);
     if (command == "--serve-quick") return serveQuickMain(argc - 2, argv + 2);
