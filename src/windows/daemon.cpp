@@ -42,14 +42,19 @@ public:
             }
             if (stopped_) return false;
             DWORD wait = INFINITE;
+            bool lastLook = false;
             if (timeoutMs >= 0) {
+                // Out of time (or timeout 0): handle what is waiting once,
+                // so the hooks run and a pressed hotkey is seen, then stop.
                 ULONGLONG now = GetTickCount64();
-                if (now >= deadline) return false;
-                wait = static_cast<DWORD>(deadline - now);
+                lastLook = now >= deadline;
+                wait = lastLook ? 0 : static_cast<DWORD>(deadline - now);
             }
             // The hooks only run while this thread handles messages, so wait
-            // for messages too, never just sleep.
-            DWORD result = MsgWaitForMultipleObjects(1, &stop_, FALSE, wait, QS_ALLINPUT);
+            // for messages too, never just sleep. On the last look, empty the
+            // queue directly: MsgWait only reports messages that are new.
+            DWORD result = lastLook ? (WaitForSingleObject(stop_, 0) == WAIT_OBJECT_0 ? WAIT_OBJECT_0 : WAIT_OBJECT_0 + 1)
+                                    : MsgWaitForMultipleObjects(1, &stop_, FALSE, wait, QS_ALLINPUT);
             if (result == WAIT_OBJECT_0) {
                 stopped_ = true;
             } else if (result == WAIT_OBJECT_0 + 1) {
@@ -61,6 +66,7 @@ public:
                 }
                 for (const InputEvent &e : hooks_.take()) pending_.push_back(e);
             }
+            if (lastLook && pending_.empty()) return false;
         }
     }
 

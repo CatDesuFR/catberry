@@ -1,8 +1,36 @@
 #include "../src/common/platform.h"
+#include "../src/common/daemon.h"
+#include "../src/common/output.h"
 #include "../src/common/quickclick.h"
 #include "test.h"
 
+#include <deque>
 #include <fstream>
+
+namespace {
+// Records what a run sends.
+struct FakeOutput : Output {
+    int moves = 0, presses = 0;
+    const char *name() const override { return "fake"; }
+    void key(int, bool) override {}
+    bool canPoint() const override { return true; }
+    void moveTo(int, int, int, int) override { ++moves; }
+    void pointerButton(int, bool down) override { presses += down; }
+};
+// Input for a run: queued events, and a stop request after `stopAfter` checks.
+struct FakeWatcher : KeyWatcher {
+    std::deque<InputEvent> events;
+    mutable int checks = 0;
+    int stopAfter = -1;
+    bool next(InputEvent &ev, int) override {
+        if (events.empty()) return false;
+        ev = events.front();
+        events.pop_front();
+        return true;
+    }
+    bool stopRequested() const override { return stopAfter >= 0 && ++checks > stopAfter; }
+};
+} // namespace
 
 void testQuickClick() {
     QuickSet set;
@@ -41,6 +69,43 @@ void testQuickClick() {
     CHECK(p.x == 960 && p.y == 540);
     p = scaledPoint({960, 540, ClickType::Middle}, 0, 0, 1920, 1080);
     CHECK(p.x == 960 && p.y == 540);
+
+    // A set without a usable desktop size would click wherever the pointer is.
+    {
+        std::ofstream out(configDir() / "quickclicks" / "qnodesk.conf");
+        out << "hotkey=F7\ngap_us=100\npoint=10,20,left\n";
+    }
+    CHECK(!readQuickSet("qnodesk", back, error) && error.find("desktop") != std::string::npos);
+    CHECK(deleteQuickSet("qnodesk"));
+
+    // A run clicks every point; Double clicks twice.
+    QuickSet run;
+    run.desktopW = 1920;
+    run.desktopH = 1080;
+    run.hotkey = parseKey("F7");
+    run.points = {{1, 1, ClickType::Left}, {2, 2, ClickType::Double}, {3, 3, ClickType::Right}};
+    {
+        FakeOutput out;
+        FakeWatcher keys;
+        runQuickSet(run, out, keys);
+        CHECK(out.moves == 3 && out.presses == 4);
+    }
+    // The hotkey again stops it before the next point.
+    {
+        FakeOutput out;
+        FakeWatcher keys;
+        keys.events.push_back({run.hotkey, true});
+        runQuickSet(run, out, keys);
+        CHECK(out.moves == 0);
+    }
+    // Unload (a stop request) during a run: no more points, not all at once.
+    {
+        FakeOutput out;
+        FakeWatcher keys;
+        keys.stopAfter = 0;
+        runQuickSet(run, out, keys);
+        CHECK(out.moves == 0 && out.presses == 0);
+    }
 
     CHECK(quickPidName("x") == "quick.x");
     ClickType t;

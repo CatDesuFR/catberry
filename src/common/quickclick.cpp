@@ -88,6 +88,11 @@ bool readQuickSet(const std::string &name, QuickSet &set, std::string &error) {
             loaded.points.push_back(p);
         }
     }
+    // Positions are fractions of this size: without it nothing lands right.
+    if (loaded.desktopW < 2 || loaded.desktopH < 2) {
+        error = "'" + name + "' has no desktop size (desktop=WIDTHxHEIGHT); pick its points again";
+        return false;
+    }
     set = loaded;
     return true;
 }
@@ -117,6 +122,8 @@ QuickPoint scaledPoint(const QuickPoint &p, int fromW, int fromH, int toW, int t
 void runQuickSet(const QuickSet &set, Output &output, KeyWatcher &keys) {
     auto gap = std::chrono::microseconds(set.gapUs);
     for (const QuickPoint &picked : set.points) {
+        // Unloaded: stop here (not the rest at once, with no gaps).
+        if (keys.stopRequested()) return;
         // The hotkey again stops the run (checked without waiting).
         InputEvent ev;
         while (keys.next(ev, 0))

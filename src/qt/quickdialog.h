@@ -15,13 +15,19 @@ class QTableWidget;
 
 class QuickDialog : public QDialog {
 public:
-    // An empty `name` makes a new set; otherwise the name is fixed.
-    QuickDialog(const QString &name, const QuickSet &set, GlobalInput *input, QWidget *parent = nullptr);
+    // exec() result of "Pick points...": the caller runs the picker and opens
+    // the dialog again (a Qt dialog that hides itself ends its exec()).
+    static const int Pick = 2;
+
+    // An empty `fixedName` makes a new set (`typedName` fills the name box);
+    // otherwise the name is fixed.
+    QuickDialog(const QString &fixedName, const QString &typedName, const QuickSet &set, GlobalInput *input,
+                QWidget *parent = nullptr);
     QString name() const;
-    QuickSet set() const { return set_; }
+    // The set with the hotkey and gap from the boxes.
+    QuickSet set() const;
 
 private:
-    void pick();
     void fillTable();
     void move(int delta);
     void removePoint();

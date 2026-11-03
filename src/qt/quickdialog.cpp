@@ -1,7 +1,6 @@
 #include "quickdialog.h"
 
 #include "../common/macro.h"
-#include "../common/picker.h"
 #include "globalinput.h"
 #include "keybutton.h"
 #include "numberedit.h"
@@ -26,12 +25,14 @@ const ClickType kTypes[] = {ClickType::Left, ClickType::Right, ClickType::Middle
 const char *const kTypeLabels[] = {"Left", "Right", "Middle", "Double"};
 } // namespace
 
-QuickDialog::QuickDialog(const QString &name, const QuickSet &set, GlobalInput *input, QWidget *parent)
+QuickDialog::QuickDialog(const QString &fixedName, const QString &typedName, const QuickSet &set, GlobalInput *input,
+                         QWidget *parent)
     : QDialog(parent), set_(set) {
+    const QString &name = fixedName;
     setWindowTitle(name.isEmpty() ? "New quick click" : "Edit '" + name + "'");
     auto *layout = new QVBoxLayout(this);
     auto *form = new QFormLayout;
-    name_ = new QLineEdit(name, this);
+    name_ = new QLineEdit(name.isEmpty() ? typedName : name, this);
     name_->setValidator(new QRegularExpressionValidator(QRegularExpression("[A-Za-z0-9_-]{0,40}"), name_));
     name_->setPlaceholderText("e.g. Farm");
     name_->setReadOnly(!name.isEmpty());
@@ -80,15 +81,11 @@ QuickDialog::QuickDialog(const QString &name, const QuickSet &set, GlobalInput *
     ok_ = buttons->button(QDialogButtonBox::Save);
     layout->addWidget(buttons);
 
-    connect(buttons, &QDialogButtonBox::accepted, this, [this] {
-        set_.hotkey = hotkey_->code();
-        set_.gapUs = std::clamp(int(std::lround(gap_->value() * 1000)), kMinGapUs, kMaxGapUs);
-        accept();
-    });
+    connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     connect(name_, &QLineEdit::textChanged, this, [this] { check(); });
     connect(hotkey_, &KeyButton::changed, this, [this] { check(); });
-    connect(pick_, &QPushButton::clicked, this, [this] { pick(); });
+    connect(pick_, &QPushButton::clicked, this, [this] { done(Pick); });
     connect(up_, &QPushButton::clicked, this, [this] { move(-1); });
     connect(down_, &QPushButton::clicked, this, [this] { move(1); });
     connect(remove_, &QPushButton::clicked, this, [this] { removePoint(); });
@@ -101,18 +98,11 @@ QuickDialog::QuickDialog(const QString &name, const QuickSet &set, GlobalInput *
 
 QString QuickDialog::name() const { return name_->text(); }
 
-void QuickDialog::pick() {
-    // This dialog and the main window out of the way while points are picked.
-    hide();
-    if (parentWidget()) parentWidget()->window()->hide();
-    QuickSet picked = set_;
-    if (pickPoints(picked)) set_ = picked;
-    if (parentWidget()) parentWidget()->window()->show();
-    show();
-    activateWindow();
-    pick_->setText("Pick again...");
-    fillTable();
-    check();
+QuickSet QuickDialog::set() const {
+    QuickSet s = set_;
+    s.hotkey = hotkey_->code();
+    s.gapUs = std::clamp(int(std::lround(gap_->value() * 1000)), kMinGapUs, kMaxGapUs);
+    return s;
 }
 
 void QuickDialog::fillTable() {

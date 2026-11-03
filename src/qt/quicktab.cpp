@@ -3,6 +3,7 @@
 #include "../common/daemon.h"
 #include "../common/macro.h"
 #include "../common/quickclick.h"
+#include "../common/picker.h"
 #include "quickdialog.h"
 
 #include <QCoreApplication>
@@ -127,14 +128,29 @@ void QuickTab::edit(const QString &name) {
     QuickSet set;
     std::string error;
     if (!name.isEmpty() && !readQuickSet(name.toStdString(), set, error)) set = QuickSet();
-    QuickDialog dialog(name, set, input_, this);
-    if (dialog.exec() != QDialog::Accepted) return;
-    QString saved = dialog.name();
+    QString typed = name, saved;
+    for (;;) {
+        QuickDialog dialog(name, typed, set, input_, this);
+        int result = dialog.exec();
+        set = dialog.set();
+        typed = dialog.name();
+        if (result == QuickDialog::Pick) {
+            // The window out of the way while the points are picked; the
+            // dialog then opens again with them (Esc keeps the old ones).
+            window()->hide();
+            pickPoints(set);
+            window()->show();
+            continue;
+        }
+        if (result != QDialog::Accepted) return;
+        saved = typed;
+        break;
+    }
     const auto names = quickSetNames();
     if (name.isEmpty() && std::find(names.begin(), names.end(), saved.toStdString()) != names.end() &&
         QMessageBox::question(this, "Quick click", "'" + saved + "' already exists. Replace it?") != QMessageBox::Yes)
         return;
-    if (!writeQuickSet(saved.toStdString(), dialog.set())) {
+    if (!writeQuickSet(saved.toStdString(), set)) {
         QMessageBox::warning(this, "Quick click", "Could not save '" + saved + "'.");
         return;
     }

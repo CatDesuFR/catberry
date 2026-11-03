@@ -164,13 +164,21 @@ bool pickPoints(QuickSet &set) {
         windows.front()->setFocus();
     }
 
-    // Tests: a picture of the picker, then cancel.
+    // Tests: after CATBERRY_PICK_QUIT_MS, a picture of the picker (with
+    // CATBERRY_SCREENSHOT), then cancel; or, with CATBERRY_PICK_ADD="x,y",
+    // add that point and save.
     int quitMs = qEnvironmentVariableIntValue("CATBERRY_PICK_QUIT_MS");
     if (quitMs > 0)
         QTimer::singleShot(quitMs, &loop, [&] {
             QString shot = qEnvironmentVariable("CATBERRY_SCREENSHOT");
             if (!shot.isEmpty() && !windows.empty()) windows.front()->grab().save(shot);
-            state.finish(false);
+            QStringList add = qEnvironmentVariable("CATBERRY_PICK_ADD").split(',');
+            if (add.size() == 2) {
+                state.points.push_back({add[0].toInt(), add[1].toInt(), state.type});
+                state.finish(true);
+            } else {
+                state.finish(false);
+            }
         });
     loop.exec();
     for (auto &w : windows) w->close();
