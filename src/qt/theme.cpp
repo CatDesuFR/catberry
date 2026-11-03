@@ -12,7 +12,8 @@ const char *catberryStyleSheet() {
     QPushButton:checked, QPushButton#accent { background: #89b4fa; color: #1e1e2e; border: none; }
     QPushButton#go { background: #a6e3a1; color: #1e1e2e; border: none; font-weight: bold; }
     QPushButton#stop { background: #f38ba8; color: #1e1e2e; border: none; font-weight: bold; }
-    QPushButton:disabled { color: #6c7086; }
+    QPushButton:disabled, QPushButton#go:disabled, QPushButton#stop:disabled, QPushButton#accent:disabled {
+        background: #313244; color: #6c7086; border: 1px solid #45475a; font-weight: normal; }
     QSpinBox, QDoubleSpinBox, QLineEdit { background: #181825; border: 1px solid #45475a; border-radius: 6px;
                                           padding: 4px 8px; selection-background-color: #89b4fa; }
     QListWidget, QTableWidget { background: #181825; border: 1px solid #45475a; border-radius: 6px;

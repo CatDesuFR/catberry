@@ -1,6 +1,7 @@
 #include "mtoolswindow.h"
 
 #include "globalinput.h"
+#include "hotkeystab.h"
 #include "keybutton.h"
 #include "problems.h"
 #include "recordertab.h"
@@ -42,7 +43,8 @@ MtoolsWindow::MtoolsWindow() {
     auto *tabs = new QTabWidget(central);
     recorder_ = new RecorderTab(*output_, input_, tabs);
     tabs->addTab(recorder_, "Recorder");
-    tabs->addTab(new QWidget, "Hotkey macros");
+    hotkeys_ = new HotkeysTab(input_, tabs);
+    tabs->addTab(hotkeys_, "Hotkey macros");
     layout->addWidget(tabs, 1);
     setCentralWidget(central);
 
@@ -78,8 +80,15 @@ int mtoolsGui(int quitAfterMs) {
     if (quitAfterMs > 0)
         QTimer::singleShot(quitAfterMs, &app, [&] {
             // Tests can ask for a picture of the window as it closes.
+            // CATBERRY_SCREENSHOT=a.png saves a-1.png, a-2.png: one per tab.
             QString shot = qEnvironmentVariable("CATBERRY_SCREENSHOT");
-            if (!shot.isEmpty()) window.grab().save(shot);
+            auto *tabs = window.findChild<QTabWidget *>();
+            if (!shot.isEmpty() && tabs)
+                for (int i = 0; i < tabs->count(); ++i) {
+                    tabs->setCurrentIndex(i);
+                    app.processEvents();
+                    window.grab().save(QString(shot).replace(".png", QString("-%1.png").arg(i + 1)));
+                }
             app.quit();
         });
     return app.exec();
