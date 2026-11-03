@@ -126,10 +126,34 @@ bool installedAsPackage(Family family, const std::string &program) {
     }
 }
 
+// The version of the installed package ("1.1.2" from "1.1.2-1+debian13"),
+// or "" when it is not installed as a package.
+std::string packageVersion(Family family, const std::string &program) {
+    std::string out;
+    bool ok = false;
+    switch (family) {
+    case Family::Arch:
+        ok = captureOutput({"pacman", "-Q", program}, out); // "catberry-ac 1.1.2-1"
+        if (ok) out = out.substr(out.find(' ') + 1);
+        break;
+    case Family::Fedora: ok = captureOutput({"rpm", "-q", "--qf", "%{VERSION}", program}, out); break;
+    case Family::Debian13:
+    case Family::Ubuntu:
+        ok = installedAsPackage(family, program) && captureOutput({"dpkg-query", "-W", "-f=${Version}", program}, out);
+        break;
+    default: break;
+    }
+    if (!ok) return "";
+    out = out.substr(0, out.find_first_of("-\n"));
+    return out;
+}
+
 // Downloads, checks and installs one package. `installed` is the version
-// there now ("" if none), to choose dnf's downgrade.
+// there now ("" if none), to choose dnf's downgrade; `same` means this exact
+// version is already installed as a package (a --reinstall), which dnf and
+// apt otherwise skip as done.
 int installPackage(const SystemInfo &sys, const Tool &tool, const std::string &version, const std::string &installed,
-                   const TempDir &tmp) {
+                   bool same, const TempDir &tmp) {
     const std::string tag = std::string(tool.name) + "-v" + version;
     const std::string sumsFile = tmp.path() + "/SHA256SUMS-" + tag;
     SumEntry asset;
@@ -148,9 +172,16 @@ int installPackage(const SystemInfo &sys, const Tool &tool, const std::string &v
     switch (sys.family) {
     case Family::Arch: command = {"pacman", "-U", file}; break;
     case Family::Fedora:
-        command = {"dnf", !installed.empty() && compareText(version, installed) < 0 ? "downgrade" : "install", file};
+        command = {"dnf",
+                   same                                                          ? "reinstall"
+                   : !installed.empty() && compareText(version, installed) < 0 ? "downgrade"
+                                                                                 : "install",
+                   file};
         break;
-    default: command = {"apt", "install", "--allow-downgrades", file}; break;
+    default:
+        command = same ? std::vector<std::string>{"apt", "install", "--reinstall", "--allow-downgrades", file}
+                       : std::vector<std::string>{"apt", "install", "--allow-downgrades", file};
+        break;
     }
     int code = runProgram(withSudo(command));
     if (code != 0) {
@@ -196,11 +227,13 @@ int installTool(const std::string &name, const std::string &wanted, bool reinsta
     std::string version;
     if (!publishedVersions(name, tmp, published) || !resolveVersion(name, wanted, published, version)) return 1;
 
-    std::string installed = installedVersion(*tool);
-    bool isLauncher = name == "catberry";
-    // The launcher always reports its own version; for it, what counts is the package.
-    bool sameInstalled = !installed.empty() && compareText(installed, version) == 0 &&
-                         (!isLauncher || installedAsPackage(sys.family, tool->program));
+    // What the package manager has installed counts first: the program
+    // itself may be missing (a broken install), and the running launcher
+    // always reports its own version.
+    std::string installed = packageVersion(sys.family, tool->program);
+    bool asPackage = !installed.empty();
+    if (!asPackage && name != "catberry") installed = installedVersion(*tool);
+    bool sameInstalled = !installed.empty() && compareText(installed, version) == 0;
     if (sameInstalled && !reinstall) {
         std::printf("%s %s is already installed.\n", tool->name, version.c_str());
         return 0;
@@ -213,10 +246,11 @@ int installTool(const std::string &name, const std::string &wanted, bool reinsta
         if (!publishedVersions("catberry", tmp, launcherVersions)) return 1;
         std::printf("%s needs the catberry package; installing catberry %s first.\n", tool->name,
                     launcherVersions.front().c_str());
-        if (int code = installPackage(sys, *launcher, launcherVersions.front(), "", tmp)) return code;
+        if (int code = installPackage(sys, *launcher, launcherVersions.front(), "", false, tmp)) return code;
     }
 
-    if (int code = installPackage(sys, *tool, version, installed, tmp)) return code;
+    bool samePackage = sameInstalled && asPackage;
+    if (int code = installPackage(sys, *tool, version, installed, samePackage, tmp)) return code;
     std::printf("%s %s installed.\n", tool->name, version.c_str());
     if (name == "roofce")
         std::printf("If the wallpaper is running, restart it: catberry roofce stop; catberry roofce start\n");
@@ -262,7 +296,10 @@ std::vector<std::string> personalFiles(const std::string &tool) {
 // Copies of the program outside the package manager.
 std::vector<std::string> looseCopies(const Tool &tool) {
     std::vector<std::string> all = {userBin() + "/" + tool.program};
-    if (std::string(tool.name) == "roofce") all.push_back(configHome() + "/autostart/catberry-roofce.desktop");
+    if (std::string(tool.name) == "roofce") {
+        all.push_back(configHome() + "/autostart/catberry-roofce.desktop");
+        all.push_back(dataHome() + "/applications/catberry-roofce.desktop"); // from make install
+    }
     std::vector<std::string> found;
     for (const std::string &p : all)
         if (exists(p)) found.push_back(p);
@@ -356,6 +393,12 @@ bool offerPersonalFiles(const std::vector<std::string> &files) {
 int uninstallTool(const std::string &name) {
     const Tool *tool = toolByName(name);
     if (!tool) return 2;
+    // Under sudo, HOME is root's: the user's own copies and files would be missed.
+    const char *sudoUser = std::getenv("SUDO_USER");
+    if (isRoot() && sudoUser && *sudoUser) {
+        std::fprintf(stderr, "catberry: Run it without sudo; it asks for your password when it needs it.\n");
+        return 1;
+    }
     SystemInfo sys = thisSystem();
     int code = 0;
 
@@ -566,14 +609,28 @@ int uninstallTool(const std::string &name) {
         std::printf("%s uninstalled.\n", dep.c_str());
         for (const std::string &f : personalFiles(dep)) files.push_back(f);
     }
-    // This exe is running: move it aside, and delete it (and the folder,
-    // if then empty) from a separate process once this one has ended.
+    // This exe is running: move it aside now; it is deleted (and the folder,
+    // if then empty) by a separate process after this one has ended.
     const std::string dest = exePath(*tool), old = installDir() + "\\catberry.old.exe";
+    bool movedAside = false;
     if (fs::exists(dest, ec)) {
         fs::remove(old, ec);
         fs::rename(dest, old, ec);
-        std::string cleanup = "ping -n 3 127.0.0.1 >nul & del /f /q \"" + old + "\" & rmdir \"" + installDir() + "\" 2>nul";
-        std::string line = "cmd.exe /c " + cleanup;
+        movedAside = !ec;
+    }
+    bool othersLeft = false;
+    for (const auto &entry : fs::directory_iterator(installDir(), ec))
+        if (entry.path().filename() != "catberry.old.exe") othersLeft = true;
+    if (!othersLeft) removeFromPath();
+    std::printf("catberry uninstalled.\n");
+    if (offerPersonalFiles(files)) std::printf("Your settings and files were kept.\n");
+
+    // Last of all, so no question keeps this exe running past the delete.
+    // Tries once a second for up to a minute, until this exe has exited.
+    if (movedAside) {
+        std::string line = "cmd.exe /c for /l %i in (1,1,60) do @(if exist \"" + old +
+                           "\" (ping -n 2 127.0.0.1 >nul & del /f /q \"" + old + "\" 2>nul)) & rmdir \"" +
+                           installDir() + "\" 2>nul";
         STARTUPINFOA startup{};
         startup.cb = sizeof startup;
         PROCESS_INFORMATION info{};
@@ -583,12 +640,6 @@ int uninstallTool(const std::string &name) {
             CloseHandle(info.hThread);
         }
     }
-    bool othersLeft = false;
-    for (const auto &entry : fs::directory_iterator(installDir(), ec))
-        if (entry.path().filename() != "catberry.old.exe") othersLeft = true;
-    if (!othersLeft) removeFromPath();
-    std::printf("catberry uninstalled.\n");
-    if (offerPersonalFiles(files)) std::printf("Your settings and files were kept.\n");
     return code;
 }
 

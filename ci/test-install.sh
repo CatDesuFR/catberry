@@ -67,9 +67,11 @@ echo "== same version again"
 out=$(cb install ac); code=$?
 expect "already installed message" grep -q "ac 1.1.2 is already installed." <<<"$out"
 expect "already installed exits 0" test "$code" = 0
+rm -f /usr/bin/catberry-ac # broken install: the program file is gone
 out=$(cb ac install --reinstall); code=$?
 expect "--reinstall exits 0" test "$code" = 0
 expect "--reinstall installs" grep -q "ac 1.1.2 installed" <<<"$out"
+expect "--reinstall puts the program back" test -x /usr/bin/catberry-ac
 
 echo "== unknown version"
 out=$(cb install ac 9.9); code=$?
@@ -93,6 +95,12 @@ expect "roofce restart hint" grep -q "catberry roofce stop; catberry roofce star
 un() { printf "$1" | catberry "${@:2}" 2>&1; }
 cfg=/root/.config share=/root/.local/share
 
+echo "== uninstall refuses to run under sudo"
+out=$(SUDO_USER=someone un 'y\n' uninstall ac); code=$?
+expect "sudo uninstall refused" grep -q "Run it without sudo" <<<"$out"
+expect "sudo uninstall exits 1" test "$code" = 1
+expect "sudo uninstall removed nothing" has_pkg catberry-ac
+
 echo "== uninstall ac, keeping files"
 mkdir -p $cfg/catberry && echo x >$cfg/catberry/ac.conf
 out=$(un '\n' uninstall ac); code=$?
@@ -112,12 +120,14 @@ echo "== uninstall roofce: every copy, then its files"
 mkdir -p /root/.local/bin $cfg/autostart $cfg/catberry $share/catberry/roofce/wallpapers /root/.cache/catberry/roofce
 printf '#!/bin/sh\n' >/root/.local/bin/catberry-roofce && chmod +x /root/.local/bin/catberry-roofce
 echo x >$cfg/autostart/catberry-roofce.desktop
+mkdir -p $share/applications && echo x >$share/applications/catberry-roofce.desktop
 echo x >$cfg/catberry/roofce.conf
 echo x >$share/catberry/roofce/wallpapers/a.png
 out=$(un 'n\n' uninstall roofce)
 expect "catberry-roofce package removed" no_pkg catberry-roofce
 expect "~/.local/bin copy removed" test ! -e /root/.local/bin/catberry-roofce
 expect "autostart entry removed" test ! -e $cfg/autostart/catberry-roofce.desktop
+expect "make install's app-menu entry removed" test ! -e $share/applications/catberry-roofce.desktop
 expect "roofce.conf kept on n" test -f $cfg/catberry/roofce.conf
 expect "lists the wallpapers folder" grep -q "$share/catberry/roofce" <<<"$out"
 out=$(un 'y\n' uninstall roofce)
