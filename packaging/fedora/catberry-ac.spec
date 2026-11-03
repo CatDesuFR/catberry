@@ -6,11 +6,11 @@ Release:        %{pkgrel}%{?dist}
 Summary:        catberry autoclicker: clicks or presses a key at a set rate
 License:        LicenseRef-custom
 URL:            https://github.com/CatDesuFR/catberry/tree/ac
-BuildRequires:  gcc-c++ make libX11-devel libXtst-devel
+BuildRequires:  cmake gcc-c++ make qt6-qtbase-devel
 Requires:       catberry
 
 %description
-catberry autoclicker: clicks or presses a key at a set rate. Run it with: catberry ac gui
+catberry autoclicker: clicks or presses a key at a set rate. Open it from the app menu, or run: catberry ac gui
 
 %build
 
@@ -25,4 +25,5 @@ echo ":: then log out and back in."
 
 %files
 /usr/bin/catberry-ac
+/usr/share/applications/catberry-ac.desktop
 %doc /usr/share/doc/catberry-ac/README.md

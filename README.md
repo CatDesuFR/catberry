@@ -1,6 +1,6 @@
 # catberry ac
 
-The catberry **autoclicker** (version 1.1.2), for Linux and Windows 10/11.
+The catberry **autoclicker** (version 2.0.0), for Linux and Windows 10/11.
 It clicks, scrolls or presses a keyboard key at a rate you choose.
 
 This branch holds only the autoclicker. The `catberry` command it runs
@@ -26,9 +26,9 @@ page (tags `ac-v...`).
 
 ### Build it yourself
 
-`make install` on this branch (needs `g++`, `make` and the libX11/libXtst
-development packages), or on Arch-based distros
-`cd packaging/arch && makepkg -si`.
+`make install` on this branch (needs `g++`, `cmake` and Qt 6: `qt6-base` on
+Arch, `qt6-qtbase-devel` on Fedora, `qt6-base-dev` on Debian/Ubuntu), or on
+Arch-based distros `cd packaging/arch && makepkg -si`.
 
 ### Global hotkey on Linux (once)
 
@@ -39,15 +39,22 @@ yourself to the `input` group, then log out and back in:
 sudo usermod -aG input $USER
 ```
 
-Not needed on Windows or on an X11 session.
+Without it the hotkey still works while the autoclicker's own window is
+focused; the window shows this command until it is fixed. Not needed on
+Windows. Clicking itself goes through `/dev/uinput`, which the `catberry`
+launcher package allows.
 
 ## Use
+
+Open **Catberry Autoclicker** from the app menu, or:
 
 ```
 catberry ac gui     open the autoclicker
 catberry ac -v      print the version
 catberry ac -help   show the help
 ```
+
+On Linux it is a native Wayland window (Qt 6); it also works on X11.
 
 - **Clicks per second**: type a number (0.1 to 1000) or use `-` / `+`.
 - **Click with**: Left, Middle or Right click, Scroll up or down, or
@@ -73,7 +80,9 @@ nothing to hide itself. Use it at your own risk.
 | Linux program | `make` | `catberry-ac` |
 | Install on Linux | `make install` | `~/.local/bin/catberry-ac` |
 | Windows package | `make windows` | `dist/catberry-ac-windows.zip` |
-| Arch package | `cd packaging/arch && makepkg` | `catberry-ac-1.1.2-1-x86_64.pkg.tar.zst` |
+| Arch package | `cd packaging/arch && makepkg` | `catberry-ac-2.0.0-1-x86_64.pkg.tar.zst` |
 
-`src/common` is the window logic and clicker, `src/linux` and `src/windows`
-the platform parts. The Windows package is cross-compiled with MinGW-w64.
+On Linux, `make` builds with CMake and Qt 6 (`src/qt` is the window). On
+Windows the window is drawn by `src/common/ac.cpp` and `src/windows`.
+`src/common/clicker` is shared. The Windows package is cross-compiled with
+MinGW-w64.
