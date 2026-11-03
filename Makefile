@@ -6,19 +6,23 @@ PREFIX ?= $(HOME)/.local
 
 PROGRAM = catberry-ac
 COMMON_SRCS = src/main.cpp $(wildcard src/common/*.cpp)
-LINUX_SRCS = $(COMMON_SRCS) $(wildcard src/linux/*.cpp)
 WINDOWS_SRCS = $(COMMON_SRCS) $(wildcard src/windows/*.cpp)
 HEADERS = $(wildcard src/*/*.h)
 WINDOWS_DIST = dist/$(PROGRAM)-windows
+BUILD = build
 
-$(PROGRAM): $(LINUX_SRCS) $(HEADERS)
-	$(CXX) $(CXXFLAGS) -std=c++17 -pthread $(LINUX_SRCS) -o $@ -lX11 -lXtst
+# Linux: Qt 6, built with CMake (make, make install, make uninstall).
+$(PROGRAM): CMakeLists.txt $(wildcard src/*.cpp src/*/*.cpp) $(HEADERS)
+	cmake -S . -B $(BUILD) -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$(PREFIX) >/dev/null
+	cmake --build $(BUILD) -j$$(nproc)
+	cp $(BUILD)/$(PROGRAM) $@
 
 install: $(PROGRAM)
 	install -Dm755 $(PROGRAM) $(DESTDIR)$(PREFIX)/bin/$(PROGRAM)
+	install -Dm644 data/$(PROGRAM).desktop $(DESTDIR)$(PREFIX)/share/applications/$(PROGRAM).desktop
 
 uninstall:
-	rm -f $(DESTDIR)$(PREFIX)/bin/$(PROGRAM)
+	rm -f $(DESTDIR)$(PREFIX)/bin/$(PROGRAM) $(DESTDIR)$(PREFIX)/share/applications/$(PROGRAM).desktop
 
 # Windows build, cross-compiled with MinGW-w64: a folder with the exe,
 # install.bat and uninstall.bat, plus a zip of it when zip is available.
@@ -39,6 +43,6 @@ $(WINDOWS_DIST)/%.bat: windows/%.bat
 	sed 's/\r*$$/\r/' $< > $@
 
 clean:
-	rm -rf $(PROGRAM) dist
+	rm -rf $(PROGRAM) $(BUILD) dist
 
 .PHONY: install uninstall windows clean

@@ -1,10 +1,7 @@
-// Output through XTest or uinput virtual devices.
+// Output through uinput virtual devices (they reach every window, Wayland or X11).
 
 #include "../common/output.h"
 #include "linux.h"
-
-#include <X11/Xlib.h>
-#include <X11/extensions/XTest.h>
 
 #include <fcntl.h>
 #include <linux/input.h>
@@ -37,51 +34,6 @@ bool isWayland() {
 }
 
 namespace {
-
-class XTestOutput : public Output {
-public:
-    static std::unique_ptr<Output> create() {
-        // Own connection: it is only ever touched by the thread that clicks.
-        Display *dpy = XOpenDisplay(nullptr);
-        if (!dpy) return nullptr;
-        int ev, err, major, minor;
-        if (!XTestQueryExtension(dpy, &ev, &err, &major, &minor)) {
-            XCloseDisplay(dpy);
-            return nullptr;
-        }
-        return std::unique_ptr<Output>(new XTestOutput(dpy));
-    }
-    ~XTestOutput() override { XCloseDisplay(dpy_); }
-    const char *name() const override { return "XTest"; }
-    void key(int code, bool down) override {
-        // X core protocol buttons: 1-3 are the mouse buttons, 4/5 the wheel.
-        unsigned int button = 0;
-        switch (code) {
-        case BTN_LEFT: button = 1; break;
-        case BTN_MIDDLE: button = 2; break;
-        case BTN_RIGHT: button = 3; break;
-        case keycode::WheelUp: button = 4; break;
-        case keycode::WheelDown: button = 5; break;
-        case BTN_SIDE: button = 8; break;
-        case BTN_EXTRA: button = 9; break;
-        }
-        if (isWheel(code)) {
-            if (!down) return;
-            XTestFakeButtonEvent(dpy_, button, True, CurrentTime);
-            XTestFakeButtonEvent(dpy_, button, False, CurrentTime);
-        } else if (button) {
-            XTestFakeButtonEvent(dpy_, button, down, CurrentTime);
-        } else {
-            // X keycodes are evdev codes shifted by 8.
-            XTestFakeKeyEvent(dpy_, code + 8, down, CurrentTime);
-        }
-        XFlush(dpy_);
-    }
-
-private:
-    explicit XTestOutput(Display *dpy) : dpy_(dpy) {}
-    Display *dpy_;
-};
 
 class UinputOutput : public Output {
 public:
@@ -171,16 +123,11 @@ private:
 } // namespace
 
 std::unique_ptr<Output> createOutput(const std::string &backend, bool withKeyboard, std::string &error) {
-    if (!backend.empty() && backend != "xtest" && backend != "uinput") {
-        error = "unknown backend '" + backend + "' (expected xtest or uinput)";
+    if (!backend.empty() && backend != "uinput") {
+        error = "unknown backend '" + backend + "' (only uinput)";
         return nullptr;
     }
-    // uinput reaches every window on Wayland; XTest only XWayland ones.
-    bool preferUinput = backend.empty() ? isWayland() : backend == "uinput";
-    std::unique_ptr<Output> out;
-    if (preferUinput) out = UinputOutput::create(withKeyboard);
-    if (!out) out = XTestOutput::create();
-    if (!out && !preferUinput) out = UinputOutput::create(withKeyboard);
-    if (!out) error = "no usable input backend (neither /dev/uinput nor XTest)";
+    std::unique_ptr<Output> out = UinputOutput::create(withKeyboard);
+    if (!out) error = "cannot use /dev/uinput (the catberry launcher package adds the rule that allows it)";
     return out;
 }

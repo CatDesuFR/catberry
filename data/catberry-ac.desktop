@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Catberry Autoclicker
+Comment=Clicks, scrolls or presses a key at a set rate
+Exec=catberry-ac gui
+Icon=input-mouse
+Terminal=false
+Categories=Utility;
