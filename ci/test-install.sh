@@ -97,6 +97,10 @@ expect "unknown version message" grep -q "ac has no version 9.9. Published: ${AC
 expect "unknown version exits 1" test "$code" = 1
 
 echo "== update"
+out=$(CATBERRY_RELEASES=http://127.0.0.1:9 cb update); code=$?
+expect "update offline: says it could not check" grep -q "could not check" <<<"$out"
+expect "update offline: not 'up to date'" bash -c '! grep -q "up to date" <<<"$1"' _ "$out"
+expect "update offline exits 1" test "$code" = 1
 out=$(cb update ac); code=$?
 expect "update ac: up to date" grep -q "ac is up to date." <<<"$out"
 expect "update ac exits 0" test "$code" = 0

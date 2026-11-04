@@ -757,6 +757,7 @@ int updateTools(const std::string &only) {
         std::string from, to;
     };
     std::vector<Update> updates;
+    std::vector<std::string> notChecked;
     TempDir tmp;
     std::printf("Checking for updates:\n");
     for (const Tool *t : tools) {
@@ -771,7 +772,11 @@ int updateTools(const std::string &only) {
         std::vector<std::string> published;
         if (!publishedVersions(t->name, tmp, published)) {
             if (!only.empty()) return 1;
-            continue;
+            // GitHub unreachable: the others would fail the same way.
+            notChecked.push_back(t->name);
+            for (const Tool *rest : tools)
+                if (rest > t && !currentVersion(*rest).empty()) notChecked.push_back(rest->name);
+            break;
         }
         const std::string &latest = published.front();
         if (compareText(latest, current) > 0) {
@@ -780,6 +785,10 @@ int updateTools(const std::string &only) {
         } else {
             std::printf("  %-8s %s (up to date)\n", t->name, current.c_str());
         }
+    }
+    if (!notChecked.empty()) {
+        std::fprintf(stderr, "catberry: could not check %s for updates.\n", joinList(notChecked).c_str());
+        if (updates.empty()) return 1;
     }
     if (updates.empty()) {
         std::printf(only.empty() ? "Everything is up to date.\n" : "%s is up to date.\n", only.c_str());
