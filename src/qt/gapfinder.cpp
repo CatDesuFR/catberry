@@ -68,9 +68,11 @@ int findFastestGap(const QuickSet &original, GlobalInput *input, QWidget *) {
              .arg(key));
 
     HotkeyState hotkey;
+    bool exhausted = false; // every gap tried and none kept: Enter keeps nothing
     QObject::connect(input, &GlobalInput::input, &loop, [&](InputEvent ev) {
         if (hotkey.pressed(ev, set.hotkey)) {
             if (next >= kGapCount) {
+                exhausted = true;
                 show("None of the gaps worked; the set is unchanged. <b>Esc</b>: close.");
                 return;
             }
@@ -95,7 +97,7 @@ int findFastestGap(const QuickSet &original, GlobalInput *input, QWidget *) {
             return;
         }
         if (!ev.down) return;
-        if ((ev.code == kEnter || ev.code == kKeypadEnter) && next > 0) {
+        if ((ev.code == kEnter || ev.code == kKeypadEnter) && next > 0 && !exhausted) {
             result = kGapsMs[next - 1] * 1000;
             loop.quit();
         } else if (ev.code == keycode::Escape) {

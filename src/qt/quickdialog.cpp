@@ -2,17 +2,14 @@
 
 #include "../common/daemon.h"
 #include "../common/macro.h"
-#include "gapfinder.h"
+
 #include "globalinput.h"
 #include "keybutton.h"
 #include "numberedit.h"
 
 #include <QCheckBox>
 #include <QComboBox>
-#include <QCoreApplication>
-#include <QFileInfo>
 #include <QMessageBox>
-#include <QProcess>
 #include <QIntValidator>
 #include <QDialogButtonBox>
 #include <QFormLayout>
@@ -163,31 +160,17 @@ void QuickDialog::findGap() {
                              "This needs the keyboard to be readable (the input group, see the box at the top).");
         return;
     }
-    QuickSet current = set();
-    // A loaded copy of this set would click too: paused meanwhile.
-    std::string pidName = quickPidName(fixedName_.toStdString());
-    bool wasLoaded = !fixedName_.isEmpty() && loadedPid(pidName) != 0;
-    if (wasLoaded) {
-        stopProcess(loadedPid(pidName), pidName);
-        forgetLoaded(pidName);
+    // Enter keeps a gap and Esc stops, so neither can be the hotkey here.
+    int key = hotkey_->code();
+    if (key == 28 || key == 96 || key == 1) {
+        QMessageBox::warning(this, "Find the fastest gap",
+                             "Enter and Esc answer the finder, so pick another hotkey for the try runs.");
+        return;
     }
-    hide();
-    if (parentWidget()) parentWidget()->window()->showMinimized();
-    int gap = findFastestGap(current, input_, this);
-    if (parentWidget()) parentWidget()->window()->showNormal();
-    show();
-    activateWindow();
-    if (wasLoaded) {
-        QString self = QCoreApplication::applicationFilePath();
-        QProcess::startDetached(QFileInfo::exists(self) ? self : QString("catberry-mtools"), {"-quickload", fixedName_});
-    }
-    if (gap > 0) {
-        game_->setChecked(false);
-        gap_->setValue(gap / 1000.0);
-        updateGame();
-        problem_->setText(QString("The fastest gap that worked: %1 ms. Save to keep it.").arg(gap / 1000.0));
-    }
+    done(FindGap);
 }
+
+void QuickDialog::showNote(const QString &note) { problem_->setText(note); }
 
 int QuickDialog::fps() const { return std::clamp(fps_->currentText().toInt(), 0, 1000); }
 

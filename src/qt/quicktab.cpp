@@ -4,6 +4,7 @@
 #include "../common/macro.h"
 #include "../common/quickclick.h"
 #include "../common/picker.h"
+#include "gapfinder.h"
 #include "quickdialog.h"
 
 #include <QCoreApplication>
@@ -130,9 +131,11 @@ void QuickTab::edit(const QString &name) {
     QuickSet set;
     std::string error;
     if (!name.isEmpty() && !readQuickSet(name.toStdString(), set, error)) set = QuickSet();
-    QString typed = name, saved;
+    QString typed = name, saved, note;
     for (;;) {
         QuickDialog dialog(name, typed, set, input_, this);
+        if (!note.isEmpty()) dialog.showNote(note);
+        note.clear();
         int result = dialog.exec();
         set = dialog.set();
         typed = dialog.name();
@@ -142,6 +145,21 @@ void QuickTab::edit(const QString &name) {
             window()->hide();
             pickPoints(set);
             window()->show();
+            continue;
+        }
+        if (result == QuickDialog::FindGap) {
+            // A loaded copy of this set would click too: paused meanwhile.
+            bool wasLoaded = !name.isEmpty() && loadedPid(quickPidName(name.toStdString())) != 0;
+            if (wasLoaded) unload(name);
+            window()->hide();
+            int gap = findFastestGap(set, input_, this);
+            window()->show();
+            if (wasLoaded) load(name);
+            if (gap > 0) {
+                set.gameFps = 0;
+                set.gapUs = gap;
+                note = QString("The fastest gap that worked: %1 ms. Save to keep it.").arg(gap / 1000.0);
+            }
             continue;
         }
         if (result != QDialog::Accepted) return;
