@@ -125,4 +125,5 @@ private:
     QMap<OnlineSource, bool> hasMore_;
     int pending_ = 0;
     int generation_ = 0; // drops answers to an older search
+    QSet<QString> downloading_; // keys being downloaded or unpacked
 };

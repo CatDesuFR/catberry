@@ -14,9 +14,11 @@
 #include <QNetworkRequest>
 #include <QProcess>
 #include <QRegularExpression>
+#include <QThread>
 #include <QUrlQuery>
 
 #include <algorithm>
+#include <memory>
 
 namespace {
 
@@ -672,6 +674,25 @@ void OnlineLibrary::searchXLive(int generation) {
     });
 }
 
+// What an X Live package's wallpaper can be, best first after size: videos, then a GIF.
+static const QStringList kXLiveVideos = {"mp4", "webm", "mkv", "mov", "avi", "m4v"};
+
+// unzip reads entry names as patterns: [ ] * ? and \ are taken literally
+// when escaped. A name that was not UTF-8 shows U+FFFD; '?' matches the
+// byte(s) it stands for.
+static QString unzipPattern(const QString &name) {
+    QString out;
+    for (QChar c : name) {
+        if (c == QChar(0xFFFD)) {
+            if (!out.endsWith('*')) out += '*';
+            continue;
+        }
+        if (QStringLiteral("[]*?\\").contains(c)) out += '\\';
+        out += c;
+    }
+    return out;
+}
+
 QString unpackLivelyZip(const QString &zip, const QString &destBase, QString &error) {
     // The package holds a picture, LivelyInfo.json and the wallpaper itself.
     QProcess list;
@@ -680,21 +701,24 @@ QString unpackLivelyZip(const QString &zip, const QString &destBase, QString &er
         error = "Could not open the wallpaper's package (is unzip installed?)";
         return QString();
     }
+    // "-rw----  5.1 fat 117784823 b- 117282542 defN 20-Apr-30 04:24 video.mp4"
+    // The name is everything after the 9th field, spaces kept. Plain files
+    // only ("-rw..." or, from some zip makers, "?rw..."): no folders, no
+    // links, no header or totals lines.
+    static const QRegularExpression entry(
+        R"re(^[-?]\S*\s+\S+\s+\S+\s+(\d+)\s+\S+\s+\d+\s+\S+\s+\S+\s+\S+ (.+)$)re");
     QString chosen;
     qint64 chosenSize = -1;
     bool chosenVideo = false;
-    for (const QString &line : QString::fromUtf8(list.readAllStandardOutput()).split('\n')) {
-        // "-rw----  5.1 fat 117784823 b- 117282542 defN 20-Apr-30 04:24 video.mp4"
-        QStringList f = line.simplified().split(' ');
-        // Entries only (not folders, not the header or totals): the 4th field
-        // is the size. The first is "-rw..." or, from some zip makers, "?rw...".
-        bool number = false;
-        if (f.size() < 10 || f[0].startsWith('d') || (f[3].toLongLong(&number), !number)) continue;
-        QString name = f.mid(9).join(' ');
+    for (QString line : QString::fromUtf8(list.readAllStandardOutput()).split('\n')) {
+        if (line.endsWith('\r')) line.chop(1);
+        QRegularExpressionMatch m = entry.match(line);
+        if (!m.hasMatch()) continue;
+        QString name = m.captured(2);
         QString ext = QFileInfo(name).suffix().toLower();
-        bool video = QStringList{"mp4", "webm", "mkv", "mov", "avi"}.contains(ext);
+        bool video = kXLiveVideos.contains(ext);
         if (!video && ext != "gif") continue;
-        qint64 size = f[3].toLongLong();
+        qint64 size = m.captured(1).toLongLong();
         if ((video && !chosenVideo) || (video == chosenVideo && size > chosenSize)) {
             chosen = name;
             chosenSize = size;
@@ -705,16 +729,16 @@ QString unpackLivelyZip(const QString &zip, const QString &destBase, QString &er
         error = "This wallpaper is not a video (perhaps a web page), which roofce cannot show";
         return QString();
     }
-    QString unpacked = destBase + ".unpack";
-    QDir(unpacked).removeRecursively();
-    QProcess unzip;
-    unzip.start("unzip", {"-o", "-j", "-qq", zip, chosen, "-d", unpacked});
-    bool ran = unzip.waitForFinished(120000) && unzip.exitCode() == 0;
-    QString from = unpacked + "/" + QFileInfo(chosen).fileName();
+    // Streamed straight into the file (unzip -p): no folders, no links.
     QString to = destBase + "." + QFileInfo(chosen).suffix().toLower();
+    QProcess unzip;
+    unzip.setStandardOutputFile(to + ".part");
+    unzip.start("unzip", {"-p", zip, unzipPattern(chosen)});
+    bool ok = unzip.waitForFinished(300000) && unzip.exitStatus() == QProcess::NormalExit && unzip.exitCode() == 0 &&
+              QFileInfo(to + ".part").size() > 0;
     QFile::remove(to);
-    bool ok = ran && QFile::rename(from, to);
-    QDir(unpacked).removeRecursively();
+    ok = ok && QFile::rename(to + ".part", to);
+    QFile::remove(to + ".part");
     if (!ok) {
         error = "Could not unpack the wallpaper";
         return QString();
@@ -723,14 +747,21 @@ QString unpackLivelyZip(const QString &zip, const QString &destBase, QString &er
 }
 
 void OnlineLibrary::unpackXLive(const QString &key, const QString &zip) {
-    QString error;
-    QString file = unpackLivelyZip(zip, paths::downloads() + "/" + key, error);
-    QFile::remove(zip);
-    if (file.isEmpty()) {
-        emit failed(error);
-        return;
-    }
-    emit downloaded(key, file);
+    // A video of 100+ MB takes a while: unpacked off the window's thread.
+    auto result = std::make_shared<std::pair<QString, QString>>(); // file, error
+    QString base = paths::downloads() + "/" + key;
+    QThread *thread = QThread::create([zip, base, result] { result->first = unpackLivelyZip(zip, base, result->second); });
+    connect(thread, &QThread::finished, this, [this, thread, key, zip, result] {
+        thread->deleteLater();
+        QFile::remove(zip);
+        downloading_.remove(key);
+        if (result->first.isEmpty()) {
+            emit failed(result->second);
+            return;
+        }
+        emit downloaded(key, result->first);
+    });
+    thread->start();
 }
 
 void OnlineLibrary::resolve(const OnlineWallpaper &w) {
@@ -806,11 +837,11 @@ void OnlineLibrary::fetchThumb(const OnlineWallpaper &w) {
 }
 
 QString OnlineLibrary::localFile(const OnlineWallpaper &w) {
-    // X Live: the video unpacked from its .zip (a GIF keeps its own name, see unpackXLive).
+    // X Live: the video (or GIF) unpacked from its .zip, named after the key.
     if (w.source == OnlineSource::XLive) {
-        for (const char *ext : {"gif", "webm", "mkv", "mov"}) {
-            QString other = paths::downloads() + "/" + w.key() + "." + ext;
-            if (QFile::exists(other)) return other;
+        for (const QString &ext : kXLiveVideos + QStringList{"gif"}) {
+            QString file = paths::downloads() + "/" + w.key() + "." + ext;
+            if (QFile::exists(file)) return file;
         }
         return paths::downloads() + "/" + w.key() + ".mp4";
     }
@@ -827,6 +858,8 @@ void OnlineLibrary::download(const OnlineWallpaper &w) {
         emit downloaded(w.key(), path);
         return;
     }
+    // Set twice before the first finished: one download is enough.
+    if (downloading_.contains(w.key())) return;
     // Videos can be hundreds of MB: write them out as they arrive instead
     // of holding them in memory. The temporary name means a broken
     // download never looks like a finished one.
@@ -838,6 +871,7 @@ void OnlineLibrary::download(const OnlineWallpaper &w) {
         emit failed("Could not save the wallpaper");
         return;
     }
+    downloading_.insert(w.key());
     QNetworkReply *reply = get(w.fullUrl);
     reply->setReadBufferSize(1 << 20);
     QString key = w.key();
@@ -850,6 +884,7 @@ void OnlineLibrary::download(const OnlineWallpaper &w) {
         out->close();
         if (reply->error() != QNetworkReply::NoError || out->size() == 0) {
             out->remove();
+            downloading_.remove(key);
             emit failed("Download failed: " + reply->errorString());
             return;
         }
@@ -861,6 +896,7 @@ void OnlineLibrary::download(const OnlineWallpaper &w) {
         }
         QFile::remove(path);
         QFile::rename(path + ".part", path);
+        downloading_.remove(key);
         emit downloaded(key, path);
     });
 }

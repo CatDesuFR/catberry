@@ -67,7 +67,10 @@ int main(int argc, char **argv) {
     error.clear();
     CHECK(unpackLivelyZip(tmp.path() + "/web.zip", tmp.path() + "/out-web", error).isEmpty());
     CHECK(error.contains("not a video"));
-    CHECK(!QDir(tmp.path() + "/out-video.unpack").exists());
+    QString odd = unpackLivelyZip(tmp.path() + "/odd.zip", tmp.path() + "/out-odd", error);
+    CHECK(odd == tmp.path() + "/out-odd.mp4");
+    CHECK(QFile(odd).size() == 2000 && !QFileInfo(odd).isSymLink()); // the file, not the link
+    CHECK(!QFile::exists(tmp.path() + "/out-odd.mp4.part"));
 
     std::printf("%d/%d checks passed\n", checks - failures, checks);
     return failures ? 1 : 0;

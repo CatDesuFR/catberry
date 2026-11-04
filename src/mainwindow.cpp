@@ -852,15 +852,23 @@ void MainWindow::applySelected() {
         if (row >= online_.size()) return;
         const OnlineWallpaper &w = online_[row];
         if (w.fullUrl.isEmpty()) {
-            // NASA: look up the file first, then set it.
+            // NASA and X Live: look up the file first, then set it. A failed
+            // look-up drops the wait too, so a later Set does not download twice.
             QString key = w.key();
             auto connection = std::make_shared<QMetaObject::Connection>();
-            *connection = connect(&onlineLib_, &OnlineLibrary::resolved, this, [this, key, connection] {
+            auto failure = std::make_shared<QMetaObject::Connection>();
+            *connection = connect(&onlineLib_, &OnlineLibrary::resolved, this, [this, key, connection, failure] {
                 for (const OnlineWallpaper &o : online_)
                     if (o.key() == key && !o.fullUrl.isEmpty()) {
                         disconnect(*connection);
+                        disconnect(*failure);
                         onlineLib_.download(o);
+                        return;
                     }
+            });
+            *failure = connect(&onlineLib_, &OnlineLibrary::failed, this, [connection, failure] {
+                disconnect(*connection);
+                disconnect(*failure);
             });
             onlineLib_.resolve(w);
         } else {
