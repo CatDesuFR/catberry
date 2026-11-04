@@ -1,6 +1,7 @@
 // The free online library, from sources that need no account: Wallhaven
 // (pictures), MotionBgs (live wallpapers), Wikimedia Commons (videos and
-// pictures) and NASA's image and video library (videos and pictures). Only previews and
+// pictures), NASA's image and video library (videos and pictures) and
+// X Live Wallpaper's library (live wallpapers, as Lively .zip packages). Only previews and
 // the wallpapers the user picks are downloaded; nothing is stored up front.
 #pragma once
 
@@ -11,7 +12,7 @@
 #include <QSet>
 #include <QString>
 
-enum class OnlineSource { Wallhaven, MotionBgs, Commons, Nasa };
+enum class OnlineSource { Wallhaven, MotionBgs, Commons, Nasa, XLive };
 enum class OnlineFilter { All, Live, Pictures };
 enum class Genre { Any, Scenery, Space, Anime, Games, Cars, Animals, City, Fantasy, Abstract };
 const int kGenreCount = 10;
@@ -33,7 +34,7 @@ struct OnlineWallpaper {
     QString thumbUrl;   // still image for the tile, uncropped
     QString previewUrl; // what plays when hovering: a small video, or a picture
     QString fullUrl;    // what is downloaded when set as the wallpaper
-    QString assetsUrl;  // NASA only: where previewUrl/fullUrl are looked up
+    QString assetsUrl;  // NASA, X Live: where previewUrl/fullUrl are looked up
     QString resolution;
     qint64 fileSize = 0; // 0 when the source does not say
     QStringList tags;    // what the source says is in it (Commons categories)
@@ -42,6 +43,16 @@ struct OnlineWallpaper {
     // Unique across sources; used for file names.
     QString key() const;
 };
+
+// X Live Wallpaper (coolleget.com/livelywallpapers): the wallpapers on list
+// page `page`, and whether there is a next page.
+QList<OnlineWallpaper> parseXLivePage(const QString &html, int page, bool &more);
+// The .zip download link on one wallpaper's own page, or "".
+QString parseXLiveZip(const QString &html);
+// Unpacks a Lively package (.zip): its biggest video, or else a GIF, becomes
+// `destBase` + "." + its extension. The file made, or "" with `error` set
+// (a web page wallpaper, say).
+QString unpackLivelyZip(const QString &zip, const QString &destBase, QString &error);
 
 struct SearchOptions {
     QString query;
@@ -92,6 +103,9 @@ private:
     void searchMotionBgs(int generation);
     void searchCommons(int generation);
     void searchNasa(int generation);
+    void searchXLive(int generation);
+    // X Live: the .zip is downloaded, then its video (or GIF) unpacked.
+    void unpackXLive(const QString &key, const QString &zip);
     void sourceDone(int generation, OnlineSource source, bool more);
     void deliver(int generation, QList<OnlineWallpaper> items);
     // MotionBgs' "girl" tag, fetched once a week, for the strict filter.

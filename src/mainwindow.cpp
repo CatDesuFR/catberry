@@ -419,7 +419,8 @@ QWidget *MainWindow::buildLibraryPage() {
     sourcesButton_ = new QToolButton;
     sourcesButton_->setPopupMode(QToolButton::InstantPopup);
     auto *sourcesMenu = new QMenu(sourcesButton_);
-    for (OnlineSource source : {OnlineSource::MotionBgs, OnlineSource::Wallhaven, OnlineSource::Commons, OnlineSource::Nasa}) {
+    for (OnlineSource source : {OnlineSource::MotionBgs, OnlineSource::Wallhaven, OnlineSource::Commons, OnlineSource::Nasa,
+                                OnlineSource::XLive}) {
         QAction *action = sourcesMenu->addAction(source == OnlineSource::Commons ? "Wikimedia Commons"
                                                                                 : OnlineLibrary::sourceName(source));
         action->setCheckable(true);
@@ -718,7 +719,8 @@ void MainWindow::hoverItem(QListWidgetItem *item) {
         // The whole picture, from its (uncropped) preview, straight away.
         QString thumb = paths::thumbs() + "/" + w.key() + ".jpg";
         if (QFile::exists(thumb)) playHover(thumb, false, true);
-        if (!w.video) return;
+        // X Live has no small preview video: only its picture until it is set.
+        if (!w.video || w.source == OnlineSource::XLive) return;
         if (!w.previewUrl.isEmpty()) {
             playHover(w.previewUrl, true, false);
         } else {

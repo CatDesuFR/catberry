@@ -18,4 +18,10 @@ uninstall:
 clean:
 	rm -rf $(BUILD) catberry-roofce dist
 
-.PHONY: install uninstall clean
+# Unit tests of the online sources' page readers.
+test:
+	cmake -S . -B $(BUILD) -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$(PREFIX) >/dev/null
+	cmake --build $(BUILD) --target roofce-tests -j$$(nproc)
+	$(BUILD)/roofce-tests
+
+.PHONY: install uninstall clean test

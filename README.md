@@ -1,7 +1,7 @@
 # catberry roofce — Roof Carton Engine
 
 A wallpaper manager for **Linux on Wayland** (KDE Plasma on Fedora, CachyOS,
-Garuda; also Hyprland and Sway), version **1.2.2**. Your wallpaper is drawn
+Garuda; also Hyprland and Sway), version **1.2.3**. Your wallpaper is drawn
 by roofce itself, as part of the desktop, not in a window: live videos,
 GIFs and pictures, with a Mond-style clock and a music player on top.
 
@@ -79,8 +79,10 @@ The current wallpaper with a live preview, how it fits the screen
 - **Wallpaper Engine**: if you own Wallpaper Engine on Steam, the Workshop
   wallpapers you subscribe to appear here, played straight from Steam's
   folder (no copy). Video wallpapers work; scene and web ones do not yet.
-- **Online (free)**: MotionBgs (live wallpapers), Wallhaven, Wikimedia
-  Commons and NASA, no account needed. Search (it also searches the sites'
+- **Online (free)**: MotionBgs and X Live Wallpaper (live wallpapers),
+  Wallhaven, Wikimedia Commons and NASA, no account needed. X Live Wallpaper
+  shows only its picture on hover; setting one downloads its package and
+  plays the video inside (web-page ones cannot be shown). Search (it also searches the sites'
   tags, so "eyes" finds wallpapers showing eyes), filter by live or pictures,
   genre, resolution (1080p, 2K, 4K, 8K) and source, and sort by resolution
   or size. Hover a tile to play it; nothing is saved until you set it.

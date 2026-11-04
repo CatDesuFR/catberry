@@ -3,6 +3,7 @@
 #include "paths.h"
 
 #include <QDateTime>
+#include <QDir>
 #include <QFile>
 #include <QSharedPointer>
 #include <QFileInfo>
@@ -11,6 +12,7 @@
 #include <QJsonObject>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QProcess>
 #include <QRegularExpression>
 #include <QUrlQuery>
 
@@ -101,7 +103,9 @@ Resolution resolutionClass(const QString &resolution) {
     return parts.size() == 2 ? resolutionClass(parts[0].toInt(), parts[1].toInt()) : Resolution::Any;
 }
 
-QString OnlineWallpaper::key() const { return OnlineLibrary::sourceName(source).toLower() + "-" + id; }
+QString OnlineWallpaper::key() const {
+    return OnlineLibrary::sourceName(source).toLower().remove(' ') + "-" + id;
+}
 
 OnlineLibrary::OnlineLibrary(QObject *parent) : QObject(parent) {}
 
@@ -111,6 +115,7 @@ QString OnlineLibrary::sourceName(OnlineSource source) {
     case OnlineSource::MotionBgs: return "MotionBgs";
     case OnlineSource::Commons: return "Wikimedia";
     case OnlineSource::Nasa: return "NASA";
+    case OnlineSource::XLive: return "X Live Wallpaper";
     }
     return QString();
 }
@@ -179,8 +184,11 @@ void OnlineLibrary::search(const SearchOptions &options, bool more) {
         if (source == OnlineSource::MotionBgs && options_.filter == OnlineFilter::Pictures) continue;
         if (source == OnlineSource::Commons && !kGenres[int(options_.genre)].commons) continue;
         if (source == OnlineSource::Nasa && !kGenres[int(options_.genre)].nasa) continue;
-        // NASA does not say how big its files are; MotionBgs only has 1080p and 4K.
-        if (source == OnlineSource::Nasa && options_.resolution != Resolution::Any) continue;
+        // NASA and X Live do not say how big their files are; MotionBgs only has 1080p and 4K.
+        if ((source == OnlineSource::Nasa || source == OnlineSource::XLive) && options_.resolution != Resolution::Any)
+            continue;
+        // X Live has only live wallpapers.
+        if (source == OnlineSource::XLive && options_.filter == OnlineFilter::Pictures) continue;
         if (source == OnlineSource::MotionBgs &&
             (options_.resolution == Resolution::K2 || options_.resolution == Resolution::K8))
             continue;
@@ -190,6 +198,7 @@ void OnlineLibrary::search(const SearchOptions &options, bool more) {
         case OnlineSource::MotionBgs: searchMotionBgs(generation); break;
         case OnlineSource::Commons: searchCommons(generation); break;
         case OnlineSource::Nasa: searchNasa(generation); break;
+        case OnlineSource::XLive: searchXLive(generation); break;
         }
     }
     if (pending_ == 0) emit searchFinished(false);
@@ -587,12 +596,168 @@ void OnlineLibrary::searchNasa(int generation) {
     });
 }
 
+// --- X Live Wallpaper: Lively packages -----------------------------------------
+
+namespace {
+const char *const kXLiveSite = "https://coolleget.com";
+} // namespace
+
+QList<OnlineWallpaper> parseXLivePage(const QString &html, int page, bool &more) {
+    QList<OnlineWallpaper> items;
+    // One entry: the title link (to its page; the name is in its title,
+    // which itself holds <b> tags), a short description, the picture.
+    static const QRegularExpression entry(
+        R"re(<h2[^>]*>\s*<a href="(/livelywallpapers/([^"/]+)\.html)" title="([^"]*)">.*?</a>\s*</h2>\s*<p>(.*?)</p>.*?data-original="([^"]+)")re",
+        QRegularExpression::DotMatchesEverythingOption);
+    static const QRegularExpression tags("<[^>]+>");
+    for (auto it = entry.globalMatch(html); it.hasNext();) {
+        QRegularExpressionMatch m = it.next();
+        OnlineWallpaper w;
+        w.source = OnlineSource::XLive;
+        w.id = m.captured(2);
+        w.title = QString(m.captured(3)).remove(tags).remove(" - Wallpaper").trimmed();
+        w.video = true; // videos and GIFs: live wallpapers
+        QString picture = m.captured(5);
+        // The list shows a small copy ("-lp"); the page's own picture is bigger.
+        picture.replace(QRegularExpression("-lp(\\.[a-zA-Z]+)$"), "\\1");
+        w.thumbUrl = kXLiveSite + picture;
+        w.assetsUrl = kXLiveSite + m.captured(1);
+        w.tags = QString(m.captured(4)).remove(tags).toLower().split(QRegularExpression("[^a-z0-9]+"), Qt::SkipEmptyParts);
+        items << w;
+    }
+    more = html.contains(QString("list_6_%1.html").arg(page + 1));
+    return items;
+}
+
+QString parseXLiveZip(const QString &html) {
+    static const QRegularExpression zip(R"re(href="(https?://[^"]+\.zip)")re", QRegularExpression::CaseInsensitiveOption);
+    QRegularExpressionMatch m = zip.match(html);
+    return m.hasMatch() ? m.captured(1) : QString();
+}
+
+void OnlineLibrary::searchXLive(int generation) {
+    int page = page_.value(OnlineSource::XLive, 1);
+    QString url = QString(kXLiveSite) + "/livelywallpapers/" + (page > 1 ? QString("list_6_%1.html").arg(page) : "");
+    QNetworkReply *reply = get(url);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, generation, page] {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            sourceDone(generation, OnlineSource::XLive, false);
+            return;
+        }
+        bool more = false;
+        QList<OnlineWallpaper> items = parseXLivePage(QString::fromUtf8(reply->readAll()), page, more);
+        // About 30 wallpapers and no search of its own: words and genres
+        // are matched against the names and descriptions here.
+        QStringList words = (options_.query + " " + kGenres[int(options_.genre)].words)
+                                .toLower()
+                                .split(QRegularExpression("[^a-z0-9]+"), Qt::SkipEmptyParts);
+        if (!words.isEmpty()) {
+            QList<OnlineWallpaper> kept;
+            for (const OnlineWallpaper &w : items) {
+                QString text = w.title.toLower() + " " + w.tags.join(' ');
+                bool all = true;
+                for (const QString &word : words) {
+                    bool any = false;
+                    for (const QString &v : variants(word)) any = any || text.contains(v);
+                    all = all && any;
+                }
+                if (all) kept << w;
+            }
+            items = kept;
+        }
+        page_[OnlineSource::XLive] = page + 1;
+        deliver(generation, items);
+        sourceDone(generation, OnlineSource::XLive, more);
+    });
+}
+
+QString unpackLivelyZip(const QString &zip, const QString &destBase, QString &error) {
+    // The package holds a picture, LivelyInfo.json and the wallpaper itself.
+    QProcess list;
+    list.start("unzip", {"-Z", "-l", zip});
+    if (!list.waitForFinished(20000) || list.exitCode() != 0) {
+        error = "Could not open the wallpaper's package (is unzip installed?)";
+        return QString();
+    }
+    QString chosen;
+    qint64 chosenSize = -1;
+    bool chosenVideo = false;
+    for (const QString &line : QString::fromUtf8(list.readAllStandardOutput()).split('\n')) {
+        // "-rw----  5.1 fat 117784823 b- 117282542 defN 20-Apr-30 04:24 video.mp4"
+        QStringList f = line.simplified().split(' ');
+        // Entries only (not folders, not the header or totals): the 4th field
+        // is the size. The first is "-rw..." or, from some zip makers, "?rw...".
+        bool number = false;
+        if (f.size() < 10 || f[0].startsWith('d') || (f[3].toLongLong(&number), !number)) continue;
+        QString name = f.mid(9).join(' ');
+        QString ext = QFileInfo(name).suffix().toLower();
+        bool video = QStringList{"mp4", "webm", "mkv", "mov", "avi"}.contains(ext);
+        if (!video && ext != "gif") continue;
+        qint64 size = f[3].toLongLong();
+        if ((video && !chosenVideo) || (video == chosenVideo && size > chosenSize)) {
+            chosen = name;
+            chosenSize = size;
+            chosenVideo = video;
+        }
+    }
+    if (chosen.isEmpty()) {
+        error = "This wallpaper is not a video (perhaps a web page), which roofce cannot show";
+        return QString();
+    }
+    QString unpacked = destBase + ".unpack";
+    QDir(unpacked).removeRecursively();
+    QProcess unzip;
+    unzip.start("unzip", {"-o", "-j", "-qq", zip, chosen, "-d", unpacked});
+    bool ran = unzip.waitForFinished(120000) && unzip.exitCode() == 0;
+    QString from = unpacked + "/" + QFileInfo(chosen).fileName();
+    QString to = destBase + "." + QFileInfo(chosen).suffix().toLower();
+    QFile::remove(to);
+    bool ok = ran && QFile::rename(from, to);
+    QDir(unpacked).removeRecursively();
+    if (!ok) {
+        error = "Could not unpack the wallpaper";
+        return QString();
+    }
+    return to;
+}
+
+void OnlineLibrary::unpackXLive(const QString &key, const QString &zip) {
+    QString error;
+    QString file = unpackLivelyZip(zip, paths::downloads() + "/" + key, error);
+    QFile::remove(zip);
+    if (file.isEmpty()) {
+        emit failed(error);
+        return;
+    }
+    emit downloaded(key, file);
+}
+
 void OnlineLibrary::resolve(const OnlineWallpaper &w) {
     if (!w.previewUrl.isEmpty() && !w.fullUrl.isEmpty()) {
         emit resolved(w.key(), w.previewUrl, w.fullUrl);
         return;
     }
     if (w.assetsUrl.isEmpty()) return;
+    if (w.source == OnlineSource::XLive) {
+        // Its own page has the .zip link; the picture stands in for a preview.
+        QNetworkReply *reply = get(w.assetsUrl);
+        QString key = w.key(), thumb = w.thumbUrl;
+        connect(reply, &QNetworkReply::finished, this, [this, reply, key, thumb] {
+            reply->deleteLater();
+            if (reply->error() != QNetworkReply::NoError) {
+                emit failed("Could not open the wallpaper's page: " + reply->errorString());
+                return;
+            }
+            QString zip = parseXLiveZip(QString::fromUtf8(reply->readAll()));
+            if (zip.isEmpty()) {
+                emit failed("This X Live Wallpaper page has no download");
+                return;
+            }
+            emit resolved(key, thumb, zip);
+        });
+        return;
+    }
     QNetworkReply *reply = get(w.assetsUrl);
     QString key = w.key();
     bool video = w.video;
@@ -641,6 +806,14 @@ void OnlineLibrary::fetchThumb(const OnlineWallpaper &w) {
 }
 
 QString OnlineLibrary::localFile(const OnlineWallpaper &w) {
+    // X Live: the video unpacked from its .zip (a GIF keeps its own name, see unpackXLive).
+    if (w.source == OnlineSource::XLive) {
+        for (const char *ext : {"gif", "webm", "mkv", "mov"}) {
+            QString other = paths::downloads() + "/" + w.key() + "." + ext;
+            if (QFile::exists(other)) return other;
+        }
+        return paths::downloads() + "/" + w.key() + ".mp4";
+    }
     QString suffix = QFileInfo(QUrl(w.fullUrl).path()).suffix();
     if (suffix.isEmpty()) suffix = w.video ? "mp4" : "jpg";
     // The size is part of the name: the 1080p and 4K copies of one
@@ -657,7 +830,10 @@ void OnlineLibrary::download(const OnlineWallpaper &w) {
     // Videos can be hundreds of MB: write them out as they arrive instead
     // of holding them in memory. The temporary name means a broken
     // download never looks like a finished one.
-    auto out = QSharedPointer<QFile>::create(path + ".part");
+    // X Live: the package (.zip) first, its video unpacked after.
+    bool xlive = w.source == OnlineSource::XLive;
+    QString zip = paths::downloads() + "/" + w.key() + ".zip";
+    auto out = QSharedPointer<QFile>::create((xlive ? zip : path) + ".part");
     if (!out->open(QIODevice::WriteOnly)) {
         emit failed("Could not save the wallpaper");
         return;
@@ -668,13 +844,19 @@ void OnlineLibrary::download(const OnlineWallpaper &w) {
     connect(reply, &QNetworkReply::readyRead, this, [reply, out] { out->write(reply->readAll()); });
     connect(reply, &QNetworkReply::downloadProgress, this,
             [this, key](qint64 received, qint64 total) { emit downloadProgress(key, received, total); });
-    connect(reply, &QNetworkReply::finished, this, [this, reply, key, path, out] {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, key, path, out, xlive, zip] {
         reply->deleteLater();
         out->write(reply->readAll());
         out->close();
         if (reply->error() != QNetworkReply::NoError || out->size() == 0) {
             out->remove();
             emit failed("Download failed: " + reply->errorString());
+            return;
+        }
+        if (xlive) {
+            QFile::remove(zip);
+            QFile::rename(zip + ".part", zip);
+            unpackXLive(key, zip);
             return;
         }
         QFile::remove(path);
