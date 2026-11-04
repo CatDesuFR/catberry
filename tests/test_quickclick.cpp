@@ -133,6 +133,22 @@ void testQuickClick() {
         CHECK(out.moves == 0 && out.presses == 0);
     }
 
+    // Game timing: frames at the game's frame rate, rounded up.
+    CHECK(gameGapUs(144, 2) == 13889);
+    CHECK(gameGapUs(60, 2) == 33334);
+    CHECK(gameGapUs(240, 1) == 4167);
+    QuickSet game = run;
+    game.gameFps = 144;
+    game.gameFrames = 3;
+    game.gapUs = gameGapUs(144, 3);
+    CHECK(writeQuickSet("qgame", game));
+    QuickSet gameBack;
+    CHECK(readQuickSet("qgame", gameBack, error));
+    CHECK(gameBack.gameFps == 144 && gameBack.gameFrames == 3 && gameBack.gapUs == gameGapUs(144, 3));
+    // Sets saved before game timing existed read as "off".
+    CHECK(readQuickSet("qa", gameBack, error) && gameBack.gameFps == 0);
+    CHECK(deleteQuickSet("qgame"));
+
     CHECK(quickPidName("x") == "quick.x");
     ClickType t;
     CHECK(parseClickType("double", t) && t == ClickType::Double && std::string(clickTypeName(t)) == "double");

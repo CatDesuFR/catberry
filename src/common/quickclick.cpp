@@ -49,6 +49,7 @@ bool writeQuickSet(const std::string &name, const QuickSet &set) {
     out << "desktop=" << set.desktopW << "x" << set.desktopH << "\n"
         << "hotkey=" << (set.hotkey >= 0 ? keyName(set.hotkey) : std::string()) << "\n"
         << "gap_us=" << std::clamp(set.gapUs, kMinGapUs, kMaxGapUs) << "\n";
+    if (set.gameFps > 0) out << "game_fps=" << set.gameFps << "\n" << "game_frames=" << set.gameFrames << "\n";
     for (const QuickPoint &p : set.points) out << "point=" << p.x << "," << p.y << "," << clickTypeName(p.type) << "\n";
     return static_cast<bool>(out.flush());
 }
@@ -76,6 +77,10 @@ bool readQuickSet(const std::string &name, QuickSet &set, std::string &error) {
             loaded.hotkey = value.empty() ? -1 : parseKey(value);
         } else if (key == "gap_us") {
             loaded.gapUs = std::clamp(std::atoi(value.c_str()), kMinGapUs, kMaxGapUs);
+        } else if (key == "game_fps") {
+            loaded.gameFps = std::clamp(std::atoi(value.c_str()), 0, 1000);
+        } else if (key == "game_frames") {
+            loaded.gameFrames = std::clamp(std::atoi(value.c_str()), 1, 10);
         } else if (key == "point") {
             QuickPoint p{};
             char type[16] = "";
@@ -113,6 +118,12 @@ bool deleteQuickSet(const std::string &name) {
 }
 
 std::string quickPidName(const std::string &name) { return "quick." + name; }
+
+int gameGapUs(int fps, int frames) {
+    if (fps <= 0) return kMinGapUs;
+    long long us = (1000000LL * frames + fps - 1) / fps;
+    return int(std::clamp<long long>(us, kMinGapUs, kMaxGapUs));
+}
 
 QuickPoint scaledPoint(const QuickPoint &p, int fromW, int fromH, int toW, int toH) {
     if (fromW <= 0 || fromH <= 0 || (fromW == toW && fromH == toH)) return p;

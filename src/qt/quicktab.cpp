@@ -92,7 +92,9 @@ void QuickTab::reload() {
         put(Name, QString::fromStdString(name));
         put(Points, ok ? QString::number(set.points.size()) : "(cannot read)");
         put(Hotkey, ok && set.hotkey >= 0 ? QString::fromStdString(keyName(set.hotkey)) : "");
-        put(Gap, ok ? QString("%1 ms").arg(set.gapUs / 1000.0, 0, 'f', 1) : "");
+        QString gap = QString("%1 ms").arg(set.gapUs / 1000.0, 0, 'f', 1);
+        if (set.gameFps > 0) gap += QString(" (game, %1 FPS)").arg(set.gameFps);
+        put(Gap, ok ? gap : "");
         put(Status, "");
         if (QString::fromStdString(name) == keep) table_->selectRow(r);
     }

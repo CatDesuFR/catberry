@@ -5,7 +5,9 @@
 #include "keybutton.h"
 #include "numberedit.h"
 
+#include <QCheckBox>
 #include <QComboBox>
+#include <QIntValidator>
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QHBoxLayout>
@@ -50,6 +52,35 @@ QuickDialog::QuickDialog(const QString &fixedName, const QString &typedName, con
     gapHelp->setWordWrap(true);
     layout->addWidget(gapHelp);
 
+    // Games read clicks and redraw menus once a frame: clicks faster than
+    // that land on a menu that has not changed yet.
+    game_ = new QCheckBox("For a game: wait for the game between points", this);
+    auto *gameRow = new QHBoxLayout;
+    fps_ = new QComboBox(this);
+    fps_->setEditable(true);
+    fps_->setValidator(new QIntValidator(1, 1000, fps_));
+    for (const char *f : {"60", "120", "144", "165", "240"}) fps_->addItem(f);
+    frames_ = new QComboBox(this);
+    for (const char *f : {"1", "2", "3"}) frames_->addItem(f);
+    gameRow->addWidget(new QLabel("Game frame rate (FPS)", this));
+    gameRow->addWidget(fps_);
+    gameRow->addSpacing(12);
+    gameRow->addWidget(new QLabel("Frames to wait", this));
+    gameRow->addWidget(frames_);
+    gameRow->addStretch();
+    gameInfo_ = new QLabel(this);
+    gameInfo_->setObjectName("dim");
+    gameInfo_->setWordWrap(true);
+    layout->addWidget(game_);
+    layout->addLayout(gameRow);
+    layout->addWidget(gameInfo_);
+    game_->setChecked(set.gameFps > 0);
+    fps_->setCurrentText(QString::number(set.gameFps > 0 ? set.gameFps : 60));
+    frames_->setCurrentText(QString::number(std::clamp(set.gameFrames, 1, 3)));
+    connect(game_, &QCheckBox::toggled, this, [this] { updateGame(); });
+    connect(fps_, &QComboBox::currentTextChanged, this, [this] { updateGame(); });
+    connect(frames_, &QComboBox::currentTextChanged, this, [this] { updateGame(); });
+
     layout->addWidget(new QLabel("Points, clicked in this order", this));
     points_ = new QTableWidget(0, 4, this);
     points_->setHorizontalHeaderLabels({"#", "X", "Y", "Click"});
@@ -92,8 +123,9 @@ QuickDialog::QuickDialog(const QString &fixedName, const QString &typedName, con
     connect(points_, &QTableWidget::itemSelectionChanged, this, [this] { check(); });
     if (input) connect(input, &GlobalInput::input, this, [this](InputEvent ev) { hotkey_->offerGlobal(ev); });
     fillTable();
+    updateGame();
     check();
-    resize(480, 560);
+    resize(520, 640);
 }
 
 QString QuickDialog::name() const { return name_->text(); }
@@ -101,8 +133,36 @@ QString QuickDialog::name() const { return name_->text(); }
 QuickSet QuickDialog::set() const {
     QuickSet s = set_;
     s.hotkey = hotkey_->code();
-    s.gapUs = std::clamp(int(std::lround(gap_->value() * 1000)), kMinGapUs, kMaxGapUs);
+    if (game_->isChecked() && fps() > 0) {
+        s.gameFps = fps();
+        s.gameFrames = frames_->currentText().toInt();
+        s.gapUs = gameGapUs(s.gameFps, s.gameFrames);
+    } else {
+        s.gameFps = 0;
+        s.gapUs = std::clamp(int(std::lround(gap_->value() * 1000)), kMinGapUs, kMaxGapUs);
+    }
     return s;
+}
+
+int QuickDialog::fps() const { return std::clamp(fps_->currentText().toInt(), 0, 1000); }
+
+void QuickDialog::updateGame() {
+    bool on = game_->isChecked();
+    fps_->setEnabled(on);
+    frames_->setEnabled(on);
+    gap_->setEnabled(!on);
+    if (on && fps() > 0) {
+        int us = gameGapUs(fps(), frames_->currentText().toInt());
+        gap_->setValue(us / 1000.0);
+        gameInfo_->setText(QString("%1 ms between points (%2 frame%3 at %4 FPS). Use the game's FPS, not the "
+                                   "monitor's refresh rate. 2 frames: one to take the click, one to redraw the menu.")
+                               .arg(us / 1000.0, 0, 'f', 1)
+                               .arg(frames_->currentText())
+                               .arg(frames_->currentText() == "1" ? "" : "s")
+                               .arg(fps()));
+    } else {
+        gameInfo_->setText(on ? "Type the game's frame rate." : "");
+    }
 }
 
 void QuickDialog::fillTable() {

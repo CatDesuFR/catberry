@@ -6,6 +6,8 @@
 #include <QDialog>
 
 class GlobalInput;
+class QCheckBox;
+class QComboBox;
 class KeyButton;
 class NumberEdit;
 class QLabel;
@@ -32,11 +34,16 @@ private:
     void move(int delta);
     void removePoint();
     void check();
+    void updateGame();
+    int fps() const;
 
     QuickSet set_;
     QLineEdit *name_;
     KeyButton *hotkey_;
     NumberEdit *gap_;
+    QCheckBox *game_;
+    QComboBox *fps_, *frames_;
+    QLabel *gameInfo_;
     QTableWidget *points_;
     QPushButton *up_, *down_, *remove_, *pick_, *ok_;
     QLabel *problem_;

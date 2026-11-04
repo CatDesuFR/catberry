@@ -118,6 +118,13 @@ catberry -quickload Farm          # start it in the background
 catberry -quickunload Farm        # stop it (no name: stop all)
 ```
 
+**For games**: a game reads clicks and redraws its menus once a frame, so
+clicks that come faster land on a menu that has not changed yet (for example
+a loadout where each click opens the next category). Tick **For a game: wait
+for the game between points** and choose the game's frame rate (its FPS, not
+the monitor's refresh rate): with 2 frames at 144 FPS the points are 13.9 ms
+apart, four points in about 42 ms.
+
 On KDE the "Shake cursor" effect (which enlarges the pointer when it moves
 fast) is switched off during a run and back on right after. A quick click
 needs the same `input` group as the hotkeys.

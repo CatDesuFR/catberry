@@ -24,7 +24,14 @@ struct QuickSet {
     int desktopW = 0, desktopH = 0; // the desktop size the points were picked on
     int hotkey = -1;
     int gapUs = kMinGapUs;
+    // Game timing: when gameFps > 0 the gap is gameFrames frames at that
+    // frame rate (the game reads clicks and redraws its menus once a frame).
+    int gameFps = 0;
+    int gameFrames = 2;
 };
+
+// The gap for `frames` frames at `fps`, rounded up (never shorter).
+int gameGapUs(int fps, int frames);
 
 const char *clickTypeName(ClickType type); // "left", "right", "middle", "double"
 bool parseClickType(const std::string &text, ClickType &type);
