@@ -1,7 +1,7 @@
 # catberry mtools
 
 The catberry **macro recorder**, **background hotkey macros** and **quick click** (version
-2.1.1), for Linux and Windows 10/11.
+2.1.2), for Linux and Windows 10/11.
 
 This branch holds only mtools. The `catberry` command it runs under lives on
 the [`main` branch](https://github.com/CatDesuFR/catberry), and the
@@ -125,6 +125,11 @@ for the game between points** and choose the game's frame rate (its FPS, not
 the monitor's refresh rate): with 2 frames at 144 FPS the points are 13.9 ms
 apart, four points in about 42 ms.
 
+Not sure which gap a game menu needs? **Find the fastest gap...** in the
+quick click's Edit dialog tries the points at 5, 10, 15 ... 100 ms: open the
+menu, press the hotkey, and press **Enter** when every point came out right
+(or open the menu again and press the hotkey for the next, slower try).
+
 On KDE the "Shake cursor" effect (which enlarges the pointer when it moves
 fast) is switched off during a run and back on right after. A quick click
 needs the same `input` group as the hotkeys.
@@ -142,7 +147,7 @@ to hide itself. Use it at your own risk.
 | Linux program | `make` | `catberry-mtools` |
 | Install on Linux | `make install` | `~/.local/bin/catberry-mtools` |
 | Windows package | `make windows` | `dist/catberry-mtools-windows.zip` |
-| Arch package | `cd packaging/arch && makepkg` | `catberry-mtools-2.1.1-1-x86_64.pkg.tar.zst` |
+| Arch package | `cd packaging/arch && makepkg` | `catberry-mtools-2.1.2-1-x86_64.pkg.tar.zst` |
 | Unit tests | `make test` | |
 
 On Linux, `make` builds with CMake and Qt 6 (`src/qt` is the window). On

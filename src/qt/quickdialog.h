@@ -35,9 +35,12 @@ private:
     void removePoint();
     void check();
     void updateGame();
+    void findGap();
     int fps() const;
 
     QuickSet set_;
+    GlobalInput *input_;
+    QString fixedName_;
     QLineEdit *name_;
     KeyButton *hotkey_;
     NumberEdit *gap_;
@@ -45,6 +48,6 @@ private:
     QComboBox *fps_, *frames_;
     QLabel *gameInfo_;
     QTableWidget *points_;
-    QPushButton *up_, *down_, *remove_, *pick_, *ok_;
+    QPushButton *up_, *down_, *remove_, *pick_, *ok_, *findGap_;
     QLabel *problem_;
 };

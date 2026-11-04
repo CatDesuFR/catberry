@@ -1,12 +1,18 @@
 #include "quickdialog.h"
 
+#include "../common/daemon.h"
 #include "../common/macro.h"
+#include "gapfinder.h"
 #include "globalinput.h"
 #include "keybutton.h"
 #include "numberedit.h"
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QCoreApplication>
+#include <QFileInfo>
+#include <QMessageBox>
+#include <QProcess>
 #include <QIntValidator>
 #include <QDialogButtonBox>
 #include <QFormLayout>
@@ -29,7 +35,7 @@ const char *const kTypeLabels[] = {"Left", "Right", "Middle", "Double"};
 
 QuickDialog::QuickDialog(const QString &fixedName, const QString &typedName, const QuickSet &set, GlobalInput *input,
                          QWidget *parent)
-    : QDialog(parent), set_(set) {
+    : QDialog(parent), set_(set), input_(input), fixedName_(fixedName) {
     const QString &name = fixedName;
     setWindowTitle(name.isEmpty() ? "New quick click" : "Edit '" + name + "'");
     auto *layout = new QVBoxLayout(this);
@@ -61,7 +67,7 @@ QuickDialog::QuickDialog(const QString &fixedName, const QString &typedName, con
     fps_->setValidator(new QIntValidator(1, 1000, fps_));
     for (const char *f : {"60", "120", "144", "165", "240"}) fps_->addItem(f);
     frames_ = new QComboBox(this);
-    for (const char *f : {"1", "2", "3"}) frames_->addItem(f);
+    for (int f = 1; f <= 10; ++f) frames_->addItem(QString::number(f));
     gameRow->addWidget(new QLabel("Game frame rate (FPS)", this));
     gameRow->addWidget(fps_);
     gameRow->addSpacing(12);
@@ -74,9 +80,16 @@ QuickDialog::QuickDialog(const QString &fixedName, const QString &typedName, con
     layout->addWidget(game_);
     layout->addLayout(gameRow);
     layout->addWidget(gameInfo_);
+    findGap_ = new QPushButton("Find the fastest gap...", this);
+    findGap_->setToolTip("Try the points in the real app at gaps from 5 to 100 ms, and keep the fastest that works");
+    auto *findRow = new QHBoxLayout;
+    findRow->addWidget(findGap_);
+    findRow->addStretch();
+    layout->addLayout(findRow);
+    connect(findGap_, &QPushButton::clicked, this, [this] { findGap(); });
     game_->setChecked(set.gameFps > 0);
     fps_->setCurrentText(QString::number(set.gameFps > 0 ? set.gameFps : 60));
-    frames_->setCurrentText(QString::number(std::clamp(set.gameFrames, 1, 3)));
+    frames_->setCurrentText(QString::number(std::clamp(set.gameFrames, 1, 10)));
     connect(game_, &QCheckBox::toggled, this, [this] { updateGame(); });
     connect(fps_, &QComboBox::currentTextChanged, this, [this] { updateGame(); });
     connect(frames_, &QComboBox::currentTextChanged, this, [this] { updateGame(); });
@@ -142,6 +155,38 @@ QuickSet QuickDialog::set() const {
         s.gapUs = std::clamp(int(std::lround(gap_->value() * 1000)), kMinGapUs, kMaxGapUs);
     }
     return s;
+}
+
+void QuickDialog::findGap() {
+    if (!input_ || !input_->available()) {
+        QMessageBox::warning(this, "Find the fastest gap",
+                             "This needs the keyboard to be readable (the input group, see the box at the top).");
+        return;
+    }
+    QuickSet current = set();
+    // A loaded copy of this set would click too: paused meanwhile.
+    std::string pidName = quickPidName(fixedName_.toStdString());
+    bool wasLoaded = !fixedName_.isEmpty() && loadedPid(pidName) != 0;
+    if (wasLoaded) {
+        stopProcess(loadedPid(pidName), pidName);
+        forgetLoaded(pidName);
+    }
+    hide();
+    if (parentWidget()) parentWidget()->window()->showMinimized();
+    int gap = findFastestGap(current, input_, this);
+    if (parentWidget()) parentWidget()->window()->showNormal();
+    show();
+    activateWindow();
+    if (wasLoaded) {
+        QString self = QCoreApplication::applicationFilePath();
+        QProcess::startDetached(QFileInfo::exists(self) ? self : QString("catberry-mtools"), {"-quickload", fixedName_});
+    }
+    if (gap > 0) {
+        game_->setChecked(false);
+        gap_->setValue(gap / 1000.0);
+        updateGame();
+        problem_->setText(QString("The fastest gap that worked: %1 ms. Save to keep it.").arg(gap / 1000.0));
+    }
 }
 
 int QuickDialog::fps() const { return std::clamp(fps_->currentText().toInt(), 0, 1000); }
@@ -216,4 +261,5 @@ void QuickDialog::check() {
         problem = "Pick the points: click Pick points..., then click where it should click.";
     problem_->setText(problem);
     ok_->setEnabled(problem.isEmpty());
+    findGap_->setEnabled(!set_.points.empty() && hotkey_->code() >= 0);
 }
