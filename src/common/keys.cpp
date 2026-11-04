@@ -62,3 +62,20 @@ std::string keyName(int code) {
         if (k.code == code) return k.name;
     return "key" + std::to_string(code);
 }
+
+bool PressMerger::feed(int device, const InputEvent &ev) {
+    if (isWheel(ev.code)) return true; // notches, not presses
+    std::set<int> &devices = held_[ev.code];
+    if (ev.down) {
+        bool first = devices.empty();
+        devices.insert(device);
+        return first;
+    }
+    if (!devices.erase(device)) return false; // it never pressed it
+    return devices.empty();
+}
+
+void PressMerger::forget(int device, std::vector<InputEvent> &released) {
+    for (auto &entry : held_)
+        if (entry.second.erase(device) && entry.second.empty()) released.push_back({entry.first, false});
+}

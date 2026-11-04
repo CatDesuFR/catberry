@@ -4,7 +4,7 @@
 #include <cstdio>
 #include <string>
 
-static const char *const kVersion = "2.0.0";
+static const char *const kVersion = "2.0.1";
 
 int acGui(int argc, char **argv);
 

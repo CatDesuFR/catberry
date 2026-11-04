@@ -1,6 +1,6 @@
 # catberry ac
 
-The catberry **autoclicker** (version 2.0.0), for Linux and Windows 10/11.
+The catberry **autoclicker** (version 2.0.1), for Linux and Windows 10/11.
 It clicks, scrolls or presses a keyboard key at a rate you choose.
 
 This branch holds only the autoclicker. The `catberry` command it runs
@@ -80,7 +80,7 @@ nothing to hide itself. Use it at your own risk.
 | Linux program | `make` | `catberry-ac` |
 | Install on Linux | `make install` | `~/.local/bin/catberry-ac` |
 | Windows package | `make windows` | `dist/catberry-ac-windows.zip` |
-| Arch package | `cd packaging/arch && makepkg` | `catberry-ac-2.0.0-1-x86_64.pkg.tar.zst` |
+| Arch package | `cd packaging/arch && makepkg` | `catberry-ac-2.0.1-1-x86_64.pkg.tar.zst` |
 
 On Linux, `make` builds with CMake and Qt 6 (`src/qt` is the window). On
 Windows the window is drawn by `src/common/ac.cpp` and `src/windows`.

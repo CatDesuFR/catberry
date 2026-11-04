@@ -2,7 +2,10 @@
 #pragma once
 
 #include <chrono>
+#include <map>
+#include <set>
 #include <string>
+#include <vector>
 
 using Clock = std::chrono::steady_clock;
 
@@ -35,4 +38,18 @@ std::string keyName(int code);
 struct InputEvent {
     int code;
     bool down;
+};
+
+// One key can come from several devices: a keyboard that shows up as two,
+// a mouse or a macro pad with keys of its own. Merged, a key is down while
+// any device holds it, so one press is one down and one up.
+class PressMerger {
+public:
+    // `ev` from `device`: true when it should be passed on.
+    bool feed(int device, const InputEvent &ev);
+    // `device` went away: releases of the keys only it was holding.
+    void forget(int device, std::vector<InputEvent> &released);
+
+private:
+    std::map<int, std::set<int>> held_; // key code -> devices holding it
 };

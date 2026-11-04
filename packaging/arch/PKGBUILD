@@ -1,7 +1,7 @@
 # Builds the Arch package from the source tree this file sits in:
 #   cd packaging/arch && makepkg -si
 pkgname=catberry-ac
-pkgver=2.0.0
+pkgver=2.0.1
 pkgrel=1
 pkgdesc='catberry autoclicker: clicks or presses a key at a set rate'
 arch=('x86_64')
