@@ -14,6 +14,7 @@ int main() {
     testMacro();
     testQuickClick();
     testPressMerger();
+    testMergeInOrder();
     std::system(("rm -rf '" + std::string(dir) + "'").c_str());
     std::printf("%d/%d checks passed\n", g_checks - g_failures, g_checks);
     return g_failures ? 1 : 0;

@@ -27,3 +27,18 @@ void testPressMerger() {
     m.forget(8, released);
     CHECK(released.size() == 1 && released[0].code == keycode::Escape);
 }
+
+void testMergeInOrder() {
+    const int F6 = parseKey("F6");
+    // Both devices' press and release were waiting; read device by device
+    // they come as A-down A-up B-down B-up, but in time they overlap.
+    std::vector<TimedEvent> waiting = {
+        {1000, 5, {F6, true}}, {3000, 5, {F6, false}}, {1001, 8, {F6, true}}, {3001, 8, {F6, false}}};
+    PressMerger m;
+    std::vector<InputEvent> out = mergeInOrder(m, waiting);
+    CHECK(out.size() == 2 && out[0].down && !out[1].down);
+    // Separate presses stay separate, in time order.
+    waiting = {{5000, 5, {F6, false}}, {4000, 5, {F6, true}}};
+    out = mergeInOrder(m, waiting);
+    CHECK(out.size() == 2 && out[0].down && !out[1].down);
+}

@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "keys.h"
 
 #include <cctype>
@@ -78,4 +79,13 @@ bool PressMerger::feed(int device, const InputEvent &ev) {
 void PressMerger::forget(int device, std::vector<InputEvent> &released) {
     for (auto &entry : held_)
         if (entry.second.erase(device) && entry.second.empty()) released.push_back({entry.first, false});
+}
+
+std::vector<InputEvent> mergeInOrder(PressMerger &merger, std::vector<TimedEvent> events) {
+    std::stable_sort(events.begin(), events.end(),
+                     [](const TimedEvent &a, const TimedEvent &b) { return a.us < b.us; });
+    std::vector<InputEvent> out;
+    for (const TimedEvent &e : events)
+        if (merger.feed(e.device, e.ev)) out.push_back(e.ev);
+    return out;
 }
