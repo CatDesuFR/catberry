@@ -87,23 +87,49 @@ void testQuickClick() {
     {
         FakeOutput out;
         FakeWatcher keys;
-        runQuickSet(run, out, keys);
+        HotkeyState hotkey;
+        runQuickSet(run, out, keys, hotkey);
         CHECK(out.moves == 3 && out.presses == 4);
     }
-    // The hotkey again stops it before the next point.
+    // The hotkey again (released, then pressed) stops it before the next point.
     {
         FakeOutput out;
         FakeWatcher keys;
+        HotkeyState hotkey;
+        hotkey.held = true; // the press that started the run
+        keys.events.push_back({run.hotkey, false});
         keys.events.push_back({run.hotkey, true});
-        runQuickSet(run, out, keys);
+        runQuickSet(run, out, keys, hotkey);
         CHECK(out.moves == 0);
+    }
+    // Some keyboards report one press from two devices: the second "down",
+    // with no release in between, is the same press and must not stop it.
+    {
+        FakeOutput out;
+        FakeWatcher keys;
+        HotkeyState hotkey;
+        hotkey.held = true;
+        keys.events.push_back({run.hotkey, true});
+        runQuickSet(run, out, keys, hotkey);
+        CHECK(out.moves == 3 && out.presses == 4);
+    }
+    // ...and the press that started a run is only a new one after its release.
+    {
+        HotkeyState hotkey;
+        CHECK(hotkey.pressed({run.hotkey, true}, run.hotkey));   // first copy: a press
+        CHECK(!hotkey.pressed({run.hotkey, true}, run.hotkey));  // second copy: not
+        CHECK(!hotkey.pressed({run.hotkey, false}, run.hotkey)); // released
+        CHECK(!hotkey.pressed({run.hotkey, false}, run.hotkey)); // the other device's release
+        CHECK(hotkey.pressed({run.hotkey, true}, run.hotkey));   // a new press
+        CHECK(!hotkey.pressed({keycode::Escape, true}, run.hotkey));
     }
     // Unload (a stop request) during a run: no more points, not all at once.
     {
         FakeOutput out;
         FakeWatcher keys;
         keys.stopAfter = 0;
-        runQuickSet(run, out, keys);
+        HotkeyState hotkey;
+        runQuickSet(run, out, keys, hotkey);
         CHECK(out.moves == 0 && out.presses == 0);
     }
 

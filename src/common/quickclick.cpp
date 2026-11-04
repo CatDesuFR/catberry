@@ -119,15 +119,15 @@ QuickPoint scaledPoint(const QuickPoint &p, int fromW, int fromH, int toW, int t
     return {int(std::lround(double(p.x) * toW / fromW)), int(std::lround(double(p.y) * toH / fromH)), p.type};
 }
 
-void runQuickSet(const QuickSet &set, Output &output, KeyWatcher &keys) {
+void runQuickSet(const QuickSet &set, Output &output, KeyWatcher &keys, HotkeyState &hotkey) {
     auto gap = std::chrono::microseconds(set.gapUs);
     for (const QuickPoint &picked : set.points) {
         // Unloaded: stop here (not the rest at once, with no gaps).
         if (keys.stopRequested()) return;
-        // The hotkey again stops the run (checked without waiting).
+        // The hotkey pressed again stops the run (checked without waiting).
         InputEvent ev;
         while (keys.next(ev, 0))
-            if (ev.down && ev.code == set.hotkey) return;
+            if (hotkey.pressed(ev, set.hotkey)) return;
         const QuickPoint &p = picked;
         output.moveTo(p.x, p.y, set.desktopW, set.desktopH);
         int button = p.type == ClickType::Right    ? keycode::MouseRight
@@ -163,6 +163,7 @@ int serveQuickSet(const std::string &name, const QuickSet &set,
     ready("");
 
     ShakeCursorPause shake;
+    HotkeyState hotkey;
     // When to switch Shake Cursor back on: a while after the last run.
     Clock::time_point resumeAt{};
     while (!keys->stopRequested()) {
@@ -176,9 +177,9 @@ int serveQuickSet(const std::string &name, const QuickSet &set,
             timeout = int(left);
         }
         InputEvent ev;
-        if (!keys->next(ev, timeout) || !ev.down || ev.code != set.hotkey) continue;
+        if (!keys->next(ev, timeout) || !hotkey.pressed(ev, set.hotkey)) continue;
         shake.pause();
-        runQuickSet(set, *output, *keys);
+        runQuickSet(set, *output, *keys, hotkey);
         resumeAt = Clock::now() + std::chrono::milliseconds(300);
     }
     if (shake.paused()) shake.resume();

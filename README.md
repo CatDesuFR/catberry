@@ -1,7 +1,7 @@
 # catberry mtools
 
 The catberry **macro recorder**, **background hotkey macros** and **quick click** (version
-2.1.0), for Linux and Windows 10/11.
+2.1.1), for Linux and Windows 10/11.
 
 This branch holds only mtools. The `catberry` command it runs under lives on
 the [`main` branch](https://github.com/CatDesuFR/catberry), and the
@@ -135,7 +135,7 @@ to hide itself. Use it at your own risk.
 | Linux program | `make` | `catberry-mtools` |
 | Install on Linux | `make install` | `~/.local/bin/catberry-mtools` |
 | Windows package | `make windows` | `dist/catberry-mtools-windows.zip` |
-| Arch package | `cd packaging/arch && makepkg` | `catberry-mtools-2.1.0-1-x86_64.pkg.tar.zst` |
+| Arch package | `cd packaging/arch && makepkg` | `catberry-mtools-2.1.1-1-x86_64.pkg.tar.zst` |
 | Unit tests | `make test` | |
 
 On Linux, `make` builds with CMake and Qt 6 (`src/qt` is the window). On

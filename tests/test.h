@@ -16,3 +16,4 @@ extern int g_checks, g_failures;
 
 void testMacro();
 void testQuickClick();
+void testPressMerger();

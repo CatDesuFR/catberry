@@ -13,6 +13,7 @@ int main() {
     setenv("XDG_CONFIG_HOME", dir, 1);
     testMacro();
     testQuickClick();
+    testPressMerger();
     std::system(("rm -rf '" + std::string(dir) + "'").c_str());
     std::printf("%d/%d checks passed\n", g_checks - g_failures, g_checks);
     return g_failures ? 1 : 0;

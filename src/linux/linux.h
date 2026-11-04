@@ -37,6 +37,7 @@ public:
 
 private:
     std::map<std::string, int> fds_;
+    PressMerger merged_; // one press, even when several devices report it
 };
 
 // SIGTERM/SIGINT/SIGHUP make KeyWatcher::stopRequested() true.

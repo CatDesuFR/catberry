@@ -55,7 +55,8 @@ std::vector<InputEvent> EvdevInput::read() {
             for (size_t i = 0; i < n / sizeof(input_event); ++i) {
                 const input_event &ev = events[i];
                 if (ev.type == EV_KEY && ev.value != 2) {
-                    out.push_back({ev.code, ev.value == 1});
+                    InputEvent e{ev.code, ev.value == 1};
+                    if (merged_.feed(it->second, e)) out.push_back(e);
                 } else if (ev.type == EV_REL && ev.code == REL_WHEEL) {
                     for (int notch = 0; notch < std::abs(ev.value); ++notch)
                         out.push_back({ev.value > 0 ? keycode::WheelUp : keycode::WheelDown, true});
@@ -63,7 +64,8 @@ std::vector<InputEvent> EvdevInput::read() {
             }
         }
         if (n < 0 && errno != EAGAIN && errno != EINTR) {
-            // Device unplugged.
+            // Device unplugged: release what only it was holding.
+            merged_.forget(it->second, out);
             close(it->second);
             it = fds_.erase(it);
         } else {

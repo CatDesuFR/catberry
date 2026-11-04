@@ -42,6 +42,24 @@ QuickPoint scaledPoint(const QuickPoint &p, int fromW, int fromH, int toW, int t
 
 class KeyWatcher;
 class Output;
+
+// The set's hotkey, pressed once until released. Some keyboards report one
+// press from two devices at once; the second "down" (no release in between)
+// is the same press, not a new one.
+struct HotkeyState {
+    bool held = false;
+    // True only for a new press of `hotkey`; keeps track of releases.
+    bool pressed(const InputEvent &ev, int hotkey) {
+        if (ev.code != hotkey) return false;
+        if (!ev.down) {
+            held = false;
+            return false;
+        }
+        if (held) return false;
+        held = true;
+        return true;
+    }
+};
 // Runs a loaded set: waits for the hotkey and clicks the points, until asked
 // to stop. `ready` is called once: "" when setup worked, otherwise why not.
 int serveQuickSet(const std::string &name, const QuickSet &set,
@@ -50,4 +68,5 @@ int serveQuickSet(const std::string &name, const QuickSet &set,
 // Positions go out as fractions of the desktop they were picked on, and the
 // absolute pointer maps fractions onto the desktop as it is now: a changed
 // resolution scales them by itself.
-void runQuickSet(const QuickSet &set, Output &output, KeyWatcher &keys);
+// A new press of the hotkey (see HotkeyState) stops it.
+void runQuickSet(const QuickSet &set, Output &output, KeyWatcher &keys, HotkeyState &hotkey);
