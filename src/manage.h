@@ -13,6 +13,9 @@ int installTool(const std::string &tool, const std::string &version, bool reinst
 // Stops and removes every copy of `tool`, then offers to delete its
 // settings and files. Exit code.
 int uninstallTool(const std::string &tool);
+// Updates `tool`, or ("" ) every installed tool and the launcher, to the
+// newest published version, after listing them and asking once. Exit code.
+int updateTools(const std::string &tool);
 // Windows: deletes the catberry.old.exe a self-update left behind.
 // Nothing on Linux. Called at every start.
 void removeOldLauncher();

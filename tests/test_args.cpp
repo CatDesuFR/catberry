@@ -42,6 +42,14 @@ void testArgs() {
         CHECK(c.kind == Command::RunTool && c.tool == "mtools" && c.toolArgStart == 1);
     }
 
+    c = parse({"update"});
+    CHECK(c.kind == Command::Update && c.tool.empty());
+    c = parse({"update", "ac"});
+    CHECK(c.kind == Command::Update && c.tool == "ac");
+    c = parse({"mtools", "update"});
+    CHECK(c.kind == Command::Update && c.tool == "mtools");
+    CHECK(parse({"update", "nope"}).kind == Command::Unknown);
+    CHECK(parse({"update", "ac", "extra"}).kind == Command::Unknown);
     CHECK(parse({"install", "nope"}).kind == Command::Unknown);
     CHECK(parse({"install"}).kind == Command::Unknown);
     CHECK(parse({"install", "ac", "1.0", "2.0"}).kind == Command::Unknown);

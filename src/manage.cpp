@@ -210,6 +210,13 @@ std::string packageVersion(Family family, const std::string &program) {
     return out;
 }
 
+// The version installed now: the package's, else what the program says.
+std::string currentVersion(const Tool &tool) {
+    std::string version = packageVersion(thisSystem().family, tool.program);
+    if (!version.empty()) return version;
+    return installedVersion(tool); // the launcher: this program's own
+}
+
 // Downloads, checks and installs one package. `installed` is the version
 // there now ("" if none), to choose dnf's downgrade; `same` means this exact
 // version is already installed as a package (a --reinstall), which dnf and
@@ -514,6 +521,8 @@ std::string installDir() { return envOr("LOCALAPPDATA", ".") + "\\Programs\\catb
 std::string configDir() { return envOr("APPDATA", ".") + "\\catberry"; }
 std::string exePath(const Tool &tool) { return installDir() + "\\" + tool.program + ".exe"; }
 
+std::string currentVersion(const Tool &tool) { return installedVersion(tool); }
+
 bool linuxOnly(const std::string &name) {
     if (name != "roofce") return false;
     std::fprintf(stderr, "roofce is Linux-only (Wayland).\n");
@@ -705,6 +714,90 @@ int uninstallTool(const std::string &name) {
 }
 
 #endif
+
+namespace {
+
+// "[Y/n]": Enter, or no input at all, means yes. Reads straight from stdin,
+// so the package manager's own questions get the rest.
+bool askYesDefault(const std::string &question) {
+    std::printf("%s [Y/n] ", question.c_str());
+    std::fflush(stdout);
+    std::string line;
+#ifdef _WIN32
+    int c;
+    while ((c = std::fgetc(stdin)) != EOF && c != '\n') line += char(c);
+#else
+    char c;
+    while (read(0, &c, 1) == 1 && c != '\n') line += c;
+#endif
+    std::printf("\n");
+    while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.pop_back();
+    return line.empty() || line == "y" || line == "Y" || line == "yes" || line == "Yes";
+}
+
+} // namespace
+
+int updateTools(const std::string &only) {
+    std::vector<const Tool *> tools;
+    if (!only.empty()) {
+        if (const Tool *t = toolByName(only)) tools.push_back(t);
+    } else {
+        // kTools ends with the launcher: it updates last, being the program doing it.
+        for (const Tool &t : kTools) {
+#ifdef _WIN32
+            if (std::string(t.name) == "roofce") continue; // Linux-only
+#endif
+            tools.push_back(&t);
+        }
+    }
+    if (tools.empty()) return 2;
+
+    struct Update {
+        const Tool *tool;
+        std::string from, to;
+    };
+    std::vector<Update> updates;
+    TempDir tmp;
+    std::printf("Checking for updates:\n");
+    for (const Tool *t : tools) {
+        std::string current = currentVersion(*t);
+        if (current.empty()) {
+            if (!only.empty()) {
+                std::fprintf(stderr, "%s is not installed. Install it with: catberry install %s\n", t->name, t->name);
+                return 1;
+            }
+            continue;
+        }
+        std::vector<std::string> published;
+        if (!publishedVersions(t->name, tmp, published)) {
+            if (!only.empty()) return 1;
+            continue;
+        }
+        const std::string &latest = published.front();
+        if (compareText(latest, current) > 0) {
+            updates.push_back({t, current, latest});
+            std::printf("  %-8s %s -> %s\n", t->name, current.c_str(), latest.c_str());
+        } else {
+            std::printf("  %-8s %s (up to date)\n", t->name, current.c_str());
+        }
+    }
+    if (updates.empty()) {
+        std::printf(only.empty() ? "Everything is up to date.\n" : "%s is up to date.\n", only.c_str());
+        return 0;
+    }
+    if (!askYesDefault(updates.size() == 1 ? "Update it?" : "Update them?")) {
+        std::printf("Nothing was changed.\n");
+        return 0;
+    }
+    std::vector<std::string> failed;
+    for (const Update &u : updates)
+        if (installTool(u.tool->name, u.to, false) != 0) failed.push_back(u.tool->name);
+    if (!failed.empty()) {
+        std::fprintf(stderr, "catberry: not updated: %s\n", joinList(failed).c_str());
+        return 1;
+    }
+    return 0;
+}
 
 #ifdef _WIN32
 void removeOldLauncher() {

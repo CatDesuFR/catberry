@@ -29,13 +29,15 @@ Command manage(const std::string &verb, const std::string &tool, const std::vect
     c.tool = tool;
     if (verb == "install") {
         c.kind = parseInstallRest(rest, c) ? Command::Install : Command::Unknown;
+    } else if (verb == "update") {
+        c.kind = rest.empty() ? Command::Update : Command::Unknown;
     } else {
         c.kind = rest.empty() ? (verb == "uninstall" ? Command::Uninstall : Command::ListVersions) : Command::Unknown;
     }
     return c;
 }
 
-bool isVerb(const std::string &w) { return w == "install" || w == "uninstall" || w == "versions"; }
+bool isVerb(const std::string &w) { return w == "install" || w == "uninstall" || w == "versions" || w == "update"; }
 
 } // namespace
 
@@ -50,6 +52,8 @@ Command parseCommand(int argc, char **argv) {
         c.kind = Command::Help;
     } else if (first == "-v" || first == "--version") {
         c.kind = Command::Versions_;
+    } else if (first == "update" && a.size() == 1) {
+        c.kind = Command::Update; // everything installed
     } else if (isVerb(first)) {
         if (a.size() >= 2) c = manage(first, a[1], std::vector<std::string>(a.begin() + 2, a.end()));
     } else if (isManaged(first) && a.size() >= 2 && isVerb(a[1])) {

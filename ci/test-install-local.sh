@@ -53,6 +53,9 @@ if [ ! -f "$mirror/releases.json" ]; then
     done
 fi
 
+# ac's published versions in the copy, newest first, for the tests.
+ac_versions=$(grep -o '"tag_name": "ac-v[^"]*"' "$mirror/releases.json" | sed 's/.*ac-v//; s/"//' | sort -rV | tr '\n' ' ')
+
 port=8765
 python3 -m http.server "$port" --bind 0.0.0.0 --directory "$mirror" >"$work/http.log" 2>&1 &
 server=$!
@@ -73,7 +76,7 @@ for target in "${targets[@]}"; do
         { echo "build failed: $work/build-$target.log"; failed+=("$target"); continue; }
     echo "== $target: test"
     podman run --rm -v "$ci:/ci:ro,Z" -v "$out:/pkg:ro,Z" \
-        -e CATBERRY_RELEASES="http://host.containers.internal:$port" \
+        -e CATBERRY_RELEASES="http://host.containers.internal:$port" -e AC_VERSIONS="${ac_versions% }" \
         "$(image_of "$target")" bash /ci/test-install.sh "$target" /pkg 2>&1 | tee "$work/test-$target.log" |
         grep -E "^(ok|FAIL|==)" || true
     tail -1 "$work/test-$target.log" | grep -q " 0 failed" || failed+=("$target")

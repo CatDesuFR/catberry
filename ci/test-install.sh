@@ -7,6 +7,11 @@ set -uo pipefail
 target=$1
 pkgdir=$(realpath "$2")
 : "${CATBERRY_RELEASES:?}"
+# The published ac versions in the copy, newest first (set by test-install-local.sh).
+: "${AC_VERSIONS:?}"
+read -r -a acv <<<"$AC_VERSIONS"
+AC=${acv[0]} AC_OLD=${acv[1]:-}
+AC_RE=${AC//./\\.}
 
 pass=0 fail=0
 ok() { echo "ok   $*"; pass=$((pass + 1)); }
@@ -27,6 +32,13 @@ has_pkg() {
     esac
 }
 no_pkg() { ! has_pkg "$1"; }
+pkg_version() {
+    case "$target" in
+    arch) pacman -Q "$1" 2>/dev/null | awk '{print $2}' | cut -d- -f1 ;;
+    fedora) rpm -q --qf '%{VERSION}' "$1" 2>/dev/null ;;
+    *) dpkg-query -W -f='${Version}' "$1" 2>/dev/null | cut -d- -f1 ;;
+    esac
+}
 remove_pkg() {
     case "$target" in
     arch) pacman -Rdd --noconfirm "$1" ;;
@@ -50,7 +62,7 @@ echo "== versions"
 out=$(cb versions roofce)
 expect "versions roofce lists 1.2.2" grep -q "1\.2\.2" <<<"$out"
 out=$(cb ac versions)
-expect "ac versions (other order) lists 1.1.2" grep -q "1\.1\.2" <<<"$out"
+expect "ac versions (other order) lists $AC" grep -q "$AC_RE" <<<"$out"
 
 echo "== install pulls in the launcher package when it is missing"
 # Keep the launcher under test as a plain file, without its package.
@@ -59,18 +71,18 @@ remove_pkg catberry
 expect "launcher package removed for the test" no_pkg catberry
 out=$(cb install ac)
 echo "$out" | sed 's/^/     | /' | tail -5
-expect "install ac succeeds" grep -q "ac 1.1.2 installed" <<<"$out"
+expect "install ac succeeds" grep -q "ac $AC installed" <<<"$out"
 expect "catberry-ac package installed" has_pkg catberry-ac
 expect "catberry package installed first" has_pkg catberry
 
 echo "== same version again"
 out=$(cb install ac); code=$?
-expect "already installed message" grep -q "ac 1.1.2 is already installed." <<<"$out"
+expect "already installed message" grep -q "ac $AC is already installed." <<<"$out"
 expect "already installed exits 0" test "$code" = 0
 rm -f /usr/bin/catberry-ac # broken install: the program file is gone
 out=$(cb ac install --reinstall); code=$?
 expect "--reinstall exits 0" test "$code" = 0
-expect "--reinstall installs" grep -q "ac 1.1.2 installed" <<<"$out"
+expect "--reinstall installs" grep -q "ac $AC installed" <<<"$out"
 expect "--reinstall puts the program back" test -x /usr/bin/catberry-ac
 
 echo "== releases not there (404)"
@@ -81,8 +93,25 @@ expect "no curl error line" bash -c '! grep -q "^curl:" <<<"$1"' _ "$out"
 
 echo "== unknown version"
 out=$(cb install ac 9.9); code=$?
-expect "unknown version message" grep -q "ac has no version 9.9. Published: 1.1.2" <<<"$out"
+expect "unknown version message" grep -q "ac has no version 9.9. Published: ${AC_VERSIONS// /, }" <<<"$out"
 expect "unknown version exits 1" test "$code" = 1
+
+echo "== update"
+out=$(cb update ac); code=$?
+expect "update ac: up to date" grep -q "ac is up to date." <<<"$out"
+expect "update ac exits 0" test "$code" = 0
+if [ -n "$AC_OLD" ]; then
+    cb install ac "$AC_OLD" >/dev/null
+    expect "older ac installed for the test" test "$(pkg_version catberry-ac)" = "$AC_OLD"
+    out=$(cb ac update); code=$?
+    expect "update lists ac $AC_OLD -> $AC" grep -q "ac  *$AC_OLD -> $AC" <<<"$out"
+    expect "update installs the newest" grep -q "ac $AC installed" <<<"$out"
+    expect "update exits 0" test "$code" = 0
+    out=$(printf 'n\n' | catberry update 2>&1)
+    expect "update all: nothing newer, says so" grep -q "Everything is up to date." <<<"$out"
+else
+    echo "skip: only one ac version published"
+fi
 
 echo "== damaged download"
 out=$(CATBERRY_RELEASES="$CATBERRY_RELEASES/damaged" cb install mtools); code=$?

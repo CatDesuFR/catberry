@@ -6,8 +6,8 @@
 #include <string>
 
 struct Command {
-    enum Kind { Help, Versions_, RunTool, Install, Uninstall, ListVersions, Unknown } kind = Unknown;
-    std::string tool;    // ac, mtools, roofce or catberry
+    enum Kind { Help, Versions_, RunTool, Install, Uninstall, ListVersions, Update, Unknown } kind = Unknown;
+    std::string tool;    // ac, mtools, roofce or catberry ("" for update: everything)
     std::string version; // Install only: a version or "latest"
     bool reinstall = false;
     int toolArgStart = 0; // RunTool: the tool's arguments are argv[toolArgStart..]

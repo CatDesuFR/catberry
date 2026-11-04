@@ -38,8 +38,9 @@ void usage(FILE *out) {
                  "                                  TOOL is ac, mtools, roofce or catberry; add --reinstall\n"
                  "                                  to install the same version again\n"
                  "  catberry uninstall TOOL         remove a tool, then choose whether to keep its settings\n"
+                 "  catberry update [TOOL]          update everything installed, or one tool, to the newest version\n"
                  "  catberry versions TOOL          list the published versions of a tool\n"
-                 "                                  (also: catberry TOOL install / uninstall / versions)\n"
+                 "                                  (also: catberry TOOL install / uninstall / versions / update)\n"
                  "\n"
                  "  catberry ac gui                 open the autoclicker\n"
                  "  catberry ac -v                  print the autoclicker version\n"
@@ -165,6 +166,8 @@ int main(int argc, char **argv) {
         return uninstallTool(command.tool);
     case Command::ListVersions:
         return listVersions(command.tool);
+    case Command::Update:
+        return updateTools(command.tool);
     case Command::RunTool:
         for (const Tool &tool : kTools)
             if (command.tool == tool.name)
