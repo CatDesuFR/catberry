@@ -53,3 +53,14 @@ public:
 private:
     std::map<int, std::set<int>> held_; // key code -> devices holding it
 };
+
+// An event with when it happened (µs) and which device sent it.
+struct TimedEvent {
+    long long us;
+    int device;
+    InputEvent ev;
+};
+
+// Events read device by device, merged in the order they happened (so two
+// devices reporting one press overlap, instead of looking like two presses).
+std::vector<InputEvent> mergeInOrder(PressMerger &merger, std::vector<TimedEvent> events);

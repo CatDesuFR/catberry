@@ -46,6 +46,8 @@ void EvdevInput::addPollFds(std::vector<pollfd> &out) const {
 }
 
 std::vector<InputEvent> EvdevInput::read() {
+    // Everything waiting on every device first, then merged in time order.
+    std::vector<TimedEvent> waiting;
     std::vector<InputEvent> out;
     for (auto it = fds_.begin(); it != fds_.end();) {
         input_event events[32];
@@ -53,12 +55,12 @@ std::vector<InputEvent> EvdevInput::read() {
         while ((n = ::read(it->second, events, sizeof events)) > 0) {
             for (size_t i = 0; i < n / sizeof(input_event); ++i) {
                 const input_event &ev = events[i];
+                long long us = (long long)ev.input_event_sec * 1000000 + ev.input_event_usec;
                 if (ev.type == EV_KEY && ev.value != 2) {
-                    InputEvent e{ev.code, ev.value == 1};
-                    if (merged_.feed(it->second, e)) out.push_back(e);
+                    waiting.push_back({us, it->second, {ev.code, ev.value == 1}});
                 } else if (ev.type == EV_REL && ev.code == REL_WHEEL) {
                     for (int notch = 0; notch < std::abs(ev.value); ++notch)
-                        out.push_back({ev.value > 0 ? keycode::WheelUp : keycode::WheelDown, true});
+                        waiting.push_back({us, it->second, {ev.value > 0 ? keycode::WheelUp : keycode::WheelDown, true}});
                 }
             }
         }
@@ -71,5 +73,8 @@ std::vector<InputEvent> EvdevInput::read() {
             ++it;
         }
     }
-    return out;
+    std::vector<InputEvent> merged = mergeInOrder(merged_, waiting);
+    // Releases of unplugged devices' keys (in `out`) come after.
+    merged.insert(merged.end(), out.begin(), out.end());
+    return merged;
 }
