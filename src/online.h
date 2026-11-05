@@ -1,7 +1,9 @@
 // The free online library, from sources that need no account: Wallhaven
 // (pictures), MotionBgs (live wallpapers), Wikimedia Commons (videos and
 // pictures), NASA's image and video library (videos and pictures) and
-// X Live Wallpaper's library (live wallpapers, as Lively .zip packages). Only previews and
+// X Live Wallpaper's library (live wallpapers, as Lively .zip packages),
+// Sucrose's store (live wallpapers, from its GitHub repo) and Bing's daily
+// pictures of the last two weeks. Only previews and
 // the wallpapers the user picks are downloaded; nothing is stored up front.
 #pragma once
 
@@ -12,7 +14,7 @@
 #include <QSet>
 #include <QString>
 
-enum class OnlineSource { Wallhaven, MotionBgs, Commons, Nasa, XLive };
+enum class OnlineSource { Wallhaven, MotionBgs, Commons, Nasa, XLive, Sucrose, Bing };
 enum class OnlineFilter { All, Live, Pictures };
 enum class Genre { Any, Scenery, Space, Anime, Games, Cars, Animals, City, Fantasy, Abstract };
 const int kGenreCount = 10;
@@ -39,6 +41,7 @@ struct OnlineWallpaper {
     qint64 fileSize = 0; // 0 when the source does not say
     QStringList tags;    // what the source says is in it (Commons categories)
     QString bigResolution; // MotionBgs: size of its 4K copy, when it has one
+    QString credit;        // who made it or owns it (Sucrose author, Bing photo credit)
 
     // Unique across sources; used for file names.
     QString key() const;
@@ -47,6 +50,20 @@ struct OnlineWallpaper {
 // X Live Wallpaper (coolleget.com/livelywallpapers): the wallpapers on list
 // page `page`, and whether there is a next page.
 QList<OnlineWallpaper> parseXLivePage(const QString &html, int page, bool &more);
+// One wallpaper in Sucrose's store index (src/Store.json).
+struct SucroseEntry {
+    QString category, name, folder; // folder: "src/<Category>/<Name>"
+    bool adult = false;
+};
+QList<SucroseEntry> parseSucroseStore(const QByteArray &json);
+// Sucrose's categories that belong to a genre (empty for Any).
+QStringList sucroseCategories(Genre genre);
+// Fills in a Sucrose wallpaper from its SucroseInfo.json; false when it is
+// not a video or GIF (web pages, YouTube links...).
+bool applySucroseInfo(OnlineWallpaper &w, const SucroseEntry &entry, const QByteArray &json);
+// Bing's daily pictures (HPImageArchive JSON), without the ones Bing marks
+// as not for wallpapers. `uhd` picks the UHD copy, else 1920x1080.
+QList<OnlineWallpaper> parseBing(const QByteArray &json, bool uhd);
 // The .zip download link on one wallpaper's own page, or "".
 QString parseXLiveZip(const QString &html);
 // Unpacks a Lively package (.zip): its biggest video, or else a GIF, becomes
@@ -104,6 +121,12 @@ private:
     void searchCommons(int generation);
     void searchNasa(int generation);
     void searchXLive(int generation);
+    void searchSucrose(int generation);
+    void sucrosePage(int generation);
+    void searchBing(int generation);
+    // The search words (and with `genre`, the genre's words) all in `text`:
+    // for X Live, Sucrose and Bing, which have no search of their own.
+    bool matchesWords(const QString &text, bool genre = false) const;
     // X Live: the .zip is downloaded, then its video (or GIF) unpacked.
     void unpackXLive(const QString &key, const QString &zip);
     void sourceDone(int generation, OnlineSource source, bool more);
@@ -126,4 +149,6 @@ private:
     int pending_ = 0;
     int generation_ = 0; // drops answers to an older search
     QSet<QString> downloading_; // keys being downloaded or unpacked
+    QList<SucroseEntry> sucroseStore_;   // the index, read once per run
+    QList<SucroseEntry> sucroseMatches_; // this search's matches, in pages
 };

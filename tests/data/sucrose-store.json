@@ -1,0 +1,12 @@
+{
+  "Categories": {
+    "Abstract": {"Wallpapers": {
+      "Neon Wave-1": {"Source": "src/Abstract", "Cover": "thumbnail.jpg", "Live": "preview.gif", "Adult": false},
+      "Ink Flow-1": {"Source": "src/Abstract", "Cover": "thumbnail.jpg", "Live": "preview.gif", "Adult": false}
+    }},
+    "War": {"Wallpapers": {
+      "Tank Field-1": {"Source": "src/War", "Cover": "thumbnail.jpg", "Live": "preview.gif", "Adult": true},
+      "Escape-1": {"Source": "../etc", "Cover": "thumbnail.jpg", "Live": "preview.gif", "Adult": false}
+    }}
+  }
+}

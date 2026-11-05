@@ -12,6 +12,8 @@
 #include <QJsonObject>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QLocale>
+#include <QUrl>
 #include <QProcess>
 #include <QRegularExpression>
 #include <QThread>
@@ -36,8 +38,14 @@ const QStringList kBlocked = {
 };
 
 // Signs of AI-generated art, in titles and Commons categories.
-const QStringList kAiWords = {"ai", "aiart", "midjourney", "dall", "dalle", "diffusion", "generated", "generative",
-                              "aigc", "novelai", "nijijourney"};
+const QStringList kAiWords = {"ai", "aiart", "aiartwork", "aigenerated", "midjourney", "dall", "dalle", "diffusion",
+                              "generated", "generative", "aigc", "novelai", "nijijourney", "sdxl", "comfyui",
+                              "automatic1111", "dreamshaper", "leonardoai", "dreamstudio", "neuralart"};
+
+// Strict filter: tags that mark a wallpaper as showing (anime) girls, where
+// most suggestive ones are. Whole words, in the tags sources give.
+const QStringList kStrictTagWords = {"girl", "girls", "waifu", "maid", "idol", "gravure", "schoolgirl",
+                                     "bunny", "catgirl", "foxgirl", "kawaii", "loli", "oppai"};
 
 // Commons categories that mark pictures as not suitable (checked as
 // substrings, so "Nude women in art" and "Topless women" both count).
@@ -118,6 +126,8 @@ QString OnlineLibrary::sourceName(OnlineSource source) {
     case OnlineSource::Commons: return "Wikimedia";
     case OnlineSource::Nasa: return "NASA";
     case OnlineSource::XLive: return "X Live Wallpaper";
+    case OnlineSource::Sucrose: return "Sucrose";
+    case OnlineSource::Bing: return "Bing";
     }
     return QString();
 }
@@ -189,8 +199,16 @@ void OnlineLibrary::search(const SearchOptions &options, bool more) {
         // NASA and X Live do not say how big their files are; MotionBgs only has 1080p and 4K.
         if ((source == OnlineSource::Nasa || source == OnlineSource::XLive) && options_.resolution != Resolution::Any)
             continue;
-        // X Live has only live wallpapers.
-        if (source == OnlineSource::XLive && options_.filter == OnlineFilter::Pictures) continue;
+        // X Live and Sucrose have only live wallpapers, Bing only pictures.
+        if ((source == OnlineSource::XLive || source == OnlineSource::Sucrose) && options_.filter == OnlineFilter::Pictures)
+            continue;
+        if (source == OnlineSource::Bing && options_.filter == OnlineFilter::Live) continue;
+        // Sucrose does not say how big its videos are; Bing has 1080p and 4K (UHD) copies.
+        if (source == OnlineSource::Sucrose && options_.resolution != Resolution::Any) continue;
+        if (source == OnlineSource::Bing && (options_.resolution == Resolution::K2 || options_.resolution == Resolution::K8))
+            continue;
+        // Bing's daily pictures are photos of places: scenery, or any genre.
+        if (source == OnlineSource::Bing && options_.genre != Genre::Any && options_.genre != Genre::Scenery) continue;
         if (source == OnlineSource::MotionBgs &&
             (options_.resolution == Resolution::K2 || options_.resolution == Resolution::K8))
             continue;
@@ -201,6 +219,8 @@ void OnlineLibrary::search(const SearchOptions &options, bool more) {
         case OnlineSource::Commons: searchCommons(generation); break;
         case OnlineSource::Nasa: searchNasa(generation); break;
         case OnlineSource::XLive: searchXLive(generation); break;
+        case OnlineSource::Sucrose: searchSucrose(generation); break;
+        case OnlineSource::Bing: searchBing(generation); break;
         }
     }
     if (pending_ == 0) emit searchFinished(false);
@@ -228,6 +248,10 @@ void OnlineLibrary::deliver(int generation, QList<OnlineWallpaper> items) {
             QString lower = tags.toLower();
             bool bad = std::any_of(kBlockedCategories.begin(), kBlockedCategories.end(),
                                    [&lower](const QString &c) { return lower.contains(c); });
+            // The tags too, word by word: the blocklist and the girls' tags.
+            static const QRegularExpression split("[^a-z]+");
+            for (const QString &word : lower.split(split, Qt::SkipEmptyParts))
+                bad = bad || kBlocked.contains(word) || kStrictTagWords.contains(word);
             if (bad || (w.source == OnlineSource::MotionBgs && motionFiltered_.contains(w.id))) continue;
         }
         seen_.insert(w.key());
@@ -651,27 +675,250 @@ void OnlineLibrary::searchXLive(int generation) {
         QList<OnlineWallpaper> items = parseXLivePage(QString::fromUtf8(reply->readAll()), page, more);
         // About 30 wallpapers and no search of its own: words and genres
         // are matched against the names and descriptions here.
-        QStringList words = (options_.query + " " + kGenres[int(options_.genre)].words)
-                                .toLower()
-                                .split(QRegularExpression("[^a-z0-9]+"), Qt::SkipEmptyParts);
-        if (!words.isEmpty()) {
-            QList<OnlineWallpaper> kept;
-            for (const OnlineWallpaper &w : items) {
-                QString text = w.title.toLower() + " " + w.tags.join(' ');
-                bool all = true;
-                for (const QString &word : words) {
-                    bool any = false;
-                    for (const QString &v : variants(word)) any = any || text.contains(v);
-                    all = all && any;
-                }
-                if (all) kept << w;
-            }
-            items = kept;
-        }
+        QList<OnlineWallpaper> kept;
+        for (const OnlineWallpaper &w : items)
+            if (matchesWords(w.title + " " + w.tags.join(' '), true)) kept << w;
+        items = kept;
         page_[OnlineSource::XLive] = page + 1;
         deliver(generation, items);
         sourceDone(generation, OnlineSource::XLive, more);
     });
+}
+
+bool OnlineLibrary::matchesWords(const QString &text, bool genre) const {
+    QString lower = text.toLower();
+    QString wanted = options_.query + (genre ? QString(" ") + kGenres[int(options_.genre)].words : QString());
+    for (const QString &word : wanted.toLower().split(QRegularExpression("[^a-z0-9]+"), Qt::SkipEmptyParts)) {
+        bool any = false;
+        for (const QString &v : variants(word)) any = any || lower.contains(v);
+        if (!any) return false;
+    }
+    return true;
+}
+
+// --- Sucrose: live wallpapers from its store on GitHub -----------------------
+
+namespace {
+const char *const kSucroseBase = "https://raw.githubusercontent.com/Taiizor/Store/develop/";
+
+// "src/Abstract/Neon Wave-1" + "anw.mp4" -> its URL, every part encoded.
+QString sucroseUrl(const QString &folder, const QString &file) {
+    QStringList parts;
+    for (const QString &part : (folder + "/" + file).split('/', Qt::SkipEmptyParts))
+        parts << QString::fromUtf8(QUrl::toPercentEncoding(part));
+    return kSucroseBase + parts.join('/');
+}
+
+// A plain file name: no folders, no "..", no links elsewhere.
+bool plainFileName(const QString &name) {
+    return !name.isEmpty() && !name.contains('/') && !name.contains('\\') && !name.startsWith('.') &&
+           !name.contains(':');
+}
+
+QJsonObject jsonObject(QByteArray json) {
+    if (json.startsWith("\xEF\xBB\xBF")) json.remove(0, 3); // a byte order mark
+    return QJsonDocument::fromJson(json).object();
+}
+} // namespace
+
+QList<SucroseEntry> parseSucroseStore(const QByteArray &json) {
+    // {"Categories": {"Abstract": {"Wallpapers": {"Neon Wave-1": {"Source": "src/Abstract", "Adult": false, ...}}}}}
+    QList<QList<SucroseEntry>> byCategory;
+    QJsonObject categories = jsonObject(json).value("Categories").toObject();
+    for (auto c = categories.begin(); c != categories.end(); ++c) {
+        QList<SucroseEntry> list;
+        QJsonObject wallpapers = c.value().toObject().value("Wallpapers").toObject();
+        for (auto w = wallpapers.begin(); w != wallpapers.end(); ++w) {
+            QJsonObject item = w.value().toObject();
+            QString source = item.value("Source").toString();
+            if (!source.startsWith("src/") || source.contains("..") || w.key().contains('/') || w.key().contains(".."))
+                continue;
+            SucroseEntry entry;
+            entry.category = c.key();
+            entry.name = w.key();
+            entry.folder = source + "/" + w.key();
+            entry.adult = item.value("Adult").toBool();
+            list << entry;
+        }
+        byCategory << list;
+    }
+    // The categories take turns, so the first page is not all one category.
+    QList<SucroseEntry> mixed;
+    for (int i = 0;; ++i) {
+        bool any = false;
+        for (const QList<SucroseEntry> &list : byCategory)
+            if (i < list.size()) {
+                mixed << list[i];
+                any = true;
+            }
+        if (!any) break;
+    }
+    return mixed;
+}
+
+QStringList sucroseCategories(Genre genre) {
+    switch (genre) {
+    case Genre::Any: return {};
+    case Genre::Scenery:
+        return {"Landscape", "Nature", "Sky", "Enchanted Forests", "Seasons", "Underwater and Marine", "Ambience"};
+    case Genre::Space: return {"Space", "Galaxy", "Science Fiction"};
+    case Genre::Anime: return {"Anime"};
+    case Genre::Games: return {"Game", "Pixel Art"};
+    case Genre::Cars: return {"Vehicles"};
+    case Genre::Animals: return {"Animals", "Cute"};
+    case Genre::City: return {"Cities and Places", "Architecture and Buildings"};
+    case Genre::Fantasy: return {"Fantasy", "Enchanted Forests", "Medieval"};
+    case Genre::Abstract: return {"Abstract", "Geometric Patterns", "Colorful", "Minimalist", "Dynamic"};
+    }
+    return {};
+}
+
+bool applySucroseInfo(OnlineWallpaper &w, const SucroseEntry &entry, const QByteArray &json) {
+    // {"Title": "...", "Thumbnail": "thumbnail.jpg", "Preview": "preview.gif", "Author": "...",
+    //  "Type": 3, "Source": "anw.mp4", "Tags": [...]}; Type 0 is a GIF, 3 a video.
+    QJsonObject info = jsonObject(json);
+    int type = info.value("Type").toInt(-1);
+    QString file = info.value("Source").toString();
+    QString ext = QFileInfo(file).suffix().toLower();
+    bool gif = type == 0 && ext == "gif";
+    bool video = type == 3 && QStringList{"mp4", "webm", "mkv", "mov", "m4v", "avi"}.contains(ext);
+    if (!(gif || video) || !plainFileName(file)) return false;
+    w.source = OnlineSource::Sucrose;
+    w.id = QString(entry.folder).remove(0, 4).replace(QRegularExpression("[^A-Za-z0-9]+"), "-");
+    w.title = info.value("Title").toString().trimmed();
+    if (w.title.isEmpty()) w.title = QString(entry.name).remove(QRegularExpression("-\\d+$"));
+    w.video = true;
+    QString thumb = info.value("Thumbnail").toString();
+    QString preview = info.value("Preview").toString();
+    w.thumbUrl = sucroseUrl(entry.folder, plainFileName(thumb) ? thumb : "thumbnail.jpg");
+    w.previewUrl = plainFileName(preview) ? sucroseUrl(entry.folder, preview) : sucroseUrl(entry.folder, file);
+    w.fullUrl = sucroseUrl(entry.folder, file);
+    w.tags = {entry.category};
+    for (const QJsonValue &tag : info.value("Tags").toArray()) w.tags << tag.toString();
+    w.credit = info.value("Author").toString().trimmed();
+    return true;
+}
+
+void OnlineLibrary::searchSucrose(int generation) {
+    if (!sucroseStore_.isEmpty()) {
+        sucrosePage(generation);
+        return;
+    }
+    // The whole index (2,500 wallpapers, ~0.5 MB) once per run; search is done here.
+    QNetworkReply *reply = get(QString(kSucroseBase) + "src/Store.json");
+    connect(reply, &QNetworkReply::finished, this, [this, reply, generation] {
+        reply->deleteLater();
+        if (reply->error() == QNetworkReply::NoError) sucroseStore_ = parseSucroseStore(reply->readAll());
+        if (sucroseStore_.isEmpty()) {
+            if (generation == generation_) emit failed("Sucrose: " + reply->errorString());
+            sourceDone(generation, OnlineSource::Sucrose, false);
+            return;
+        }
+        sucrosePage(generation);
+    });
+}
+
+void OnlineLibrary::sucrosePage(int generation) {
+    if (generation != generation_) return;
+    int page = page_.value(OnlineSource::Sucrose, 1);
+    if (page == 1) {
+        // This search's matches: genre by category, words by name and
+        // category, and (Strict filter) not marked adult.
+        QStringList categories = sucroseCategories(options_.genre);
+        sucroseMatches_.clear();
+        for (const SucroseEntry &entry : sucroseStore_) {
+            if (options_.strict && entry.adult) continue;
+            if (!categories.isEmpty() && !categories.contains(entry.category)) continue;
+            if (!matchesWords(entry.name + " " + entry.category)) continue;
+            sucroseMatches_ << entry;
+        }
+    }
+    QList<SucroseEntry> batch = sucroseMatches_.mid((page - 1) * kPageSize, kPageSize);
+    page_[OnlineSource::Sucrose] = page + 1;
+    bool more = page * kPageSize < sucroseMatches_.size();
+    if (batch.isEmpty()) {
+        sourceDone(generation, OnlineSource::Sucrose, false);
+        return;
+    }
+    // Each one's own SucroseInfo.json: its file, type, author and tags
+    // (the tags let the AI and Strict filters see more than the name).
+    auto found = std::make_shared<QList<OnlineWallpaper>>();
+    found->resize(batch.size());
+    auto ok = std::make_shared<QList<bool>>(batch.size(), false);
+    auto left = std::make_shared<int>(batch.size());
+    for (int i = 0; i < batch.size(); ++i) {
+        SucroseEntry entry = batch[i];
+        QNetworkReply *reply = get(sucroseUrl(entry.folder, "SucroseInfo.json"));
+        connect(reply, &QNetworkReply::finished, this, [this, reply, generation, entry, i, found, ok, left, more] {
+            reply->deleteLater();
+            if (reply->error() == QNetworkReply::NoError)
+                (*ok)[i] = applySucroseInfo((*found)[i], entry, reply->readAll());
+            if (--*left > 0) return;
+            QList<OnlineWallpaper> items;
+            for (int j = 0; j < found->size(); ++j)
+                if ((*ok)[j]) items << (*found)[j];
+            deliver(generation, items);
+            sourceDone(generation, OnlineSource::Sucrose, more);
+        });
+    }
+}
+
+// --- Bing: the daily pictures of the last two weeks --------------------------
+
+QList<OnlineWallpaper> parseBing(const QByteArray &json, bool uhd) {
+    // {"images": [{"startdate": "20261105", "urlbase": "/th?id=OHR.Name_EN-US123", "title": "...",
+    //              "copyright": "Place (© Photographer/Agency)", "wp": true}, ...]}
+    static const QRegularExpression name("OHR\\.([A-Za-z0-9]+)_");
+    QList<OnlineWallpaper> items;
+    for (const QJsonValue &value : jsonObject(json).value("images").toArray()) {
+        QJsonObject image = value.toObject();
+        QString base = image.value("urlbase").toString();
+        // Bing marks some days as not licensed for wallpapers.
+        if (!image.value("wp").toBool(true) || !base.startsWith("/th?id=")) continue;
+        OnlineWallpaper w;
+        w.source = OnlineSource::Bing;
+        QRegularExpressionMatch m = name.match(base);
+        w.id = m.hasMatch() ? m.captured(1) : image.value("startdate").toString();
+        if (w.id.isEmpty()) continue;
+        w.credit = image.value("copyright").toString().trimmed();
+        w.title = image.value("title").toString().trimmed();
+        if (w.title.isEmpty() || w.title == "Info") w.title = QString(w.credit).remove(QRegularExpression("\\s*\\(©.*$"));
+        w.tags = {w.credit};
+        QString site = "https://www.bing.com" + base;
+        w.thumbUrl = site + "_1920x1080.jpg&w=400&h=225";
+        w.previewUrl = site + "_1920x1080.jpg&w=1280&h=720";
+        w.fullUrl = site + (uhd ? "_UHD.jpg" : "_1920x1080.jpg");
+        w.resolution = uhd ? "3840x2160" : "1920x1080";
+        items << w;
+    }
+    return items;
+}
+
+void OnlineLibrary::searchBing(int generation) {
+    // One list only: today and the 7 days before, then days 7-14 (Bing
+    // keeps no more). Bing's pictures for this system's country and language.
+    QString market = QLocale::system().name().replace('_', '-');
+    bool uhd = options_.resolution != Resolution::P1080;
+    auto items = std::make_shared<QList<OnlineWallpaper>>();
+    auto left = std::make_shared<int>(2);
+    for (int from : {0, 7}) {
+        QNetworkReply *reply =
+            get(QString("https://www.bing.com/HPImageArchive.aspx?format=js&idx=%1&n=8&mkt=%2").arg(from).arg(market));
+        connect(reply, &QNetworkReply::finished, this, [this, reply, generation, uhd, items, left] {
+            reply->deleteLater();
+            if (reply->error() == QNetworkReply::NoError) *items += parseBing(reply->readAll(), uhd);
+            if (--*left > 0) return;
+            QSet<QString> ids;
+            QList<OnlineWallpaper> kept;
+            for (const OnlineWallpaper &w : *items)
+                if (!ids.contains(w.id) && matchesWords(w.title + " " + w.credit)) {
+                    ids.insert(w.id);
+                    kept << w;
+                }
+            deliver(generation, kept);
+            sourceDone(generation, OnlineSource::Bing, false);
+        });
+    }
 }
 
 // What an X Live package's wallpaper can be, best first after size: videos, then a GIF.

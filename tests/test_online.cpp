@@ -25,6 +25,12 @@ static QString read(const char *name) {
     return QString::fromUtf8(f.readAll());
 }
 
+static QByteArray readBytes(const char *name) {
+    QFile f(QString(TESTS_DIR) + "/data/" + name);
+    f.open(QIODevice::ReadOnly);
+    return f.readAll();
+}
+
 int main(int argc, char **argv) {
     QCoreApplication app(argc, argv);
 
@@ -52,6 +58,39 @@ int main(int argc, char **argv) {
 
     CHECK(parseXLiveZip(read("xlive-item.html")) == "https://coolleget.com/wallpapers/Milky-Way.zip");
     CHECK(parseXLiveZip("<p>nothing</p>").isEmpty());
+
+    // Sucrose: the index (categories take turns, a path outside src/ is
+    // dropped) and each wallpaper's info.
+    QList<SucroseEntry> store = parseSucroseStore(readBytes("sucrose-store.json"));
+    CHECK(store.size() == 3);
+    CHECK(store.size() == 3 && store[0].category == "Abstract" && store[1].category == "War" && store[1].adult);
+    CHECK(store.size() == 3 && store[0].folder == "src/Abstract/Ink Flow-1");
+    CHECK(sucroseCategories(Genre::Cars) == QStringList{"Vehicles"});
+    OnlineWallpaper sw;
+    SucroseEntry neon{"Abstract", "Neon Wave-1", "src/Abstract/Neon Wave-1", false};
+    CHECK(applySucroseInfo(sw, neon, readBytes("sucrose-video.json")));
+    CHECK(sw.key() == "sucrose-Abstract-Neon-Wave-1");
+    CHECK(sw.fullUrl == "https://raw.githubusercontent.com/Taiizor/Store/develop/src/Abstract/Neon%20Wave-1/neon%20wave.mp4");
+    CHECK(sw.previewUrl.endsWith("/Neon%20Wave-1/preview.gif") && sw.video && sw.credit == "Some Artist");
+    CHECK(sw.tags == (QStringList{"Abstract", "Liquid", "Flow"}));
+    CHECK(OnlineLibrary::localFile(sw).endsWith("/sucrose-Abstract-Neon-Wave-1.mp4"));
+    OnlineWallpaper web, sneaky;
+    CHECK(!applySucroseInfo(web, neon, readBytes("sucrose-web.json")));
+    CHECK(!applySucroseInfo(sneaky, neon, readBytes("sucrose-sneaky.json")));
+
+    // Bing: days marked not for wallpapers are dropped; "Info" titles use the place.
+    QList<OnlineWallpaper> bing = parseBing(readBytes("bing.json"), true);
+    CHECK(bing.size() == 2);
+    CHECK(bing.size() == 2 && bing[0].key() == "bing-StoneBridge" && bing[0].title == "A bridge in the hills");
+    CHECK(bing.size() == 2 && bing[0].fullUrl == "https://www.bing.com/th?id=OHR.StoneBridge_EN-US1234567890_UHD.jpg");
+    CHECK(bing.size() == 2 && bing[0].credit.contains("A Photographer") && bing[0].resolution == "3840x2160");
+    CHECK(bing.size() == 2 && bing[1].title == "Quiet lake at dawn");
+    CHECK(bing.size() == 2 && OnlineLibrary::localFile(bing[0]).endsWith("/bing-StoneBridge-3840x2160.jpg"));
+    CHECK(parseBing(readBytes("bing.json"), false).value(0).fullUrl.endsWith("_1920x1080.jpg"));
+
+    // AI and Strict word checks.
+    CHECK(OnlineLibrary::aiMade("Neon city SDXL render"));
+    CHECK(!OnlineLibrary::aiMade("Rain over the mountains"));
 
     // Unpacking Lively packages (made by tests/make-zips.py into a temporary folder).
     QTemporaryDir tmp;

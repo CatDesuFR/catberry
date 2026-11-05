@@ -41,6 +41,7 @@
 #include <QVBoxLayout>
 #include <QVideoSink>
 #include <QVideoWidget>
+#include <QWidgetAction>
 #include <QWheelEvent>
 
 #include <algorithm>
@@ -154,9 +155,14 @@ MainWindow::MainWindow() : settings_(Settings::load()) {
     });
     connect(&onlineLib_, &OnlineLibrary::searchFinished, this, [this](bool more) {
         moreButton_->setVisible(more);
+        QStringList names;
+        for (QCheckBox *box : sourceBoxes_)
+            if (box->isChecked()) names << box->text();
+        QString list = names.size() > 1 ? names.mid(0, names.size() - 1).join(", ") + " and " + names.last()
+                                        : names.join("");
         libraryNote_->setText(online_.isEmpty() ? "Nothing found."
-                                                : "Free wallpapers from MotionBgs, Wallhaven, Wikimedia Commons and NASA. "
-                                                  "Hover a tile to play it; nothing is saved until you set it.");
+                                                : "Free wallpapers from " + list +
+                                                      ". Hover a tile to play it; nothing is saved until you set it.");
     });
     connect(&onlineLib_, &OnlineLibrary::thumbReady, this, [this](const QString &key, const QString &path) {
         loadThumb(key, path, false);
@@ -167,7 +173,7 @@ MainWindow::MainWindow() : settings_(Settings::load()) {
                     if (w.key() != key) continue;
                     w.previewUrl = previewUrl;
                     w.fullUrl = fullUrl;
-                    if (key == hoverKey_) playHover(previewUrl, w.video, false);
+                    if (key == hoverKey_ && w.source != OnlineSource::XLive) playHover(previewUrl, w.video, false);
                 }
             });
     connect(&onlineLib_, &OnlineLibrary::downloadProgress, this, [this](const QString &, qint64 received, qint64 total) {
@@ -415,23 +421,35 @@ QWidget *MainWindow::buildLibraryPage() {
     filter_->addItem("Pictures", int(OnlineFilter::Pictures));
     genre_ = new QComboBox;
     for (int g = 0; g < kGenreCount; ++g) genre_->addItem(genreName(Genre(g)), g);
-    // Any mix of sources: a menu of ticks.
+    // Any mix of sources: checkboxes in a menu that stays open while they
+    // are ticked; the search runs again once it closes.
     sourcesButton_ = new QToolButton;
     sourcesButton_->setPopupMode(QToolButton::InstantPopup);
     auto *sourcesMenu = new QMenu(sourcesButton_);
-    for (OnlineSource source : {OnlineSource::MotionBgs, OnlineSource::Wallhaven, OnlineSource::Commons, OnlineSource::Nasa,
-                                OnlineSource::XLive}) {
-        QAction *action = sourcesMenu->addAction(source == OnlineSource::Commons ? "Wikimedia Commons"
-                                                                                : OnlineLibrary::sourceName(source));
-        action->setCheckable(true);
-        action->setChecked(true);
-        action->setData(int(source));
-        sourceActions_ << action;
-        connect(action, &QAction::toggled, this, [this] {
+    auto sourcesChanged = std::make_shared<bool>(false);
+    for (OnlineSource source : {OnlineSource::MotionBgs, OnlineSource::Sucrose, OnlineSource::XLive, OnlineSource::Wallhaven,
+                                OnlineSource::Commons, OnlineSource::Nasa, OnlineSource::Bing}) {
+        auto *box = new QCheckBox(source == OnlineSource::Commons ? "Wikimedia Commons" : OnlineLibrary::sourceName(source));
+        box->setChecked(true);
+        box->setProperty("source", int(source));
+        auto *holder = new QWidget;
+        auto *holderLayout = new QHBoxLayout(holder);
+        holderLayout->setContentsMargins(10, 4, 14, 4);
+        holderLayout->addWidget(box);
+        auto *action = new QWidgetAction(sourcesMenu);
+        action->setDefaultWidget(holder);
+        sourcesMenu->addAction(action);
+        sourceBoxes_ << box;
+        connect(box, &QCheckBox::toggled, this, [this, sourcesChanged] {
+            *sourcesChanged = true;
             updateSourcesLabel();
-            searchOnline(false);
         });
     }
+    connect(sourcesMenu, &QMenu::aboutToHide, this, [this, sourcesChanged] {
+        if (!*sourcesChanged) return;
+        *sourcesChanged = false;
+        searchOnline(false);
+    });
     sourcesButton_->setMenu(sourcesMenu);
     updateSourcesLabel();
     strict_ = new QCheckBox("Strict filter");
@@ -655,6 +673,17 @@ QSize MainWindow::localResolution(const Wallpaper &w) {
 
 void MainWindow::sortWallpapers() {
     int mode = sort_->currentIndex();
+    if (mode == 0 && sources_->currentIndex() == Online) {
+        // Default order: the sources take turns (1st of each, then 2nd of
+        // each...), so a small source is not buried under the big ones.
+        QHash<int, int> count;
+        QHash<QString, int> turn;
+        for (const OnlineWallpaper &w : online_) turn.insert(w.key(), count[int(w.source)]++);
+        std::stable_sort(online_.begin(), online_.end(), [&turn](const OnlineWallpaper &a, const OnlineWallpaper &b) {
+            return turn.value(a.key()) < turn.value(b.key());
+        });
+        return;
+    }
     if (mode == 0) return;
     if (sources_->currentIndex() == Online) {
         std::stable_sort(online_.begin(), online_.end(), [mode](const OnlineWallpaper &a, const OnlineWallpaper &b) {
@@ -692,7 +721,8 @@ void MainWindow::populateGrid() {
     if (sources_->currentIndex() == Online) {
         for (const OnlineWallpaper &w : online_)
             add(w.key(), (w.video ? "LIVE  " : "") + w.title,
-                w.title + "\n" + OnlineLibrary::sourceName(w.source) + (w.resolution.isEmpty() ? "" : " - " + w.resolution),
+                w.title + "\n" + OnlineLibrary::sourceName(w.source) + (w.resolution.isEmpty() ? "" : " - " + w.resolution) +
+                    (w.credit.isEmpty() ? "" : "\n" + QString(w.source == OnlineSource::Sucrose ? "By " : "") + w.credit),
                 false);
     } else {
         for (const Wallpaper &w : local_)
@@ -832,6 +862,7 @@ void MainWindow::selectionChanged() {
         if (!w.resolution.isEmpty()) parts << w.resolution;
         if (w.fileSize > 0) parts << humanSize(w.fileSize);
         parts << (have ? "already downloaded" : "downloaded when you set it");
+        if (!w.credit.isEmpty()) parts << (w.source == OnlineSource::Sucrose ? "by " + w.credit : w.credit);
         details_->setText(parts.join(" - "));
         return;
     }
@@ -897,8 +928,8 @@ bool MainWindow::matchesSearch(const Wallpaper &w) const {
 
 void MainWindow::updateSourcesLabel() {
     int on = 0;
-    for (QAction *action : sourceActions_) on += action->isChecked();
-    sourcesButton_->setText(on == sourceActions_.size() ? "All sources" : QString("Sources: %1").arg(on));
+    for (QCheckBox *box : sourceBoxes_) on += box->isChecked();
+    sourcesButton_->setText(on == sourceBoxes_.size() ? "All sources" : QString("Sources: %1").arg(on));
 }
 
 void MainWindow::searchOnline(bool more) {
@@ -926,8 +957,8 @@ void MainWindow::searchOnline(bool more) {
     options.query = query;
     options.filter = OnlineFilter(filter_->currentData().toInt());
     options.genre = Genre(genre_->currentData().toInt());
-    for (QAction *action : sourceActions_)
-        if (action->isChecked()) options.sources << OnlineSource(action->data().toInt());
+    for (QCheckBox *box : sourceBoxes_)
+        if (box->isChecked()) options.sources << OnlineSource(box->property("source").toInt());
     options.strict = strict_->isChecked();
     options.hideAi = hideAi_->isChecked();
     options.resolution = Resolution(resolution_->currentData().toInt());

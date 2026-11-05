@@ -99,7 +99,7 @@ private:
     QLineEdit *search_;
     QComboBox *filter_, *genre_, *resolution_;
     QToolButton *sourcesButton_;
-    QList<QAction *> sourceActions_; // one tick per online source
+    QList<QCheckBox *> sourceBoxes_; // one checkbox per online source
     QCheckBox *strict_, *hideAi_;
     QWidget *onlineOptions_;
     QListWidget *grid_;

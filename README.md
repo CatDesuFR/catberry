@@ -1,7 +1,7 @@
 # catberry roofce — Roof Carton Engine
 
 A wallpaper manager for **Linux on Wayland** (KDE Plasma on Fedora, CachyOS,
-Garuda; also Hyprland and Sway), version **1.2.3**. Your wallpaper is drawn
+Garuda; also Hyprland and Sway), version **1.2.4**. Your wallpaper is drawn
 by roofce itself, as part of the desktop, not in a window: live videos,
 GIFs and pictures, with a Mond-style clock and a music player on top.
 
@@ -79,14 +79,21 @@ The current wallpaper with a live preview, how it fits the screen
 - **Wallpaper Engine**: if you own Wallpaper Engine on Steam, the Workshop
   wallpapers you subscribe to appear here, played straight from Steam's
   folder (no copy). Video wallpapers work; scene and web ones do not yet.
-- **Online (free)**: MotionBgs and X Live Wallpaper (live wallpapers),
-  Wallhaven, Wikimedia Commons and NASA, no account needed. X Live Wallpaper
-  shows only its picture on hover; setting one downloads its package and
-  plays the video inside (web-page ones cannot be shown). Search (it also searches the sites'
-  tags, so "eyes" finds wallpapers showing eyes), filter by live or pictures,
-  genre, resolution (1080p, 2K, 4K, 8K) and source, and sort by resolution
-  or size. Hover a tile to play it; nothing is saved until you set it.
-- **Strict filter** and **Hide AI art** are on by default.
+- **Online (free)**: live wallpapers from MotionBgs, Sucrose and X Live
+  Wallpaper; pictures from Wallhaven, Wikimedia Commons, NASA and Bing (its
+  daily pictures of the last two weeks, for your system's country), no
+  account needed. Search (it also searches the sites' tags, so "eyes" finds
+  wallpapers showing eyes), filter by live or pictures, genre, resolution
+  (1080p, 2K, 4K, 8K) and sources (tick any mix; the menu stays open), and
+  sort by resolution or size. The sources take turns in the grid, so each
+  shows near the top. Hover a tile to play it; nothing is saved until you
+  set it. X Live Wallpaper shows only its picture on hover; setting one
+  downloads its package and plays the video inside (web-page ones cannot be
+  shown). Sucrose and Bing tiles say who made or took them; the rights stay
+  with them.
+- **Strict filter** and **Hide AI art** are on by default. Strict filter
+  also hides what Sucrose marks as adult, and checks every tag a source
+  gives (not only the title).
 - wallpapers.com does not allow apps to use it; **Browse wallpapers.com**
   opens it in your browser, and what you download there can be uploaded.
 
