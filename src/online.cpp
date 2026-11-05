@@ -2,6 +2,7 @@
 
 #include "paths.h"
 
+#include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -44,8 +45,8 @@ const QStringList kAiWords = {"ai", "aiart", "aiartwork", "aigenerated", "midjou
 
 // Strict filter: tags that mark a wallpaper as showing (anime) girls, where
 // most suggestive ones are. Whole words, in the tags sources give.
-const QStringList kStrictTagWords = {"girl", "girls", "waifu", "maid", "idol", "gravure", "schoolgirl",
-                                     "bunny", "catgirl", "foxgirl", "kawaii", "loli", "oppai"};
+const QStringList kStrictTagWords = {"girl", "girls", "waifu", "gravure", "schoolgirl", "catgirl", "foxgirl",
+                                     "bunnygirl", "loli", "oppai"};
 
 // Commons categories that mark pictures as not suitable (checked as
 // substrings, so "Nude women in art" and "Topless women" both count).
@@ -187,7 +188,9 @@ void OnlineLibrary::search(const SearchOptions &options, bool more) {
         seen_.clear();
     }
     int generation = ++generation_;
-    pending_ = 0;
+    // Held at 1 while starting, so a source that answers straight away
+    // (Sucrose with its index in memory) cannot finish the search early.
+    pending_ = 1;
     for (OnlineSource source : options_.sources) {
         if (more && !hasMore_.value(source)) continue;
         // Wallhaven only has pictures, MotionBgs only live wallpapers, and
@@ -223,7 +226,11 @@ void OnlineLibrary::search(const SearchOptions &options, bool more) {
         case OnlineSource::Bing: searchBing(generation); break;
         }
     }
-    if (pending_ == 0) emit searchFinished(false);
+    if (--pending_ == 0) { // every source already answered (or none was asked)
+        bool any = false;
+        for (bool value : hasMore_) any |= value;
+        emit searchFinished(any);
+    }
 }
 
 void OnlineLibrary::sourceDone(int generation, OnlineSource source, bool more) {
@@ -248,10 +255,12 @@ void OnlineLibrary::deliver(int generation, QList<OnlineWallpaper> items) {
             QString lower = tags.toLower();
             bool bad = std::any_of(kBlockedCategories.begin(), kBlockedCategories.end(),
                                    [&lower](const QString &c) { return lower.contains(c); });
-            // The tags too, word by word: the blocklist and the girls' tags.
+            // The tags too, word by word: the girls' tags, and the blocklist
+            // (not on Commons' categories, where "Bra" is a town).
             static const QRegularExpression split("[^a-z]+");
             for (const QString &word : lower.split(split, Qt::SkipEmptyParts))
-                bad = bad || kBlocked.contains(word) || kStrictTagWords.contains(word);
+                bad = bad || kStrictTagWords.contains(word) ||
+                      (w.source != OnlineSource::Commons && kBlocked.contains(word));
             if (bad || (w.source == OnlineSource::MotionBgs && motionFiltered_.contains(w.id))) continue;
         }
         seen_.insert(w.key());
@@ -784,7 +793,10 @@ bool applySucroseInfo(OnlineWallpaper &w, const SucroseEntry &entry, const QByte
     bool video = type == 3 && QStringList{"mp4", "webm", "mkv", "mov", "m4v", "avi"}.contains(ext);
     if (!(gif || video) || !plainFileName(file)) return false;
     w.source = OnlineSource::Sucrose;
-    w.id = QString(entry.folder).remove(0, 4).replace(QRegularExpression("[^A-Za-z0-9]+"), "-");
+    // Readable, plus a short hash so "Neon Wave" and "Neon_Wave" (or names
+    // in other scripts) stay apart.
+    w.id = QString(entry.folder).remove(0, 4).replace(QRegularExpression("[^A-Za-z0-9]+"), "-") + "-" +
+           QString::fromLatin1(QCryptographicHash::hash(entry.folder.toUtf8(), QCryptographicHash::Sha1).toHex().left(8));
     w.title = info.value("Title").toString().trimmed();
     if (w.title.isEmpty()) w.title = QString(entry.name).remove(QRegularExpression("-\\d+$"));
     w.video = true;
@@ -823,11 +835,12 @@ void OnlineLibrary::sucrosePage(int generation) {
     int page = page_.value(OnlineSource::Sucrose, 1);
     if (page == 1) {
         // This search's matches: genre by category, words by name and
-        // category, and (Strict filter) not marked adult.
+        // category, and never what Sucrose marks as adult (Wallhaven too
+        // only ever gives safe-for-work ones).
         QStringList categories = sucroseCategories(options_.genre);
         sucroseMatches_.clear();
         for (const SucroseEntry &entry : sucroseStore_) {
-            if (options_.strict && entry.adult) continue;
+            if (entry.adult) continue;
             if (!categories.isEmpty() && !categories.contains(entry.category)) continue;
             if (!matchesWords(entry.name + " " + entry.category)) continue;
             sucroseMatches_ << entry;

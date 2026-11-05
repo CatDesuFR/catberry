@@ -61,6 +61,7 @@ private:
     // Rebuilds the tiles from local_ or online_, in the chosen order.
     void populateGrid();
     void sortWallpapers();
+    void showArriving();
     QSize localResolution(const Wallpaper &w);
     void selectionChanged();
     void applySelected();
@@ -78,6 +79,8 @@ private:
     OnlineLibrary onlineLib_;
     QList<Wallpaper> local_;
     QList<OnlineWallpaper> online_;
+    QList<OnlineWallpaper> arriving_; // results not shown yet (see showArriving)
+    QTimer *arrivingTimer_;
     int generation_ = 0; // discards thumbnails meant for an older list
 
     QListWidget *nav_;

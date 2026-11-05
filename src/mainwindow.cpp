@@ -147,13 +147,20 @@ MainWindow::MainWindow() : settings_(Settings::load()) {
 
     connect(nav_, &QListWidget::currentRowChanged, this, &MainWindow::showPage);
 
+    arrivingTimer_ = new QTimer(this);
+    arrivingTimer_->setSingleShot(true);
+    arrivingTimer_->setInterval(1500);
+    connect(arrivingTimer_, &QTimer::timeout, this, &MainWindow::showArriving);
     connect(&onlineLib_, &OnlineLibrary::results, this, [this](const QList<OnlineWallpaper> &items) {
-        online_ += items;
-        populateGrid();
+        // Gathered a moment so the sources can take turns, then added at
+        // the end: tiles already shown never move.
+        arriving_ += items;
+        if (!arrivingTimer_->isActive()) arrivingTimer_->start();
         for (const OnlineWallpaper &w : items)
             if (!icons_.contains(w.key())) onlineLib_.fetchThumb(w);
     });
     connect(&onlineLib_, &OnlineLibrary::searchFinished, this, [this](bool more) {
+        showArriving();
         moreButton_->setVisible(more);
         QStringList names;
         for (QCheckBox *box : sourceBoxes_)
@@ -426,7 +433,7 @@ QWidget *MainWindow::buildLibraryPage() {
     sourcesButton_ = new QToolButton;
     sourcesButton_->setPopupMode(QToolButton::InstantPopup);
     auto *sourcesMenu = new QMenu(sourcesButton_);
-    auto sourcesChanged = std::make_shared<bool>(false);
+    auto ticksBefore = std::make_shared<QList<bool>>();
     for (OnlineSource source : {OnlineSource::MotionBgs, OnlineSource::Sucrose, OnlineSource::XLive, OnlineSource::Wallhaven,
                                 OnlineSource::Commons, OnlineSource::Nasa, OnlineSource::Bing}) {
         auto *box = new QCheckBox(source == OnlineSource::Commons ? "Wikimedia Commons" : OnlineLibrary::sourceName(source));
@@ -440,15 +447,16 @@ QWidget *MainWindow::buildLibraryPage() {
         action->setDefaultWidget(holder);
         sourcesMenu->addAction(action);
         sourceBoxes_ << box;
-        connect(box, &QCheckBox::toggled, this, [this, sourcesChanged] {
-            *sourcesChanged = true;
-            updateSourcesLabel();
-        });
+        connect(box, &QCheckBox::toggled, this, &MainWindow::updateSourcesLabel);
     }
-    connect(sourcesMenu, &QMenu::aboutToHide, this, [this, sourcesChanged] {
-        if (!*sourcesChanged) return;
-        *sourcesChanged = false;
-        searchOnline(false);
+    auto ticks = [this] {
+        QList<bool> on;
+        for (QCheckBox *box : sourceBoxes_) on << box->isChecked();
+        return on;
+    };
+    connect(sourcesMenu, &QMenu::aboutToShow, this, [ticksBefore, ticks] { *ticksBefore = ticks(); });
+    connect(sourcesMenu, &QMenu::aboutToHide, this, [this, ticksBefore, ticks] {
+        if (ticks() != *ticksBefore) searchOnline(false);
     });
     sourcesButton_->setMenu(sourcesMenu);
     updateSourcesLabel();
@@ -594,6 +602,7 @@ void MainWindow::refreshLibrary() {
     grid_->clear();
     local_.clear();
     online_.clear();
+        arriving_.clear();
     details_->clear();
     int source = sources_->currentIndex();
     searchRow_->setVisible(true);
@@ -671,19 +680,24 @@ QSize MainWindow::localResolution(const Wallpaper &w) {
     return size;
 }
 
+void MainWindow::showArriving() {
+    arrivingTimer_->stop();
+    if (arriving_.isEmpty()) return;
+    // The sources take turns (1st of each, then 2nd of each...), so a small
+    // source is not buried under the big ones.
+    QHash<int, int> count;
+    QHash<QString, int> turn;
+    for (const OnlineWallpaper &w : arriving_) turn.insert(w.key(), count[int(w.source)]++);
+    std::stable_sort(arriving_.begin(), arriving_.end(), [&turn](const OnlineWallpaper &a, const OnlineWallpaper &b) {
+        return turn.value(a.key()) < turn.value(b.key());
+    });
+    online_ += arriving_;
+    arriving_.clear();
+    populateGrid();
+}
+
 void MainWindow::sortWallpapers() {
     int mode = sort_->currentIndex();
-    if (mode == 0 && sources_->currentIndex() == Online) {
-        // Default order: the sources take turns (1st of each, then 2nd of
-        // each...), so a small source is not buried under the big ones.
-        QHash<int, int> count;
-        QHash<QString, int> turn;
-        for (const OnlineWallpaper &w : online_) turn.insert(w.key(), count[int(w.source)]++);
-        std::stable_sort(online_.begin(), online_.end(), [&turn](const OnlineWallpaper &a, const OnlineWallpaper &b) {
-            return turn.value(a.key()) < turn.value(b.key());
-        });
-        return;
-    }
     if (mode == 0) return;
     if (sources_->currentIndex() == Online) {
         std::stable_sort(online_.begin(), online_.end(), [mode](const OnlineWallpaper &a, const OnlineWallpaper &b) {
@@ -942,6 +956,7 @@ void MainWindow::searchOnline(bool more) {
         ++generation_;
         grid_->clear();
         online_.clear();
+        arriving_.clear();
         moreButton_->hide();
         libraryNote_->setText("That search is not allowed.");
         return;
@@ -951,6 +966,7 @@ void MainWindow::searchOnline(bool more) {
         ++generation_;
         grid_->clear();
         online_.clear();
+        arriving_.clear();
         libraryNote_->setText("Loading...");
     }
     SearchOptions options;

@@ -69,11 +69,14 @@ int main(int argc, char **argv) {
     OnlineWallpaper sw;
     SucroseEntry neon{"Abstract", "Neon Wave-1", "src/Abstract/Neon Wave-1", false};
     CHECK(applySucroseInfo(sw, neon, readBytes("sucrose-video.json")));
-    CHECK(sw.key() == "sucrose-Abstract-Neon-Wave-1");
+    CHECK(sw.key().startsWith("sucrose-Abstract-Neon-Wave-1-") && sw.key().size() == 37);
     CHECK(sw.fullUrl == "https://raw.githubusercontent.com/Taiizor/Store/develop/src/Abstract/Neon%20Wave-1/neon%20wave.mp4");
     CHECK(sw.previewUrl.endsWith("/Neon%20Wave-1/preview.gif") && sw.video && sw.credit == "Some Artist");
     CHECK(sw.tags == (QStringList{"Abstract", "Liquid", "Flow"}));
-    CHECK(OnlineLibrary::localFile(sw).endsWith("/sucrose-Abstract-Neon-Wave-1.mp4"));
+    CHECK(OnlineLibrary::localFile(sw).endsWith("/" + sw.key() + ".mp4"));
+    OnlineWallpaper other;
+    SucroseEntry underscore{"Abstract", "Neon_Wave-1", "src/Abstract/Neon_Wave-1", false};
+    CHECK(applySucroseInfo(other, underscore, readBytes("sucrose-video.json")) && other.key() != sw.key());
     OnlineWallpaper web, sneaky;
     CHECK(!applySucroseInfo(web, neon, readBytes("sucrose-web.json")));
     CHECK(!applySucroseInfo(sneaky, neon, readBytes("sucrose-sneaky.json")));
