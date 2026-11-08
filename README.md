@@ -1,7 +1,7 @@
 # catberry roofce — Roof Carton Engine
 
 A wallpaper manager for **Linux on Wayland** (KDE Plasma on Fedora, CachyOS,
-Garuda; also Hyprland and Sway), version **1.2.4**. Your wallpaper is drawn
+Garuda; also Hyprland and Sway), version **1.2.5**. Your wallpaper is drawn
 by roofce itself, as part of the desktop, not in a window: live videos,
 GIFs and pictures, with a Mond-style clock and a music player on top.
 
@@ -100,7 +100,14 @@ The current wallpaper with a live preview, how it fits the screen
 ### Upload wallpaper
 
 Drop images (PNG, JPG, WebP), GIFs or videos (MP4, WebM, MKV, MOV) on the
-window, or choose them.
+window, or choose them. Links work too: paste them (one per line) and press
+**Add from links**, or drag a video or picture from your browser onto the
+window. A link can go straight to the file (for example
+`https://cdn.artstation.com/p/video_sources/.../clove-valorant-l.mp4`) or to
+a web page; from a page, roofce takes its video (the biggest size it offers),
+or else its picture. Sites that only let browsers in (and ArtStation's
+artwork pages, which load their videos with scripts) cannot be read: drag
+the video from the browser instead, or copy its address.
 
 ### Widgets
 

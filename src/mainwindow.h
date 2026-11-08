@@ -3,6 +3,7 @@
 #pragma once
 
 #include "fonts.h"
+#include "linkimport.h"
 #include "library.h"
 #include "online.h"
 #include "settings.h"
@@ -116,6 +117,11 @@ private:
     QPushButton *applyButton_, *deleteButton_, *moreButton_, *steamButton_, *refreshButton_;
 
     QLabel *uploadResult_;
+    class QPlainTextEdit *linksBox_;
+    QPushButton *linksButton_;
+    LinkImporter links_;
+    QStringList linkAdded_, linkErrors_; // this round of links, for the result line
+    void addLinks(const QStringList &links);
 
     FontLibrary fontLib_;
     QComboBox *clockFontBox_ = nullptr;

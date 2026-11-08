@@ -1,5 +1,6 @@
 // Unit tests for the online sources' page readers (no network).
 #include "../src/online.h"
+#include "../src/linkimport.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -94,6 +95,29 @@ int main(int argc, char **argv) {
     // AI and Strict word checks.
     CHECK(OnlineLibrary::aiMade("Neon city SDXL render"));
     CHECK(!OnlineLibrary::aiMade("Rain over the mountains"));
+
+    // Links: pasted text, pages, file types, bot checks.
+    CHECK(linksInText("https://a.com/x.mp4\n  http://b.org/p  ftp://c/d nonsense https://a.com/x.mp4") ==
+          (QStringList{"https://a.com/x.mp4", "http://b.org/p"}));
+    QList<QUrl> found = mediaInPage(read("page-video.html"), QUrl("https://example.com/post/7"));
+    QStringList foundText;
+    for (const QUrl &u : found) foundText << u.toString();
+    CHECK(foundText == (QStringList{"https://cdn.example.com/clips/wave.mp4?x=1&y=2", "https://example.com/player?id=1",
+                                    "https://example.com/v/big.webm", "https://example.com/v/mid.webm",
+                                    "https://example.com/v/small.webm", "https://example.com/media/loop.webm",
+                                    "https://cdn.example.com/clips/hd.mp4",
+                                    "https://example.com/cover.jpg", "https://example.com/poster.png"}));
+    CHECK(mediaInPage("<p>nothing</p>", QUrl("https://x.com")).isEmpty());
+    QByteArray mp4("\x00\x00\x00\x18" "ftypmp42\x00\x00\x00\x00mp42isom", 24);
+    CHECK(mediaExtension(mp4, "") == "mp4");
+    CHECK(mediaExtension(mp4, "application/octet-stream") == "mp4");
+    CHECK(mediaExtension(QByteArray("GIF89a\x01\x00\x01\x00", 10), "") == "gif");
+    CHECK(mediaExtension(QByteArray("\x89PNG\r\n\x1a\n", 8), "") == "png");
+    CHECK(mediaExtension("<!doctype html><html>", "text/html") == "");
+    CHECK(mediaExtension("<!doctype html><html>", "video/mp4") == ""); // a page that says it is a video
+    CHECK(botCheckPage(403, "<html><style>.cf_challenge_text_small{}</style>"));
+    CHECK(!botCheckPage(404, "<html>cf_challenge"));
+    CHECK(!botCheckPage(403, "Forbidden"));
 
     // Unpacking Lively packages (made by tests/make-zips.py into a temporary folder).
     QTemporaryDir tmp;

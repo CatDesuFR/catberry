@@ -27,6 +27,7 @@
 #include <QMovie>
 #include <QProcess>
 #include <QPropertyAnimation>
+#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QScrollBar>
@@ -993,12 +994,12 @@ QWidget *MainWindow::buildUploadPage() {
     col->setContentsMargins(28, 24, 28, 24);
     col->addWidget(heading("Upload wallpaper"));
     auto *intro = new QLabel("Add your own images (PNG, JPG, WebP, BMP), animated GIFs or videos (MP4, WebM, MKV, "
-                             "MOV). They are copied into your library.");
+                             "MOV), from your files or from links. They are copied into your library.");
     intro->setObjectName("dim");
     intro->setWordWrap(true);
     col->addWidget(intro);
 
-    auto *drop = new QLabel("Drop files here");
+    auto *drop = new QLabel("Drop files here, or a video or picture dragged from your browser");
     drop->setObjectName("drop");
     drop->setAlignment(Qt::AlignCenter);
     drop->setMinimumHeight(220);
@@ -1007,11 +1008,63 @@ QWidget *MainWindow::buildUploadPage() {
     auto *choose = new QPushButton("Choose files...");
     choose->setObjectName("primary");
     col->addWidget(choose, 0, Qt::AlignLeft);
+    // From links: straight to a file, or a page with one in it.
+    auto *linksLabel = new QLabel("Or paste links, one per line: a link to a video, GIF or picture file, or to a "
+                                  "page that has one.");
+    linksLabel->setObjectName("dim");
+    linksLabel->setWordWrap(true);
+    col->addSpacing(12);
+    col->addWidget(linksLabel);
+    linksBox_ = new QPlainTextEdit;
+    linksBox_->setPlaceholderText("https://cdn.artstation.com/p/video_sources/.../wallpaper.mp4");
+    linksBox_->setFixedHeight(84);
+    col->addWidget(linksBox_);
+    linksButton_ = new QPushButton("Add from links");
+    col->addWidget(linksButton_, 0, Qt::AlignLeft);
     uploadResult_ = new QLabel;
     uploadResult_->setWordWrap(true);
+    uploadResult_->setTextInteractionFlags(Qt::TextSelectableByMouse);
     col->addWidget(uploadResult_);
     col->addStretch();
 
+    connect(linksButton_, &QPushButton::clicked, this, [this] {
+        QStringList links = linksInText(linksBox_->toPlainText());
+        if (links.isEmpty()) {
+            uploadResult_->setText("No http or https links in the box.");
+            return;
+        }
+        linksBox_->clear();
+        addLinks(links);
+    });
+    connect(&links_, &LinkImporter::progress, this, [this](const QString &link, qint64 received, qint64 total) {
+        QString amount = total > 0 ? humanSize(received) + " of " + humanSize(total) : humanSize(received);
+        uploadResult_->setText("Downloading " + link + " ... " + amount);
+    });
+    connect(&links_, &LinkImporter::finished, this, [this](const QString &link, const QString &file,
+                                                           const QString &error) {
+        if (file.isEmpty()) {
+            linkErrors_ << link + ": " + error;
+            return;
+        }
+        QString importError;
+        QString copy = importFile(file, importError);
+        QFile::remove(file);
+        if (copy.isEmpty())
+            linkErrors_ << link + ": " + importError;
+        else
+            linkAdded_ << QFileInfo(copy).fileName();
+    });
+    connect(&links_, &LinkImporter::allDone, this, [this] {
+        linksButton_->setEnabled(true);
+        QString text;
+        if (!linkAdded_.isEmpty())
+            text += "Added: " + linkAdded_.join(", ") + ". Find them under Library > My wallpapers.";
+        if (!linkErrors_.isEmpty()) text += (text.isEmpty() ? "" : "\n") + linkErrors_.join("\n");
+        uploadResult_->setText(text);
+        linkAdded_.clear();
+        linkErrors_.clear();
+        if (sources_->currentIndex() == Mine) refreshLibrary();
+    });
     connect(choose, &QPushButton::clicked, this, [this] {
         QStringList files = QFileDialog::getOpenFileNames(
             this, "Choose wallpapers", QDir::homePath(),
@@ -1022,17 +1075,31 @@ QWidget *MainWindow::buildUploadPage() {
 }
 
 void MainWindow::dragEnterEvent(QDragEnterEvent *event) {
-    if (event->mimeData()->hasUrls()) event->acceptProposedAction();
+    if (event->mimeData()->hasUrls() || event->mimeData()->hasText()) event->acceptProposedAction();
 }
 
 void MainWindow::dropEvent(QDropEvent *event) {
-    QStringList files;
-    for (const QUrl &url : event->mimeData()->urls())
-        if (url.isLocalFile()) files << url.toLocalFile();
-    if (!files.isEmpty()) {
-        nav_->setCurrentRow(2);
-        upload(files);
+    // Files from the file manager; links (a video or picture dragged from a
+    // browser, or a link's text) are downloaded.
+    QStringList files, links;
+    for (const QUrl &url : event->mimeData()->urls()) {
+        if (url.isLocalFile())
+            files << url.toLocalFile();
+        else if (url.scheme() == "http" || url.scheme() == "https")
+            links << url.toString();
     }
+    if (files.isEmpty() && links.isEmpty() && event->mimeData()->hasText())
+        links = linksInText(event->mimeData()->text());
+    if (files.isEmpty() && links.isEmpty()) return;
+    nav_->setCurrentRow(2);
+    if (!files.isEmpty()) upload(files);
+    if (!links.isEmpty()) addLinks(links);
+}
+
+void MainWindow::addLinks(const QStringList &links) {
+    linksButton_->setEnabled(false);
+    uploadResult_->setText(QString("Loading %1 link%2...").arg(links.size()).arg(links.size() == 1 ? "" : "s"));
+    links_.add(links);
 }
 
 void MainWindow::upload(const QStringList &files) {
