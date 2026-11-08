@@ -90,7 +90,7 @@ QList<Wallpaper> scanUploads() {
     return out;
 }
 
-QString importFile(const QString &source, QString &error) {
+QString importFile(const QString &source, QString &error, bool move) {
     QFileInfo info(source);
     if (kindOfFile(source) == Kind::Unsupported) {
         error = info.fileName() + ": not an image, GIF or video";
@@ -100,6 +100,7 @@ QString importFile(const QString &source, QString &error) {
     // Never overwrite: "name (2).png", "name (3).png", ...
     for (int n = 2; QFileInfo::exists(target); ++n)
         target = paths::uploads() + "/" + info.completeBaseName() + " (" + QString::number(n) + ")." + info.suffix();
+    if (move && QFile::rename(source, target)) return target;
     if (!QFile::copy(source, target)) {
         error = info.fileName() + ": could not be copied";
         return QString();

@@ -118,7 +118,7 @@ private:
 
     QLabel *uploadResult_;
     class QPlainTextEdit *linksBox_;
-    QPushButton *linksButton_;
+    QPushButton *linksButton_, *linksCancel_;
     LinkImporter links_;
     QStringList linkAdded_, linkErrors_; // this round of links, for the result line
     void addLinks(const QStringList &links);

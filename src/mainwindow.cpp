@@ -1020,7 +1020,14 @@ QWidget *MainWindow::buildUploadPage() {
     linksBox_->setFixedHeight(84);
     col->addWidget(linksBox_);
     linksButton_ = new QPushButton("Add from links");
-    col->addWidget(linksButton_, 0, Qt::AlignLeft);
+    linksCancel_ = new QPushButton("Cancel");
+    linksCancel_->hide();
+    auto *linksRow = new QHBoxLayout;
+    linksRow->addWidget(linksButton_);
+    linksRow->addWidget(linksCancel_);
+    linksRow->addStretch();
+    col->addLayout(linksRow);
+    connect(linksCancel_, &QPushButton::clicked, &links_, &LinkImporter::cancel);
     uploadResult_ = new QLabel;
     uploadResult_->setWordWrap(true);
     uploadResult_->setTextInteractionFlags(Qt::TextSelectableByMouse);
@@ -1047,7 +1054,7 @@ QWidget *MainWindow::buildUploadPage() {
             return;
         }
         QString importError;
-        QString copy = importFile(file, importError);
+        QString copy = importFile(file, importError, true);
         QFile::remove(file);
         if (copy.isEmpty())
             linkErrors_ << link + ": " + importError;
@@ -1056,6 +1063,7 @@ QWidget *MainWindow::buildUploadPage() {
     });
     connect(&links_, &LinkImporter::allDone, this, [this] {
         linksButton_->setEnabled(true);
+        linksCancel_->hide();
         QString text;
         if (!linkAdded_.isEmpty())
             text += "Added: " + linkAdded_.join(", ") + ". Find them under Library > My wallpapers.";
@@ -1098,6 +1106,7 @@ void MainWindow::dropEvent(QDropEvent *event) {
 
 void MainWindow::addLinks(const QStringList &links) {
     linksButton_->setEnabled(false);
+    linksCancel_->show();
     uploadResult_->setText(QString("Loading %1 link%2...").arg(links.size()).arg(links.size() == 1 ? "" : "s"));
     links_.add(links);
 }

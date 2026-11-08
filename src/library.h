@@ -24,9 +24,9 @@ QString kindName(Kind kind);
 
 // Files from the Upload page and downloaded online wallpapers.
 QList<Wallpaper> scanUploads();
-// Copies `source` into the uploads folder; returns the new path, or empty
-// and sets `error`.
-QString importFile(const QString &source, QString &error);
+// Copies `source` into the uploads folder (moves it with `move`, which is
+// instant on the same disk); returns the new path, or empty and sets `error`.
+QString importFile(const QString &source, QString &error, bool move = false);
 
 // Whether Wallpaper Engine is installed in any Steam library.
 bool wallpaperEngineInstalled();

@@ -9,7 +9,10 @@
 #include <QStringList>
 #include <QUrl>
 
+#include <memory>
+
 class QFile;
+class QTemporaryDir;
 class QNetworkReply;
 
 // The http(s) links in pasted text (one per line, or separated by spaces).
@@ -29,9 +32,12 @@ class LinkImporter : public QObject {
     Q_OBJECT
 public:
     explicit LinkImporter(QObject *parent = nullptr);
+    ~LinkImporter() override;
     // Downloads each link in turn.
     void add(const QStringList &links);
-    bool busy() const { return reply_ != nullptr; }
+    // Stops the download and drops the links still waiting.
+    void cancel();
+    bool busy() const { return running_; }
 
 signals:
     void progress(const QString &link, qint64 received, qint64 total);
@@ -50,6 +56,11 @@ private:
     QString link_;              // the link being loaded, as given
     QNetworkReply *reply_ = nullptr;
     QFile *out_ = nullptr;
-    QString incoming_;          // the temporary folder
+    QString incoming_;          // this window's temporary folder
+    std::unique_ptr<QTemporaryDir> temp_;
+    bool running_ = false;      // between the first link and allDone()
+    bool cancelled_ = false;
+    QString stop_;              // why the current download was stopped early
+    enum { Unknown, Media, Page } kind_ = Unknown;
     QList<QUrl> candidates_;    // a page's pictures and videos still to try
 };

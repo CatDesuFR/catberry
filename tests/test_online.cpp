@@ -115,7 +115,10 @@ int main(int argc, char **argv) {
     CHECK(mediaExtension(QByteArray("\x89PNG\r\n\x1a\n", 8), "") == "png");
     CHECK(mediaExtension("<!doctype html><html>", "text/html") == "");
     CHECK(mediaExtension("<!doctype html><html>", "video/mp4") == ""); // a page that says it is a video
-    CHECK(botCheckPage(403, "<html><style>.cf_challenge_text_small{}</style>"));
+    CHECK(mediaExtension(QByteArray("PK\x03\x04\x14\x00\x00\x00\x08\x00", 10) + QByteArray(200, 'z'), "video/mp4") == "");
+    CHECK(mediaInPage("<meta property=\"og:video\" content=\"https://w.example/v.mp4?a=1&#038;b=2&amp;lt;\">",
+                      QUrl("https://w.example/")).value(0).toString() == "https://w.example/v.mp4?a=1&b=2&lt;");
+        CHECK(botCheckPage(403, "<html><style>.cf_challenge_text_small{}</style>"));
     CHECK(!botCheckPage(404, "<html>cf_challenge"));
     CHECK(!botCheckPage(403, "Forbidden"));
 

@@ -2,6 +2,8 @@
 
 #include "paths.h"
 
+#include <QDateTime>
+#include <QTemporaryDir>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -15,6 +17,7 @@ namespace {
 
 const qint64 kMaxFile = 4LL << 30;  // 4 GB: a long 4K video at most
 const qint64 kMaxPage = 8 << 20;    // web pages are read up to 8 MB
+const int kMaxCandidates = 8;       // pictures and videos tried from one page
 
 const QStringList kVideoExts = {"mp4", "webm", "mkv", "mov", "m4v", "avi"};
 const QStringList kImageExts = {"gif", "png", "jpg", "jpeg", "webp", "bmp"};
@@ -33,10 +36,24 @@ QString extensionFor(const QString &mime) {
     return QString();
 }
 
-QString decodeEntities(QString text) {
-    text.replace("&amp;", "&").replace("&quot;", "\"").replace("&#39;", "'").replace("&#x27;", "'");
-    text.replace("&lt;", "<").replace("&gt;", ">").replace("&#x2F;", "/").replace("&#47;", "/");
-    return text.trimmed();
+QString decodeEntities(const QString &text) {
+    // One pass, so "&amp;lt;" stays "&lt;": named ones and &#38; / &#x26; forms.
+    static const QRegularExpression entity("&(#x[0-9a-fA-F]+|#[0-9]+|amp|quot|apos|lt|gt);");
+    QString out;
+    qsizetype last = 0;
+    auto it = entity.globalMatch(text);
+    while (it.hasNext()) {
+        QRegularExpressionMatch m = it.next();
+        out += text.mid(last, m.capturedStart() - last);
+        QString name = m.captured(1);
+        uint code = name.startsWith("#x") ? name.mid(2).toUInt(nullptr, 16)
+                    : name.startsWith('#') ? name.mid(1).toUInt()
+                    : name == "amp" ? '&' : name == "quot" ? '"' : name == "apos" ? '\'' : name == "lt" ? '<' : '>';
+        out += code > 0 && code < 0x110000 ? QString::fromUcs4(reinterpret_cast<const char32_t *>(&code), 1) : QString();
+        last = m.capturedEnd();
+    }
+    out += text.mid(last);
+    return out.trimmed();
 }
 
 // A file name from the link: its last path part, without odd characters.
@@ -119,8 +136,9 @@ QList<QUrl> mediaInPage(const QString &html, const QUrl &base) {
     std::stable_sort(sources.begin(), sources.end(), [](auto &x, auto &y) { return x.first > y.first; });
     for (const auto &source : sources) add(videos, source.second);
     // Plain links to video files anywhere in the page (scripts included).
-    static const QRegularExpression file(R"re((https?:)?//[^\s"'<>()\\]+?\.(mp4|webm|mov|m4v|mkv)(\?[^\s"'<>()\\]*)?(?=["'\s<>)\\]))re",
-                                         QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression file(
+        R"re((https?:)?//[A-Za-z0-9.-]{1,253}/[^\s"'<>()\\]{0,1024}?\.(mp4|webm|mov|m4v|mkv)(\?[^\s"'<>()\\]{0,1024})?(?=["'\s<>)\\]))re",
+        QRegularExpression::CaseInsensitiveOption);
     // Scripts often write slashes as "\/".
     QString unescaped = QString(html).replace("\\/", "/");
     auto files = file.globalMatch(unescaped);
@@ -136,14 +154,11 @@ QString mediaExtension(const QByteArray &head, const QString &contentType) {
     QMimeType sniffed = db.mimeTypeForData(head);
     QString ext = extensionFor(sniffed.name());
     if (!ext.isEmpty()) return ext;
-    // Text (a page, an error message) is never a wallpaper, whatever the server says.
-    if (sniffed.inherits("text/plain")) return QString();
-    // The bytes say nothing roofce knows: trust the server only for types
-    // whose start is hard to recognise, never for text or HTML.
+    // The server's word counts only when the bytes say nothing at all (not
+    // text, not a zip or program saying it is a video).
+    if (!sniffed.isDefault() || head.isEmpty()) return QString();
     QString type = contentType.section(';', 0, 0).trimmed().toLower();
-    if (head.isEmpty() || type.startsWith("text/")) return QString();
-    QString fromType = extensionFor(type);
-    return fromType;
+    return type.startsWith("text/") ? QString() : extensionFor(type);
 }
 
 bool botCheckPage(int status, const QByteArray &head) {
@@ -156,21 +171,38 @@ bool botCheckPage(int status, const QByteArray &head) {
 }
 
 LinkImporter::LinkImporter(QObject *parent) : QObject(parent) {
-    incoming_ = QDir::cleanPath(paths::thumbs() + "/../incoming");
-    QDir(incoming_).removeRecursively(); // leftovers of an earlier run
-    QDir().mkpath(incoming_);
+    // A folder of this window's own (another roofce window has its own);
+    // leftovers of runs that crashed are cleared after a day.
+    QString root = QDir::cleanPath(paths::thumbs() + "/..");
+    QDir(root + "/incoming").removeRecursively(); // roofce 1.2.5 before release used this one
+    const QDateTime dayAgo = QDateTime::currentDateTime().addDays(-1);
+    for (const QFileInfo &old : QDir(root).entryInfoList({"incoming-*"}, QDir::Dirs | QDir::NoDotAndDotDot))
+        if (!old.isSymLink() && old.lastModified() < dayAgo) QDir(old.filePath()).removeRecursively();
+    temp_ = std::make_unique<QTemporaryDir>(root + "/incoming-XXXXXX");
+    incoming_ = temp_->isValid() ? temp_->path() : QString();
 }
+
+LinkImporter::~LinkImporter() = default;
 
 void LinkImporter::add(const QStringList &links) {
     for (const QString &link : links) queue_.enqueue(link);
-    if (!busy()) next();
+    if (!running_) next();
+}
+
+void LinkImporter::cancel() {
+    queue_.clear();
+    cancelled_ = true;
+    if (reply_) reply_->abort(); // its finished() reports "Cancelled" and ends the round
 }
 
 void LinkImporter::next() {
     if (queue_.isEmpty()) {
+        running_ = false;
+        cancelled_ = false;
         emit allDone();
         return;
     }
+    running_ = true;
     link_ = queue_.dequeue();
     fetch(QUrl(link_), false);
 }
@@ -189,12 +221,17 @@ void LinkImporter::fetch(const QUrl &url, bool fromPage) {
                         "onto roofce, or right-click it, copy the video address and paste that here.");
         return;
     }
-    QDir().mkpath(incoming_);
+    if (incoming_.isEmpty()) {
+        done(QString(), "Could not make a folder for downloads");
+        return;
+    }
     out_ = new QFile(incoming_ + "/download.part", this);
     if (!out_->open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         done(QString(), "Could not save the download");
         return;
     }
+    stop_.clear();
+    kind_ = Unknown;
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::UserAgentHeader,
                       "catberry-roofce/" ROOFCE_VERSION " (https://github.com/CatDesuFR/catberry)");
@@ -203,17 +240,56 @@ void LinkImporter::fetch(const QUrl &url, bool fromPage) {
     reply_ = net_.get(request);
     reply_->setReadBufferSize(1 << 20);
     QNetworkReply *reply = reply_;
-    connect(reply, &QNetworkReply::readyRead, this, [this, reply] {
-        out_->write(reply->readAll());
-        if (out_->size() > kMaxFile) reply->abort();
+    auto halt = [reply, this](const QString &why) {
+        if (stop_.isEmpty()) stop_ = why;
+        reply->abort();
+    };
+    connect(reply, &QNetworkReply::readyRead, this, [this, reply, fromPage, halt] {
+        if (!stop_.isEmpty()) return;
+        QByteArray data = reply->readAll();
+        if (out_->write(data) != data.size()) {
+            halt("Could not write the download (is the disk full?)");
+            return;
+        }
+        qint64 size = out_->size();
+        // Decided from the first 4 KB: a picture or video carries on, a page
+        // is read up to 8 MB, anything else stops here.
+        if (kind_ == Unknown && size >= 4096) {
+            int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            out_->flush();
+            QFile head(out_->fileName());
+            QByteArray start;
+            if (head.open(QIODevice::ReadOnly)) start = head.read(4096);
+            QString type = reply->header(QNetworkRequest::ContentTypeHeader).toString().toLower();
+            if (status >= 400)
+                kind_ = Page; // an error page: judged when it ends
+            else if (!mediaExtension(start, type).isEmpty())
+                kind_ = Media;
+            else if (type.contains("html") || start.trimmed().startsWith('<'))
+                kind_ = Page;
+            else {
+                halt(fromPage ? "The page's pictures and videos could not be loaded"
+                              : "That link is not a picture, GIF or video");
+                return;
+            }
+        }
+        if (size > (kind_ == Media ? kMaxFile : kMaxPage))
+            halt(kind_ == Media ? "Bigger than 4 GB" : "That page is too big to read");
     });
-    connect(reply, &QNetworkReply::downloadProgress, this,
-            [this](qint64 received, qint64 total) { emit progress(link_, received, total); });
+    connect(reply, &QNetworkReply::downloadProgress, this, [this, halt](qint64 received, qint64 total) {
+        if (total > kMaxFile) halt("Bigger than 4 GB");
+        emit progress(link_, received, total);
+    });
     connect(reply, &QNetworkReply::finished, this, [this, reply, fromPage] {
         reply->deleteLater();
         reply_ = nullptr;
-        out_->write(reply->readAll());
+        if (stop_.isEmpty()) {
+            QByteArray rest = reply->readAll();
+            if (out_->write(rest) != rest.size()) stop_ = "Could not write the download (is the disk full?)";
+        }
         out_->close();
+        if (out_->error() != QFileDevice::NoError && stop_.isEmpty())
+            stop_ = "Could not write the download (is the disk full?)";
         qint64 size = out_->size();
         QByteArray head;
         if (out_->open(QIODevice::ReadOnly)) {
@@ -226,15 +302,28 @@ void LinkImporter::fetch(const QUrl &url, bool fromPage) {
             out_->remove();
             delete out_;
             out_ = nullptr;
-            // From a page: try its next picture or video.
-            if (fromPage && !candidates_.isEmpty()) {
-                fetch(candidates_.takeFirst(), true);
+            if (cancelled_) {
+                done(QString(), "Cancelled");
+                return;
+            }
+            // From a page: try its next picture or video; when none is left,
+            // say so for the page.
+            if (fromPage) {
+                if (!candidates_.isEmpty()) {
+                    fetch(candidates_.takeFirst(), true);
+                    return;
+                }
+                done(QString(), "The page's pictures and videos could not be loaded (the last one: " + error + ")");
                 return;
             }
             done(QString(), error);
         };
-        if (size > kMaxFile) {
-            fail("Bigger than 4 GB");
+        if (cancelled_) {
+            fail("Cancelled");
+            return;
+        }
+        if (!stop_.isEmpty()) {
+            fail(stop_);
             return;
         }
         if (botCheckPage(status, head)) {
@@ -263,7 +352,8 @@ void LinkImporter::fetch(const QUrl &url, bool fromPage) {
         if (page && !fromPage && size <= kMaxPage && out_->open(QIODevice::ReadOnly)) {
             QString html = QString::fromUtf8(out_->readAll());
             out_->close();
-            candidates_ = mediaInPage(html, reply->url());
+            // The first few only: a page can link hundreds of files.
+            candidates_ = mediaInPage(html, reply->url()).mid(0, kMaxCandidates);
             if (candidates_.isEmpty()) {
                 fail("No picture or video found on that page");
                 return;
@@ -274,8 +364,7 @@ void LinkImporter::fetch(const QUrl &url, bool fromPage) {
             fetch(candidates_.takeFirst(), true);
             return;
         }
-        fail(fromPage ? "The page's pictures and videos could not be loaded"
-                      : "That link is not a picture, GIF or video");
+        fail(fromPage ? "Not a picture, GIF or video" : "That link is not a picture, GIF or video");
     });
 }
 
