@@ -162,7 +162,17 @@ namespace cmm {
         add({"prediction", "Frame Window Analyser", "Works out each replay click's frame window (how many ticks in a row it could land on and survive). Click Before Frames then aims for the earliest of them.", CBF, NO,
             false, [] { optInt("Search range (ticks each way)", "prediction.range", 16, 2, 64); }});
         add({"framecounter", "Frame Window Counter", "A ring and the window at every click of the replay, in NaN GD's colours, with a tally per colour.", CBF, NO,
-            false, [] { optBool("Hide windows over 10 (like NaN GD)", "framecounter.hide10", true); }});
+            false, [] {
+                {
+                    static char const* kAcc[] = {"Balanced (32 ticks each way)", "Max (64 ticks each way)"};
+                    auto& acc = val<int>("framecounter.accuracy", 1);
+                    if (ImGui::Combo("Accuracy", &acc, kAcc, 2)) save<int>("framecounter.accuracy", acc);
+                }
+                optBool("Measure the bot's macro first (loading screen)", "framecounter.preload", true);
+                optBool("Hide windows over 10 (like NaN GD)", "framecounter.hide10", true);
+                optBool("Ding when you pass a click", "framecounter.sound", true);
+                optFloat("Ding volume", "framecounter.volume", 0.6f, 0.f, 1.f, "%.2f");
+            }});
         add({"cbf", "Click Before Frames", "Follows a replay: a click up to N ticks (the stage, F8) before one of the replay's clicks is delayed to land exactly on it.", CBF, NO});
     }
 }

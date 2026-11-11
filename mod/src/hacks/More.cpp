@@ -2,6 +2,8 @@
 // Force Platformer, No/Instant Mirror, Auto LDM, confirm dialogs,
 // Hide Level Complete VFX, Level Edit, Verify Bypass, No (C) Mark.
 #include <core/Hacks.hpp>
+#include <unordered_set>
+#include <vector>
 #include <core/Log.hpp>
 #include <features/Stats.hpp>
 #include <Geode/modify/CCDelayTime.hpp>
@@ -66,9 +68,29 @@ class $modify(CMMMorePlayLayer, PlayLayer) {
         m_fields->autoKilled = false;
     }
 
+    // GD's complete effect also starts what brings up the end screen, so it
+    // always runs; with Hide Level Complete VFX only the effect objects it
+    // just added are hidden (their actions, like opening the end screen,
+    // keep going).
     void showCompleteEffect() {
-        if (cmm::on("hidecompletevfx")) return;
+        if (!cmm::on("hidecompletevfx")) return PlayLayer::showCompleteEffect();
+        std::vector<CCNode*> layers{this, m_objectLayer};
+        std::vector<std::unordered_set<CCNode*>> before;
+        for (auto layer : layers) {
+            std::unordered_set<CCNode*> kids;
+            if (layer && layer->getChildren()) {
+                for (auto child : CCArrayExt<CCNode*>(layer->getChildren())) kids.insert(child);
+            }
+            before.push_back(std::move(kids));
+        }
         PlayLayer::showCompleteEffect();
+        for (size_t i = 0; i < layers.size(); i++) {
+            auto layer = layers[i];
+            if (!layer || !layer->getChildren()) continue;
+            for (auto child : CCArrayExt<CCNode*>(layer->getChildren())) {
+                if (!before[i].count(child)) child->setVisible(false);
+            }
+        }
     }
 
     void postUpdate(float dt) {

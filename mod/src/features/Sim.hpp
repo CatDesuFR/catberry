@@ -18,6 +18,8 @@ namespace cmm::sim {
     // One physics tick. Returns false if the player died, or reached
     // something we can't simulate (portal to another gamemode, level end...).
     bool step(PlayLayer* pl, PlayerObject* p);
+    // Part of a tick (0..1), for clicks that land between ticks.
+    bool stepPart(PlayLayer* pl, PlayerObject* p, float fraction);
 
     // Put back orb/pad flags touched since the last call. Call after a run.
     void restoreTouched();

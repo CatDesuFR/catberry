@@ -24,7 +24,9 @@ namespace cmm::sim {
         std::unordered_set<EnhancedGameObject*> s_touchedSet;
 
         PlayLayer* s_owner = nullptr;
-        Ref<PlayerObject> s_scratch[3];
+        // Slots: 0-2 CBF/trajectory/replay analysis, 3 own-click tests,
+        // 4-11 clicks waiting to be measured, 12+ the recent-ticks history.
+        Ref<PlayerObject> s_scratch[128];
         Ref<PlayerCheckpoint> s_checkpoint;
 
         void hide(PlayerObject* p) {
@@ -40,6 +42,7 @@ namespace cmm::sim {
             for (auto& p : s_scratch) p = nullptr;
             s_owner = pl;
         }
+        if (slot < 0 || slot >= static_cast<int>(std::size(s_scratch))) return nullptr;
         auto& p = s_scratch[slot];
         if (!p) {
             p = PlayerObject::create(1, 1, pl, pl->m_objectLayer, false);
@@ -100,13 +103,16 @@ namespace cmm::sim {
         s_simulating = was;
     }
 
-    bool step(PlayLayer* pl, PlayerObject* p) {
+    bool step(PlayLayer* pl, PlayerObject* p) { return stepPart(pl, p, 1.f); }
+
+    bool stepPart(PlayLayer* pl, PlayerObject* p, float fraction) {
+        float dt = s_stepDt * fraction;
         s_simulating = true;
         s_player = p;
         s_died = false;
-        p->update(s_stepDt);
-        pl->checkCollisions(p, s_stepDt, false);
-        p->updateRotation(s_stepDt);
+        p->update(dt);
+        pl->checkCollisions(p, dt, false);
+        p->updateRotation(dt);
         s_simulating = false;
         s_player = nullptr;
         return !s_died && !s_stopped && !p->m_isDead;

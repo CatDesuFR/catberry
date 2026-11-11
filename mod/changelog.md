@@ -1,3 +1,22 @@
+# v1.0.0
+
+- Frame Window Counter: sub-tick precision. After finding the whole ticks a click can move, both edges of its window are narrowed down to 1/64 of a tick on the hidden player (the tick the edge falls in is split in two), so windows show with a decimal, e.g. "5.3". The colour band uses the rounded value. Decimals assume the click can land between ticks (as with Click Between Frames style input); with plain per-tick input the whole number is what counts.
+- Frame Window Counter: releases are measured and counted too (diamond markers; a release can't move before its press). The tally shows presses and releases separately.
+- Frame Window Counter: new "ms" row in the top-left list with the last click's window in milliseconds (one tick at 240 TPS = 4.17 ms), its window in frames, and whether it was a press or a release.
+- The loading screen measures the macro's releases as well.
+
+# v0.13.1
+
+- Fix: finishing a level with Hide Level Complete VFX on (also turned on by Max Performance) left you stuck without an end screen. GD's complete effect now always runs and only its effects are hidden. Tested in game.
+- Fix: keybinds couldn't be set (the menu never gets right-clicks). Every hack and shortcut now has an options arrow with "Keybind: Set / Clear" and "Favourite". Tested in game: a bound key toggles its hack.
+- Frame Window Counter: its tally now replaces the labels in the top-left corner while it's on, counts windows over 10 too ("10+"), and shows how many clicks were worked out.
+- Frame Window Counter: a ding when you pass each click (made in code, no sound files; tighter windows ring higher; on/off and volume in its options). Bolder rings with a tinted fill and a soft glow, more vivid band colours (windows over 10 are purple), bigger numbers that pop in.
+- Frame Window Counter: the tally and the markers now live on GD's HUD layer, so camera moves can't push the list off the corner (it was cut off on the left); markers follow the level and scale with camera zoom, and have a dark outline under the coloured ring so they read on any background. The tally has a name column and a count column.
+- Frame Window Counter now measures the clicks that actually happen (yours, the ones CBF hands to GD, and the Replay Bot's), so it works without a macro. When a press comes in, the player's state from just before it is kept; once the next press comes, that stretch is re-run on the hidden player with the press (and its release) moved earlier and later and every other click where it really was. A grey placeholder ring shows at the press until it's measured. If the press where it really was can't be reproduced (or really died), it shows "?" instead of a made-up number. Measuring runs a little each frame, so clicks don't stutter. Tested: plain presses on the test level measured 11 ticks, the same as the replay analyser, at 232 FPS (240 cap).
+- Frame Window Counter: loading screen. Entering a level with the Replay Bot on Play, a macro for this level and the counter on: a loading screen ("Measuring frame windows", progress bar, clicks done / total, Cancel) fast-forwards the macro in the background with the music paused and measures every press, then starts the level for real; each ring appears the moment its click happens. Accuracy setting in the counter's options: Max (64 ticks each way, default) or Balanced (32). Can be turned off ("Measure the bot's macro first"). A press with no next press has to survive half a second. Tested: 7 presses measured in under a second, then shown instantly during the real run.
+- Macros now remember their level on every recording. Click Before Frames won't follow a replay recorded on another level, and the counter's list says which level it belongs to. (Older macros without a saved level can't be checked.)
+- Replay Bot: playback gives each click to GD on exactly the tick it was recorded on (it could be a tick early before); clicks Click Before Frames hands to GD are recorded on the right tick. The loaded macro is shown clearly; a Delete button (click twice); finishing a level in practice mode while recording saves the macro automatically (name box, or "<level> <date time>"). Tested in game.
+
 # v0.13.0
 
 - Renamed to Catberry's Mod Menu (same mod ID, so settings, macros and keybinds stay).

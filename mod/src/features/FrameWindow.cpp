@@ -14,6 +14,16 @@
 #include <imgui.h>
 #include <algorithm>
 #include <cmath>
+#include <chrono>
+#include <deque>
+#include <map>
+#include <Geode/modify/GJBaseGameLayer.hpp>
+#include <Geode/modify/EnhancedGameObject.hpp>
+#include <Geode/modify/CCScheduler.hpp>
+#include <features/Replay.hpp>
+#include <cstring>
+#include <Geode/fmod/fmod.hpp>
+#include <fmt/ranges.h>
 
 using namespace geode::prelude;
 
@@ -31,18 +41,80 @@ namespace cmm::fw {
         std::vector<Result> s_results;
         size_t s_replaySize = 0;
 
-        bool analyserOn() { return cmm::on("prediction") || cmm::on("framecounter"); }
+        // Windows of the replay's clicks are only needed by Click Before Frames.
+        bool analyserOn() { return cmm::on("prediction"); }
         int searchRange() { return std::clamp(cmm::val<int>("prediction.range", 16), 2, 64); }
 
-        // NaN GD's colour bands.
+        // NaN GD's colour bands, made a bit more vivid. Over 10 is purple.
         ccColor3B bandColor(int window) {
-            if (window <= 1) return {255, 70, 70};
-            if (window == 2) return {255, 153, 51};
-            if (window == 3) return {255, 217, 70};
+            if (window <= 1) return {255, 40, 40};
+            if (window == 2) return {255, 140, 0};
+            if (window == 3) return {255, 225, 0};
             if (window == 4) return {255, 255, 255};
-            if (window <= 6) return {102, 222, 135};
-            if (window <= 8) return {102, 171, 255};
-            return {92, 107, 237};
+            if (window <= 6) return {0, 235, 100};
+            if (window <= 8) return {30, 170, 255};
+            if (window <= 10) return {70, 80, 255};
+            return {190, 90, 255};
+        }
+
+        int bandIndex(int window);
+
+        // ---- dings ----
+        // A short bell, made here so no sound files are needed. Tighter
+        // windows ring higher. One sound per band, created once.
+        FMOD::Sound* s_dings[8] = {};
+        std::vector<char> s_dingData[8];
+
+        std::vector<char> makeBell(float freq) {
+            constexpr int rate = 44100;
+            int samples = rate * 45 / 100;  // 0.45 s
+            std::vector<char> wav(44 + samples * 2);
+            auto put32 = [&](size_t at, uint32_t v) { for (int i = 0; i < 4; i++) wav[at + i] = static_cast<char>(v >> (8 * i)); };
+            auto put16 = [&](size_t at, uint16_t v) { wav[at] = static_cast<char>(v); wav[at + 1] = static_cast<char>(v >> 8); };
+            std::memcpy(wav.data(), "RIFF", 4); put32(4, 36 + samples * 2);
+            std::memcpy(wav.data() + 8, "WAVEfmt ", 8); put32(16, 16); put16(20, 1); put16(22, 1);
+            put32(24, rate); put32(28, rate * 2); put16(32, 2); put16(34, 16);
+            std::memcpy(wav.data() + 36, "data", 4); put32(40, samples * 2);
+            for (int i = 0; i < samples; i++) {
+                float t = static_cast<float>(i) / rate;
+                float attack = std::min(1.f, t / 0.004f);
+                // A bell: the main tone plus two quieter, inharmonic overtones.
+                float v = std::sin(2.f * static_cast<float>(M_PI) * freq * t) * std::exp(-t * 7.f)
+                        + 0.45f * std::sin(2.f * static_cast<float>(M_PI) * freq * 2.76f * t) * std::exp(-t * 11.f)
+                        + 0.2f * std::sin(2.f * static_cast<float>(M_PI) * freq * 5.4f * t) * std::exp(-t * 16.f);
+                auto sample = static_cast<int16_t>(std::clamp(v * attack * 0.45f, -1.f, 1.f) * 32767.f);
+                put16(44 + i * 2, static_cast<uint16_t>(sample));
+            }
+            return wav;
+        }
+
+        void ding(int window) {
+            if (!cmm::val<bool>("framecounter.sound", true)) return;
+            auto engine = FMODAudioEngine::sharedEngine();
+            if (!engine || !engine->m_system) return;
+            int band = window > 10 ? 7 : bandIndex(window);
+            // band 0 = 1 tick (highest) ... 7 = over 10 (lowest)
+            constexpr float kFreq[8] = {1568.f, 1397.f, 1245.f, 1109.f, 988.f, 880.f, 784.f, 659.f};
+            if (!s_dings[band]) {
+                s_dingData[band] = makeBell(kFreq[band]);
+                FMOD_CREATESOUNDEXINFO info{};
+                info.cbsize = sizeof(info);
+                info.length = static_cast<unsigned>(s_dingData[band].size());
+                auto result = engine->m_system->createSound(s_dingData[band].data(), FMOD_OPENMEMORY | FMOD_CREATESAMPLE, &info, &s_dings[band]);
+                if (result != FMOD_OK) {
+                    log::warn("Frame window ding: could not create the sound (FMOD error {})", static_cast<int>(result));
+                    s_dings[band] = nullptr;
+                    return;
+                }
+                log::debug("Frame window ding: sound for band {} ready ({:.0f} Hz)", band, kFreq[band]);
+            }
+            FMOD::Channel* channel = nullptr;
+            auto played = engine->m_system->playSound(s_dings[band], nullptr, false, &channel);
+            if (played == FMOD_OK && channel) {
+                channel->setVolume(std::clamp(cmm::val<float>("framecounter.volume", 0.6f), 0.f, 1.f));
+            } else {
+                log::warn("Frame window ding: could not play (FMOD error {})", static_cast<int>(played));
+            }
         }
         int bandIndex(int window) {
             if (window <= 1) return 0;
@@ -145,90 +217,806 @@ namespace cmm::fw {
         return true;
     }
 
-    void drawOverlay() {
-        auto pl = PlayLayer::get();
-        if (!pl || !cmm::on("framecounter")) return;
-        int counts[7] = {};
-        int total = 0;
-        for (auto const& r : s_results) {
-            if (!r.passed || !r.analysed || !shown(r.window)) continue;
-            counts[bandIndex(r.window)]++;
-            total++;
+    // The tally is drawn on the level now (see the list in FrameWindowLayer).
+    void drawOverlay() {}
+}
+
+// ---------------------------------------------------------------------------
+// The counter: windows of the clicks that actually happen (yours, the ones
+// Click Before Frames hands to GD, and the Replay Bot's).
+//
+// The player's state is kept for the last ticks. When a press comes in, the
+// state from `range` ticks before it is kept. Once the next press comes (so we
+// know how long it had to survive), that stretch is re-run on the hidden
+// player with the press (and its release) moved earlier and later, with every
+// other click where it really was. The window is how many ticks in a row
+// survive until just before that next press. If even the press where it
+// really was doesn't survive in the re-run, the result is "?" (the simulation
+// can't reproduce this spot), never a made-up number.
+//
+// Ticks: a click made between frames after tick T acts on tick T + 2; one
+// handed to GD at the start of a tick acts on that tick (measured in game).
+// ---------------------------------------------------------------------------
+namespace cmm::fw::own {
+    namespace {
+        constexpr int kLegSlot = 3;
+        constexpr int kPendingSlots = 16;  // sim slots 4..19
+        constexpr int kRingBase = 20;      // sim slots 20..
+        constexpr int kRing = 72;          // ticks of history (more than the biggest range)
+
+        int64_t s_tick = 0;                // physics ticks, counted here
+        unsigned s_lastProgress = ~0u;
+        bool s_inStep = false;
+        int64_t s_ringTick[kRing];
+        bool s_ringReady = false;
+
+        struct Click { int64_t act; bool down; };
+        std::deque<Click> s_clicks;        // recent clicks of player 1
+
+        struct Activation { Ref<EnhancedGameObject> obj; int64_t tick; };
+        std::deque<Activation> s_activations;  // orbs/pads the real player may have used
+
+        int s_nextId = 1;
+        struct Pressed { int id; CCPoint where; bool release; };
+        std::vector<Pressed> s_pressed;    // new presses: get a placeholder marker
+
+        struct Job {
+            int id = 0;
+            bool isRelease = false; // measures a release instead of a press
+            int64_t act;            // tick the click acted on
+            int64_t release = -1;   // for a press: tick its release acted on (moves with it)
+            int64_t pressAt = -1;   // for a release: its press (the release can't move before it)
+            int64_t base;           // tick the kept state is from (start of that tick)
+            int64_t horizon = -1;   // must survive until this tick; -1 = not known yet
+            int slot;               // sim slot holding the kept state
+            CCPoint where;
+            // 0 = as it was, 1 = later, 2 = earlier, 3 = sub-tick at the late
+            // edge, 4 = sub-tick at the early edge, 5 = done
+            int phase = 0;
+            int latest = 0, earliest = 0;
+            double right = 0.0, left = 0.0;  // exact edges (in ticks) of the window
+            double lo = 0.0, hi = 0.0;       // bisection: lo survives, hi dies
+            int steps = 0;
+            bool unknown = false;
+        };
+        std::vector<Job> s_jobs;
+        bool s_slotUsed[kPendingSlots] = {};
+
+        // window: in ticks, with sub-tick precision (e.g. 5.3)
+        struct OwnResult { int id; CCPoint where; double window; bool unknown; int64_t rel; bool release; };
+        int64_t s_attemptStart = 0;        // own tick the attempt started on
+        std::vector<OwnResult> s_done;     // finished, waiting to be shown
+        std::vector<int> s_dropped;        // presses that won't be measured (their placeholder goes)
+
+        // Counter accuracy: how far each press is moved, each way.
+        int range() { return cmm::val<int>("framecounter.accuracy", 1) == 0 ? 32 : 64; }
+
+        int freeSlot() {
+            for (int i = 0; i < kPendingSlots; i++) {
+                if (!s_slotUsed[i]) { s_slotUsed[i] = true; return 4 + i; }
+            }
+            return -1;
         }
-        auto& io = ImGui::GetIO();
-        ImGui::SetNextWindowPos({10.f, io.DisplaySize.y * 0.45f}, ImGuiCond_Always);
-        ImGui::SetNextWindowBgAlpha(0.45f);
-        auto flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoInputs
-            | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
-        if (ImGui::Begin("##framewindows", nullptr, flags)) {
-            if (cbf::replayName().empty()) {
-                ImGui::TextDisabled("Frame windows: pick a replay in the CBF window");
-            } else {
-                for (int b = 6; b >= 0; b--) {
-                    int window = b <= 3 ? b + 1 : b == 4 ? 5 : b == 5 ? 7 : 9;
-                    auto c = bandColor(window);
-                    ImGui::TextColored({c.r / 255.f, c.g / 255.f, c.b / 255.f, 1.f}, "%s: %d", kBandNames[b], counts[b]);
+        void releaseSlot(int slot) {
+            if (slot >= 4 && slot < 4 + kPendingSlots) s_slotUsed[slot - 4] = false;
+        }
+
+        void clearAll() {
+            for (auto& j : s_jobs) releaseSlot(j.slot);
+            s_jobs.clear();
+            s_clicks.clear();
+            s_activations.clear();
+            s_ringReady = false;
+            for (auto& t : s_ringTick) t = -1;
+        }
+
+        // Re-run from the kept state with the click (a press together with its
+        // release) moved by `offset` ticks, which can be a fraction: a click
+        // between two ticks splits that tick in two. True if the player is
+        // still alive at the horizon.
+        bool leg(PlayLayer* pl, Job const& job, double offset) {
+            auto p = sim::scratch(pl, kLegSlot);
+            auto from = sim::scratch(pl, job.slot);
+            if (!p || !from) return false;
+
+            // Orbs and pads the real player used after the kept moment have to
+            // be usable again in the re-run.
+            struct Saved { EnhancedGameObject* obj; bool p1, p2, active; };
+            std::vector<Saved> saved;
+            for (auto const& a : s_activations) {
+                if (a.tick < job.base || !a.obj) continue;
+                auto o = a.obj.data();
+                if (!o->m_activatedByPlayer1 && !o->m_activatedByPlayer2 && !o->m_isActivated) continue;
+                saved.push_back({o, o->m_activatedByPlayer1, o->m_activatedByPlayer2, o->m_isActivated});
+                o->m_activatedByPlayer1 = o->m_activatedByPlayer2 = false;
+                o->m_isActivated = false;
+            }
+
+            sim::copyState(p, from);
+            sim::clearStopped();
+            struct Event { double time; bool down; };
+            std::vector<Event> events;
+            for (auto const& c : s_clicks) {
+                double t = static_cast<double>(c.act);
+                bool moved = job.isRelease ? (c.act == job.act && !c.down)
+                                           : ((c.act == job.act && c.down) || (c.act == job.release && !c.down));
+                if (moved) t += offset;
+                if (t < static_cast<double>(job.base) || t > static_cast<double>(job.horizon)) continue;
+                events.push_back({t, c.down});
+            }
+            std::stable_sort(events.begin(), events.end(), [](auto const& a, auto const& b) { return a.time < b.time; });
+
+            auto apply = [&](Event const& ev) {
+                if (ev.down) p->pushButton(PlayerButton::Jump);
+                else p->releaseButton(PlayerButton::Jump);
+            };
+            bool alive = true;
+            size_t e = 0;
+            for (int64_t t = job.base; t < job.horizon && alive; t++) {
+                // Clicks on this tick; ones between ticks split it.
+                double done = 0.0;
+                while (alive && e < events.size() && events[e].time < static_cast<double>(t + 1)) {
+                    double frac = std::max(0.0, events[e].time - static_cast<double>(t));
+                    if (frac > done + 1e-6) {
+                        alive = sim::stepPart(pl, p, static_cast<float>(frac - done));
+                        done = frac;
+                    }
+                    apply(events[e]);
+                    e++;
                 }
-                ImGui::TextDisabled("%d clicks", total);
+                if (alive && done < 1.0 - 1e-6) alive = sim::stepPart(pl, p, static_cast<float>(1.0 - done));
+                if (sim::stopped()) { alive = true; break; }
+            }
+            sim::restoreTouched();
+            for (auto const& sv : saved) {
+                sv.obj->m_activatedByPlayer1 = sv.p1;
+                sv.obj->m_activatedByPlayer2 = sv.p2;
+                sv.obj->m_isActivated = sv.active;
+            }
+            return alive;
+        }
+
+        constexpr int kBisect = 6;  // halvings per edge: 1/64 of a tick
+
+        // Works on the oldest ready job for up to `budgetMs`.
+        void work(PlayLayer* pl, float budgetMs) {
+            auto start = std::chrono::steady_clock::now();
+            auto elapsed = [&] { return std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - start).count(); };
+            int r = range();
+            while (elapsed() < budgetMs) {
+                auto it = std::find_if(s_jobs.begin(), s_jobs.end(), [](Job const& j) { return j.horizon >= 0 && j.phase < 5; });
+                if (it == s_jobs.end()) return;
+                auto& job = *it;
+                switch (job.phase) {
+                    case 0:
+                        if (!leg(pl, job, 0.0)) { job.unknown = true; job.phase = 5; }
+                        else job.phase = 1;
+                        break;
+                    case 1:  // later, a whole tick at a time
+                        if (job.latest < r && leg(pl, job, job.latest + 1)) job.latest++;
+                        else {
+                            job.phase = 2;
+                            job.right = job.latest;
+                        }
+                        break;
+                    case 2: {  // earlier, a whole tick at a time
+                        bool canGoEarlier = job.act + job.earliest - 1 >= job.base &&
+                                            job.act + job.earliest - 1 > job.pressAt;
+                        if (job.earliest > -r && canGoEarlier && leg(pl, job, job.earliest - 1)) job.earliest--;
+                        else {
+                            job.left = job.earliest;
+                            // Late edge: between the last tick that survives and the next.
+                            if (job.latest < r) {
+                                job.phase = 3;
+                                job.lo = job.latest;
+                                job.hi = job.latest + 1;
+                                job.steps = 0;
+                            } else {
+                                job.phase = 4;
+                            }
+                        }
+                        break;
+                    }
+                    case 3: {
+                        double mid = (job.lo + job.hi) / 2.0;
+                        if (leg(pl, job, mid)) job.lo = mid;
+                        else job.hi = mid;
+                        if (++job.steps >= kBisect) {
+                            job.right = job.lo;
+                            job.phase = 4;
+                            job.steps = -1;
+                        }
+                        break;
+                    }
+                    case 4: {
+                        // Early edge: between the tick before the first that survives and it.
+                        if (job.steps == -1 || job.steps == 0) {
+                            bool canGoEarlier = job.act + job.earliest - 1 >= job.base &&
+                                                job.act + job.earliest - 1 > job.pressAt;
+                            if (job.earliest <= -r || !canGoEarlier) { job.phase = 5; break; }
+                            job.lo = job.earliest;      // survives
+                            job.hi = job.earliest - 1;  // dies
+                            job.steps = 1;
+                        }
+                        double mid = (job.lo + job.hi) / 2.0;
+                        if (leg(pl, job, mid)) job.lo = mid;
+                        else job.hi = mid;
+                        if (++job.steps > kBisect) {
+                            job.left = job.lo;
+                            job.phase = 5;
+                        }
+                        break;
+                    }
+                }
+                if (job.phase == 5) {
+                    // The window: the time from the earliest to the latest
+                    // moment the click still works. Whole ticks only would give
+                    // latest - earliest + 1; the exact edges add the fraction.
+                    double window = job.unknown ? 0.0 : std::max(0.1, job.right - job.left);
+                    s_done.push_back({job.id, job.where, window, job.unknown, job.act - s_attemptStart, job.isRelease});
+                    log::debug("Frame window ({} at tick {}): {}", job.isRelease ? "release" : "press", job.act,
+                        job.unknown ? std::string("? (can't reproduce)") : fmt::format("{:.2f} (from {:+.2f} to {:+.2f})", window, job.left, job.right));
+                    releaseSlot(job.slot);
+                    s_jobs.erase(it);
+                }
             }
         }
-        ImGui::End();
+
+        // ---- pre-measuring a macro behind a loading screen ----
+        enum class Pre { Off, Loading, Ready };
+        Pre s_pre = Pre::Off;
+        // (attempt tick * 2 + is release) -> (window, unknown)
+        std::map<int64_t, std::pair<double, bool>> s_table;
+        int s_preTotal = 0;      // presses in the macro
+        int s_preMeasured = 0;
+        bool s_preStepping = false;  // still fast-forwarding the level
+
+        // Already measured behind the loading screen: show it right away.
+        bool fromTable(PlayLayer* pl, int64_t act, bool release) {
+            if (s_pre != Pre::Ready) return false;
+            int64_t rel = act - s_attemptStart;
+            for (int64_t d : {0LL, -1LL, 1LL}) {
+                auto it = s_table.find((rel + d) * 2 + (release ? 1 : 0));
+                if (it == s_table.end()) continue;
+                s_done.push_back({s_nextId++, pl->m_player1->getPosition(), it->second.first, it->second.second, rel, release});
+                return true;
+            }
+            return false;
+        }
+
+        // Keeps the state from before a click and queues it to be measured.
+        void startJob(PlayLayer* pl, int64_t act, bool release) {
+            int64_t base = act - range() - 1;
+            int ringSlot = static_cast<int>(((base % kRing) + kRing) % kRing);
+            if (!s_ringReady || s_ringTick[ringSlot] != base) return;  // not enough history yet
+            int slot = freeSlot();
+            if (slot < 0) return;  // too many clicks waiting
+            auto from = sim::scratch(pl, kRingBase + ringSlot);
+            auto to = sim::scratch(pl, slot);
+            if (!from || !to) { releaseSlot(slot); return; }
+            sim::copyState(to, from);
+            Job job;
+            job.id = s_nextId++;
+            job.isRelease = release;
+            if (release) {
+                for (auto it = s_clicks.rbegin(); it != s_clicks.rend(); ++it) {
+                    if (it->down && it->act <= act) { job.pressAt = it->act; break; }
+                }
+            }
+            job.act = act;
+            job.base = base;
+            job.slot = slot;
+            job.where = pl->m_player1->getPosition();
+            s_pressed.push_back({job.id, job.where, release});
+            s_jobs.push_back(job);
+        }
+
+        // A press acted (or will act) on tick `act`.
+        void onPress(PlayLayer* pl, int64_t act) {
+            // Everything waiting now knows how long it had to survive.
+            for (auto& j : s_jobs) {
+                if (j.horizon < 0) j.horizon = std::max(j.act + 12, act - 4);
+            }
+            if (fromTable(pl, act, false)) return;
+            startJob(pl, act, false);
+        }
+
+        void onRelease(PlayLayer* pl, int64_t act) {
+            for (auto it = s_jobs.rbegin(); it != s_jobs.rend(); ++it) {
+                if (!it->isRelease && it->release < 0 && it->act <= act) { it->release = act; break; }
+            }
+            if (fromTable(pl, act, true)) return;
+            startJob(pl, act, true);
+        }
     }
+
+    bool active() { return cmm::on("framecounter"); }
+}
+
+namespace cmm::fw {
+    bool loading() { return own::s_pre == own::Pre::Loading; }
 }
 
 using namespace cmm::fw;
 
+// Counts ticks, keeps the player's recent states and notes orb use.
+class $modify(FrameWindowGameLayer, GJBaseGameLayer) {
+    static void onModify(auto& self) {
+        // First: the state is kept before anything else acts on this tick.
+        (void)self.setHookPriority("GJBaseGameLayer::processCommands", Priority::First);
+        // Last: see the clicks GD actually gets (after Click Before Frames).
+        (void)self.setHookPriority("GJBaseGameLayer::handleButton", Priority::Last);
+    }
+
+    bool isMain() {
+        auto pl = PlayLayer::get();
+        return pl && static_cast<GJBaseGameLayer*>(pl) == this;
+    }
+
+    void processCommands(float dt, bool isHalfTick, bool isLastTick) {
+        if (isMain() && own::active() && !cmm::sim::simulating()) {
+            auto pl = static_cast<PlayLayer*>(static_cast<GJBaseGameLayer*>(this));
+            unsigned progress = m_gameState.m_currentProgress;
+            if (progress != own::s_lastProgress) {
+                own::s_lastProgress = progress;
+                own::s_tick++;
+                int slot = static_cast<int>(own::s_tick % own::kRing);
+                if (auto p = cmm::sim::scratch(pl, own::kRingBase + slot); p && m_player1) {
+                    cmm::sim::copyState(p, m_player1);
+                    own::s_ringTick[slot] = own::s_tick;
+                    own::s_ringReady = true;
+                }
+                while (!own::s_clicks.empty() && own::s_clicks.front().act < own::s_tick - 2000) own::s_clicks.pop_front();
+                while (!own::s_activations.empty() && own::s_activations.front().tick < own::s_tick - 2000) own::s_activations.pop_front();
+            }
+        }
+        own::s_inStep = true;
+        GJBaseGameLayer::processCommands(dt, isHalfTick, isLastTick);
+        own::s_inStep = false;
+    }
+
+    void handleButton(bool down, int button, bool isPlayer1) {
+        GJBaseGameLayer::handleButton(down, button, isPlayer1);
+        if (!isMain() || !own::active() || button != 1 || !isPlayer1 || cmm::sim::simulating()) return;
+        auto pl = static_cast<PlayLayer*>(static_cast<GJBaseGameLayer*>(this));
+        if (pl->m_playerDied || pl->m_isPaused) return;
+        int64_t act = own::s_inStep ? own::s_tick : own::s_tick + 2;
+        own::s_clicks.push_back({act, down});
+        if (down) own::onPress(pl, act);
+        else own::onRelease(pl, act);
+    }
+};
+
+class $modify(FrameWindowEnhanced, EnhancedGameObject) {
+    bool hasBeenActivatedByPlayer(PlayerObject* player) {
+        bool used = EnhancedGameObject::hasBeenActivatedByPlayer(player);
+        if (!used && own::active() && !cmm::sim::simulating()) {
+            auto pl = PlayLayer::get();
+            if (pl && player == pl->m_player1) own::s_activations.push_back({this, own::s_tick});
+        }
+        return used;
+    }
+};
+
 class $modify(FrameWindowLayer, PlayLayer) {
-    struct Fields {
-        Ref<CCDrawNode> rings;
-        Ref<CCNode> numbers;
+    struct Marker {
+        Ref<CCNode> node;
+        CCPoint where;     // position in the level
+        int id = 0;        // the press it belongs to
     };
+
+    struct Fields {
+        // Both live on GD's HUD layer (m_uiLayer), which camera moves don't
+        // shift: the list stays in its corner and markers are placed on screen
+        // from their level position every frame.
+        Ref<CCNode> markersRoot;
+        Ref<CCNode> list;
+        std::vector<Marker> markers;
+        int counts[8] = {};   // bands 1..9-10, then 10+
+        int unknown = 0;
+        int presses = 0, releases = 0;  // measured this attempt
+        bool haveLast = false;          // the last measured click, for the ms row
+        double lastWindow = 0.0;
+        bool lastRelease = false;
+        std::string listKey;
+        Ref<CCNode> loading;           // the loading screen
+        Ref<CCLayerColor> loadingFill;
+        Ref<CCLabelBMFont> loadingText;
+    };
+
+    // ---- pre-measuring ----
+
+    bool macroForThisLevel() {
+        if (!cmm::on("bot.play") || cmm::replay::botMacro().empty() || !m_level) return false;
+        int id = m_level->m_levelID.value();
+        if (cmm::replay::botLevelID() != 0 && id != 0) return cmm::replay::botLevelID() == id;
+        auto const& name = cmm::replay::botLevel();
+        return name.empty() || name == std::string(m_level->m_levelName);
+    }
+
+    void startGame() {
+        PlayLayer::startGame();
+        if (own::active() && cmm::val<bool>("framecounter.preload", true) && macroForThisLevel()) beginLoading();
+    }
+
+    void beginLoading() {
+        auto f = m_fields.self();
+        own::s_pre = own::Pre::Loading;
+        own::s_table.clear();
+        own::s_preMeasured = 0;
+        own::s_preTotal = 0;
+        for (auto const& in : cmm::replay::botMacro()) {
+            if (in.button == 1 && !in.player2) own::s_preTotal++;  // presses and releases
+        }
+        own::s_preStepping = true;
+        if (auto engine = FMODAudioEngine::sharedEngine(); engine && engine->m_backgroundMusicChannel) {
+            engine->m_backgroundMusicChannel->setPaused(true);
+        }
+
+        auto win = CCDirector::get()->getWinSize();
+        auto root = CCLayerColor::create({8, 8, 12, 245});
+        root->setID("cats-mod-menu-frame-window-loading");
+        auto title = CCLabelBMFont::create("Measuring frame windows", "bigFont.fnt");
+        title->setScale(0.7f);
+        title->setPosition({win.width / 2, win.height / 2 + 40.f});
+        root->addChild(title);
+        float barW = win.width * 0.6f;
+        auto back = CCLayerColor::create({50, 50, 60, 255}, barW, 12.f);
+        back->setPosition({(win.width - barW) / 2, win.height / 2});
+        root->addChild(back);
+        auto fill = CCLayerColor::create({90, 190, 255, 255}, 1.f, 12.f);
+        fill->setPosition(back->getPosition());
+        root->addChild(fill);
+        auto text = CCLabelBMFont::create("", "goldFont.fnt");
+        text->setScale(0.6f);
+        text->setPosition({win.width / 2, win.height / 2 - 25.f});
+        root->addChild(text);
+        auto cancel = CCMenuItemSpriteExtra::create(ButtonSprite::create("Cancel"), this, menu_selector(FrameWindowLayer::onCancelLoading));
+        auto menu = CCMenu::create();
+        menu->addChild(cancel);
+        menu->setPosition({win.width / 2, win.height / 2 - 70.f});
+        root->addChild(menu);
+        CCDirector::get()->getRunningScene()->addChild(root, 10000);
+        f->loading = root;
+        f->loadingFill = fill;
+        f->loadingText = text;
+        log::info("Frame windows: measuring {} clicks of the bot's macro before the level starts", own::s_preTotal);
+        updateLoading();
+    }
+
+    void updateLoading() {
+        auto f = m_fields.self();
+        if (!f->loading) return;
+        float done = own::s_preTotal > 0 ? static_cast<float>(own::s_preMeasured) / own::s_preTotal : 1.f;
+        auto win = CCDirector::get()->getWinSize();
+        f->loadingFill->setContentSize({std::max(1.f, win.width * 0.6f * std::clamp(done, 0.f, 1.f)), 12.f});
+        f->loadingText->setString(fmt::format("{} / {} clicks measured", own::s_preMeasured, own::s_preTotal).c_str());
+    }
+
+    // The loading screen's loop: run the level fast with the bot, measure
+    // the presses, and when all are done start the level for real.
+    void loadingFrame() {
+        auto start = std::chrono::steady_clock::now();
+        auto elapsed = [&] { return std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - start).count(); };
+        int64_t lastPress = 0;
+        for (auto const& in : cmm::replay::botMacro()) {
+            if (in.button == 1 && !in.player2) lastPress = in.tick;
+        }
+        while (own::s_preStepping && elapsed() < 10.f) {
+            if (m_playerDied || m_gameState.m_currentProgress > lastPress + 480 * cmm::cbf::progressPerTick()) {
+                own::s_preStepping = false;
+                break;
+            }
+            static_cast<GJBaseGameLayer*>(this)->update(1.f / 240.f);
+        }
+        // A press with no next one: it has to survive half a second.
+        for (auto& j : own::s_jobs) {
+            if (j.horizon < 0 && (!own::s_preStepping || own::s_tick > j.act + 480)) j.horizon = j.act + 120;
+        }
+        own::work(this, std::max(2.f, 16.f - elapsed()));
+        for (auto const& r : own::s_done) {
+            own::s_table[r.rel * 2 + (r.release ? 1 : 0)] = {r.window, r.unknown};
+            own::s_preMeasured++;
+        }
+        own::s_done.clear();
+        own::s_pressed.clear();
+        updateLoading();
+        if (!own::s_preStepping && own::s_jobs.empty()) finishLoading(true);
+    }
+
+    void finishLoading(bool keep) {
+        auto f = m_fields.self();
+        if (f->loading) f->loading->removeFromParent();
+        f->loading = nullptr;
+        own::s_pre = keep ? own::Pre::Ready : own::Pre::Off;
+        if (!keep) own::s_table.clear();
+        log::info("Frame windows: {} ({} clicks measured)", keep ? "ready" : "cancelled", own::s_preMeasured);
+        // Start the level for real (this also restarts the music).
+        this->resetLevel();
+    }
+
+    void onCancelLoading(CCObject*) {
+        if (own::s_pre == own::Pre::Loading) finishLoading(false);
+    }
+
+    // Finishing the level while fast-forwarding would end it for real.
+    void levelComplete() {
+        if (own::s_pre == own::Pre::Loading) {
+            own::s_preStepping = false;
+            return;
+        }
+        PlayLayer::levelComplete();
+    }
+
+    void pauseGame(bool unfocused) {
+        if (own::s_pre == own::Pre::Loading) return;
+        PlayLayer::pauseGame(unfocused);
+    }
+
+    CCNode* hud() { return m_uiLayer ? static_cast<CCNode*>(m_uiLayer) : static_cast<CCNode*>(this); }
 
     void setupHasCompleted() {
         PlayLayer::setupHasCompleted();
         auto f = m_fields.self();
-        auto rings = CCDrawNode::create();
-        rings->setID("cats-mod-menu-frame-windows");
-        this->addChild(rings, 995);
-        f->rings = rings;
-        auto numbers = CCNode::create();
-        numbers->setID("cats-mod-menu-frame-window-numbers");
-        this->addChild(numbers, 995);
-        f->numbers = numbers;
+        auto markers = CCNode::create();
+        markers->setID("cats-mod-menu-frame-window-markers");
+        hud()->addChild(markers, 9998);
+        f->markersRoot = markers;
+        auto list = CCNode::create();
+        list->setID("cats-mod-menu-frame-window-list");
+        hud()->addChild(list, 9999);
+        f->list = list;
         resetResults();
+        own::clearAll();
+    }
+
+    // A ring with the window next to it ("?" in grey when unknown).
+    // pending = placeholder shown at the press until it's measured.
+    // Releases get a diamond instead of a ring.
+    void spawnMarker(int id, CCPoint where, double window, bool unknown, bool pending = false, bool release = false) {
+        auto f = m_fields.self();
+        if (!f->markersRoot) return;
+        removeMarker(id);
+        int band = static_cast<int>(std::lround(window));
+        auto c = pending ? ccColor3B{200, 200, 210} : unknown ? ccColor3B{150, 150, 160} : bandColor(band);
+        float cr = c.r / 255.f, cg = c.g / 255.f, cb = c.b / 255.f;
+        // CCDrawNode blends with pre-multiplied alpha: scale colours by alpha.
+        auto tint = [&](float a) { return ccColor4F{cr * a, cg * a, cb * a, a}; };
+
+        auto node = CCNode::create();
+        auto ring = CCDrawNode::create();
+        auto circle = [&](float radius, ccColor4F fill, float width, ccColor4F line) {
+            if (release) {  // a diamond
+                CCPoint v[4] = {{0.f, radius * 1.15f}, {radius * 1.15f, 0.f}, {0.f, -radius * 1.15f}, {-radius * 1.15f, 0.f}};
+                ring->drawPolygon(v, 4, fill, width, line);
+                return;
+            }
+            constexpr int n = 48;
+            CCPoint v[n];
+            for (int i = 0; i < n; i++) {
+                float a = 2.f * static_cast<float>(M_PI) * i / n;
+                v[i] = CCPoint(radius * std::cos(a), radius * std::sin(a));
+            }
+            ring->drawPolygon(v, n, fill, width, line);
+        };
+        circle(17.f, {0, 0, 0, 0}, 3.f, tint(0.22f));          // soft glow
+        circle(13.f, tint(0.28f), 4.f, {0.f, 0.f, 0.f, 0.85f}); // dark outline, tinted inside
+        circle(13.f, {0, 0, 0, 0}, 2.f, tint(1.f));             // the coloured ring
+        node->addChild(ring);
+
+        auto text = pending ? std::string("...") : unknown ? std::string("?") : fmt::format("{:.1f}", window);
+        auto label = CCLabelBMFont::create(text.c_str(), "bigFont.fnt");
+        label->setColor(c);
+        label->setAnchorPoint({1.f, 0.5f});
+        label->setPosition({-19.f, 0.f});
+        node->addChild(label);
+        if (pending) {
+            label->setScale(0.4f);
+            label->setOpacity(170);
+            ring->setScale(0.85f);
+        } else {
+            label->setScale(0.75f);
+            label->runAction(CCEaseBackOut::create(CCScaleTo::create(0.25f, 0.5f)));
+            ring->setScale(1.3f);
+            ring->runAction(CCEaseBackOut::create(CCScaleTo::create(0.25f, 1.f)));
+        }
+        f->markersRoot->addChild(node);
+        f->markers.push_back({node, where, id});
+        placeMarkers();
+    }
+
+    void removeMarker(int id) {
+        if (id == 0) return;
+        auto f = m_fields.self();
+        for (auto it = f->markers.begin(); it != f->markers.end();) {
+            if (it->id == id) {
+                if (it->node) it->node->removeFromParent();
+                it = f->markers.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+
+    // Level position -> HUD position, scaled with the camera zoom.
+    void placeMarkers() {
+        auto f = m_fields.self();
+        if (!m_objectLayer || !f->markersRoot) return;
+        auto win = CCDirector::get()->getWinSize();
+        float zoom = std::abs(m_objectLayer->getScaleY());
+        for (auto it = f->markers.begin(); it != f->markers.end();) {
+            auto screen = m_objectLayer->convertToWorldSpace(it->where);
+            it->node->setPosition(hud()->convertToNodeSpace(screen));
+            it->node->setScale(zoom);
+            if (screen.x < -400.f || screen.x > win.width + 2000.f) {
+                it->node->removeFromParent();
+                it = f->markers.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+
+    void clearMarkers() {
+        auto f = m_fields.self();
+        for (auto& m : f->markers) {
+            if (m.node) m.node->removeFromParent();
+        }
+        f->markers.clear();
+    }
+
+    // Tally of the clicks measured this attempt, one row per colour band
+    // (NaN GD's order, biggest windows first), in the top-left corner.
+    void updateList() {
+        auto f = m_fields.self();
+        if (!f->list) return;
+        bool show = cmm::on("framecounter");
+        f->list->setVisible(show);
+        if (!show) return;
+
+        // A replay Click Before Frames can't use here: say why.
+        std::string note;
+        if (!cmm::cbf::replayName().empty() && cmm::on("cbf") && !cmm::cbf::replayUsable(this)) {
+            note = fmt::format("CBF replay \"{}\" is for {}", cmm::cbf::replayName(),
+                cmm::cbf::replayLevel().empty() ? "another level" : cmm::cbf::replayLevel());
+        }
+        int total = f->unknown;
+        for (int c : f->counts) total += c;
+        auto key = fmt::format("{}|{}|{}|{}|{}|{}|{}", fmt::join(f->counts, ","), f->unknown, own::s_jobs.size(), note,
+            f->presses, f->releases, f->haveLast ? fmt::format("{:.2f}{}", f->lastWindow, f->lastRelease) : "");
+        if (key == f->listKey) return;
+        f->listKey = key;
+
+        f->list->removeAllChildren();
+        auto win = CCDirector::get()->getWinSize();
+        float y = hud()->convertToNodeSpace({0.f, win.height}).y - 5.f;
+        float left = hud()->convertToNodeSpace({0.f, 0.f}).x + 5.f;
+        auto addRow = [&](std::string const& name, std::string const& value, ccColor3B color) {
+            auto text = CCLabelBMFont::create(name.c_str(), "bigFont.fnt");
+            text->setScale(0.42f);
+            text->setAnchorPoint({0.f, 1.f});
+            text->setPosition({left, y});
+            text->setColor(color);
+            f->list->addChild(text);
+            auto count = CCLabelBMFont::create(value.c_str(), "bigFont.fnt");
+            count->setScale(0.42f);
+            count->setAnchorPoint({0.f, 1.f});
+            count->setPosition({left + 62.f, y});
+            f->list->addChild(count);
+            y -= text->getScaledContentSize().height + 1.f;
+        };
+        auto addSmall = [&](std::string const& line) {
+            auto label = CCLabelBMFont::create(line.c_str(), "bigFont.fnt");
+            label->setScale(0.3f);
+            label->setAnchorPoint({0.f, 1.f});
+            label->setPosition({left, y - 2.f});
+            label->setColor({200, 200, 200});
+            f->list->addChild(label);
+            y -= label->getScaledContentSize().height + 1.f;
+        };
+        bool hide10 = cmm::val<bool>("framecounter.hide10", true);
+        if (!hide10) addRow("10+", std::to_string(f->counts[7]), bandColor(11));
+        for (int b = 6; b >= 0; b--) {
+            int window = b <= 3 ? b + 1 : b == 4 ? 5 : b == 5 ? 7 : 9;
+            addRow(kBandNames[b], std::to_string(f->counts[b]), bandColor(window));
+        }
+        if (hide10) addRow("10+", std::to_string(f->counts[7]), {150, 150, 160});
+        if (f->unknown) addRow("?", std::to_string(f->unknown), {150, 150, 160});
+        // The last click's window in milliseconds (one tick = 1000/240 ms).
+        if (f->haveLast) {
+            int band = static_cast<int>(std::lround(f->lastWindow));
+            addRow("ms", fmt::format("{:.1f} ms ({:.1f} f, {})", f->lastWindow * 1000.0 / 240.0, f->lastWindow,
+                f->lastRelease ? "release" : "press"), bandColor(band));
+        }
+        addSmall(fmt::format("{} presses, {} releases measured{}", f->presses, f->releases,
+            own::s_jobs.empty() ? "" : fmt::format(" ({} waiting)", own::s_jobs.size())));
+        (void)total;
+        if (!note.empty()) addSmall(note);
     }
 
     void resetResults() {
         s_replaySize = cmm::cbf::replayInputs().size();
         s_results.assign(s_replaySize, {});
+    }
+
+    void resetCounter() {
         auto f = m_fields.self();
-        if (f->numbers) f->numbers->removeAllChildren();
+        clearMarkers();
+        for (auto& c : f->counts) c = 0;
+        f->unknown = 0;
+        f->presses = f->releases = 0;
+        f->haveLast = false;
+        f->listKey.clear();
+        own::s_done.clear();
     }
 
     void resetLevel() {
+        // The macro died while fast-forwarding: GD respawns on its own; keep what was measured.
+        if (own::s_pre == own::Pre::Loading && !own::s_preStepping && own::s_jobs.empty()) {
+            auto f = m_fields.self();
+            if (f->loading) f->loading->removeFromParent();
+            f->loading = nullptr;
+            own::s_pre = own::Pre::Ready;
+        }
         PlayLayer::resetLevel();
-        // A full restart forgets everything; a checkpoint respawn keeps the
-        // windows of clicks before it.
+        own::s_attemptStart = own::s_tick;
+        // Clicks waiting to be measured belong to the attempt that ended.
+        for (auto& j : own::s_jobs) {
+            own::releaseSlot(j.slot);
+            removeMarker(j.id);
+        }
+        own::s_pressed.clear();
+        own::s_jobs.clear();
+        own::s_clicks.clear();
+        own::s_activations.clear();
+        // A new attempt starts a new tally; a practice respawn keeps it.
+        if (!m_isPracticeMode) resetCounter();
+
+        // Replay windows for Click Before Frames: forget the ones ahead.
         unsigned now = m_gameState.m_currentProgress;
         auto const& inputs = cmm::cbf::replayInputs();
         if (inputs.size() != s_results.size()) { resetResults(); return; }
-        auto f = m_fields.self();
-        if (f->numbers) f->numbers->removeAllChildren();
         for (size_t i = 0; i < inputs.size(); i++) {
             if (inputs[i].tick >= now) s_results[i] = {};
         }
     }
 
+    void destroyPlayer(PlayerObject* player, GameObject* object) {
+        bool wasDead = m_playerDied;
+        PlayLayer::destroyPlayer(player, object);
+        // Presses still waiting can't be measured fairly past a death.
+        if (!wasDead && m_playerDied && !cmm::sim::simulating()) {
+            for (auto& j : own::s_jobs) {
+                if (j.horizon < 0) {
+                    own::releaseSlot(j.slot);
+                    own::s_dropped.push_back(j.id);
+                }
+            }
+            own::s_jobs.erase(std::remove_if(own::s_jobs.begin(), own::s_jobs.end(), [](auto const& j) { return j.horizon < 0; }), own::s_jobs.end());
+        }
+    }
+
+    void onQuit() {
+        auto f = m_fields.self();
+        if (f->loading) f->loading->removeFromParent();
+        f->loading = nullptr;
+        own::s_pre = own::Pre::Off;
+        own::s_table.clear();
+        clearMarkers();
+        own::clearAll();
+        PlayLayer::onQuit();
+    }
+
     void postUpdate(float dt) {
         PlayLayer::postUpdate(dt);
         auto f = m_fields.self();
+
+        // Replay windows for Click Before Frames (only with a replay for this level).
         auto const& inputs = cmm::cbf::replayInputs();
         if (inputs.size() != s_replaySize) resetResults();
-
-        if (analyserOn() && !m_playerDied && m_player1 && !inputs.empty()) {
+        if (analyserOn() && !m_playerDied && m_player1 && !inputs.empty() && cmm::cbf::replayUsable(this)) {
             unsigned now = m_gameState.m_currentProgress;
             unsigned ppt = std::max(1u, cmm::cbf::progressPerTick());
-            // Analyse far enough ahead for the biggest CBF delay and the search range.
             int lead = std::max(searchRange(), cmm::cbf::windowTicks()) + 3;
             for (size_t i = 0; i < inputs.size(); i++) {
                 auto const& in = inputs[i];
@@ -236,46 +1024,65 @@ class $modify(FrameWindowLayer, PlayLayer) {
                 if ((in.tick - now) / ppt > static_cast<unsigned>(lead)) break;
                 if (!s_results[i].analysed) analyse(this, inputs, i, now, ppt);
             }
-            // Mark clicks the player has reached, for the rings and the tally.
-            for (size_t i = 0; i < inputs.size(); i++) {
-                auto const& in = inputs[i];
-                if (in.tick > now) break;
-                auto& r = s_results[i];
-                if (r.passed || !r.analysed || !in.down || in.player2) continue;
-                r.passed = true;
-                r.where = m_player1->getPosition();
-                if (cmm::on("framecounter") && shown(r.window) && f->numbers) {
-                    auto label = CCLabelBMFont::create(std::to_string(std::max(1, r.window)).c_str(), "bigFont.fnt");
-                    label->setScale(0.35f);
-                    label->setColor(bandColor(r.window));
-                    label->setAnchorPoint({1.f, 0.5f});
-                    label->setPosition(r.where + CCPoint{-14.f, 0.f});
-                    f->numbers->addChild(label);
-                }
-            }
         }
 
-        // Rings and numbers live in the level: line them up with it.
-        if (!f->rings) return;
-        f->rings->clear();
-        bool show = cmm::on("framecounter");
-        if (f->numbers) {
-            f->numbers->setVisible(show);
-            if (show) cmm::overlay::syncTo(f->numbers, m_objectLayer, this);
-        }
-        if (!show) return;
-        cmm::overlay::syncTo(f->rings, m_objectLayer, this);
-        for (auto const& r : s_results) {
-            if (!r.passed || !shown(r.window)) continue;
-            auto c = bandColor(r.window);
-            ccColor4F col{c.r / 255.f, c.g / 255.f, c.b / 255.f, 1.f};
-            constexpr int n = 24;
-            CCPoint v[n];
-            for (int i = 0; i < n; i++) {
-                float a = 2.f * static_cast<float>(M_PI) * i / n;
-                v[i] = CCPoint(r.where.x + 9.f * std::cos(a), r.where.y + 9.f * std::sin(a));
+        // While pre-measuring, the loading screen's loop does the work.
+        if (own::s_pre == own::Pre::Loading) {
+            for (auto const& r : own::s_done) {
+                own::s_table[r.rel * 2 + (r.release ? 1 : 0)] = {r.window, r.unknown};
+                own::s_preMeasured++;
             }
-            f->rings->drawPolygon(v, n, {0, 0, 0, 0}, 0.8f, col);
+            own::s_done.clear();
+            own::s_pressed.clear();
+            updateLoading();
+            return;
         }
+
+        // The counter: measure waiting presses a bit every frame.
+        if (own::active() && !m_playerDied) {
+            // No next press for 2 seconds: it has to survive half a second.
+            for (auto& j : own::s_jobs) {
+                if (j.horizon < 0 && own::s_tick > j.act + 480) j.horizon = j.act + 120;
+            }
+            own::work(this, std::clamp(cmm::val<float>("framecounter.budget", 1.5f), 0.2f, 8.f));
+        }
+        // A placeholder at every new press, replaced once it's measured.
+        for (auto const& p : own::s_pressed) spawnMarker(p.id, p.where, 0.0, false, true, p.release);
+        own::s_pressed.clear();
+        for (int id : own::s_dropped) removeMarker(id);
+        own::s_dropped.clear();
+        for (auto const& r : own::s_done) {
+            int band = static_cast<int>(std::lround(r.window));
+            if (r.unknown) f->unknown++;
+            else if (band > 10) f->counts[7]++;
+            else f->counts[bandIndex(band)]++;
+            (r.release ? f->releases : f->presses)++;
+            if (!r.unknown) {
+                f->haveLast = true;
+                f->lastWindow = r.window;
+                f->lastRelease = r.release;
+            }
+            if (r.unknown || shown(band)) {
+                spawnMarker(r.id, r.where, r.window, r.unknown, false, r.release);
+                if (!r.unknown) ding(band);
+            } else {
+                removeMarker(r.id);
+            }
+        }
+        own::s_done.clear();
+
+        updateList();
+        bool show = cmm::on("framecounter");
+        if (f->markersRoot) f->markersRoot->setVisible(show);
+        if (show) placeMarkers();
+    }
+};
+
+// Drives the loading screen: once per frame, after the game's own update.
+class $modify(FrameWindowScheduler, CCScheduler) {
+    void update(float dt) {
+        CCScheduler::update(dt);
+        if (own::s_pre != own::Pre::Loading) return;
+        if (auto pl = PlayLayer::get()) static_cast<FrameWindowLayer*>(pl)->loadingFrame();
     }
 };

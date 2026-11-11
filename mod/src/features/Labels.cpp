@@ -200,6 +200,10 @@ class $modify(LabelsPlayLayer, PlayLayer) {
     void updateLabels() {
         auto f = m_fields.self();
         if (!f->container) return;
+        // The Frame Window Counter's list takes the labels' place while it's on.
+        bool counter = cmm::on("framecounter");
+        f->container->setVisible(!counter);
+        if (counter) return;
         auto& all = defs();
 
         while (f->labels.size() < all.size()) {

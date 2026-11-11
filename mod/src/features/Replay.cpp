@@ -4,10 +4,19 @@
 // respawn at a practice checkpoint, so recording just drops every input after
 // the tick you respawned at, and playback jumps to the right spot.
 //
+// Timing (measured in game): a click that comes in between frames, when the
+// progress is P, acts two ticks later. Playback gives each click to GD at the
+// start of the tick whose progress is P + one tick, where it acts right away:
+// the same tick as when it was recorded. Clicks Click Before Frames gives to
+// GD at the start of a tick are recorded one tick earlier for the same reason.
+//
 // Macros are saved as plain text in <mod save folder>/macros/<name>.txt
 #include <core/Hacks.hpp>
 #include <core/Log.hpp>
 #include "Replay.hpp"
+#include "ClickBeforeFrames.hpp"
+#include <chrono>
+#include <ctime>
 #include <Geode/modify/GJBaseGameLayer.hpp>
 #include <Geode/modify/PlayLayer.hpp>
 #include <imgui.h>
@@ -27,6 +36,8 @@ namespace cmm::replay {
         std::string s_levelName;
         int s_levelID = 0;
         char s_name[64] = "my-macro";
+        std::string s_loadedName;      // the macro file the bot has loaded / saved last
+        bool s_confirmDelete = false;
         std::vector<std::string> s_files;
         bool s_filesDirty = true;
 
@@ -68,6 +79,7 @@ namespace cmm::replay {
                 file << i.tick << " " << (i.down ? 1 : 0) << " " << i.button << " " << (i.player2 ? 1 : 0) << "\n";
             }
             s_filesDirty = true;
+            s_loadedName = name;
             return true;
         }
 
@@ -100,7 +112,17 @@ namespace cmm::replay {
             if (!parse(name, inputs, &s_levelName, &s_levelID)) return false;
             s_inputs = std::move(inputs);
             s_next = 0;
+            s_loadedName = name;
             return true;
+        }
+
+        // File names can't hold / \ : * ? " < > |
+        std::string safeName(std::string name) {
+            for (auto& c : name) {
+                if (std::string_view("/\\:*?\"<>|").find(c) != std::string_view::npos) c = '_';
+            }
+            while (!name.empty() && (name.back() == ' ' || name.back() == '.')) name.pop_back();
+            return name.empty() ? "macro" : name;
         }
     }
 
@@ -111,6 +133,25 @@ namespace cmm::replay {
 
     bool readMacro(std::string const& name, std::vector<Input>& out) {
         return parse(name, out, nullptr, nullptr);
+    }
+
+    bool readMacro(std::string const& name, std::vector<Input>& out, std::string& level, int& levelID) {
+        level.clear();
+        levelID = 0;
+        return parse(name, out, &level, &levelID);
+    }
+
+    bool saveCurrent(std::string const& name) { return save(name); }
+    bool loadIntoBot(std::string const& name) { return load(name); }
+    size_t botInputs() { return s_inputs.size(); }
+    std::vector<Input> const& botMacro() { return s_inputs; }
+    std::string const& botLevel() { return s_levelName; }
+    int botLevelID() { return s_levelID; }
+
+    void clearBot() {
+        s_inputs.clear();
+        s_next = 0;
+        s_loadedName.clear();
     }
 
     void drawWindowContents() {
@@ -131,37 +172,67 @@ namespace cmm::replay {
             }
         }
 
-        ImGui::TextDisabled("%zu inputs%s%s", s_inputs.size(),
-            s_levelName.empty() ? "" : " - ", s_levelName.c_str());
+        // What the bot has right now, clearly.
+        ImGui::Separator();
+        if (s_loadedName.empty()) ImGui::TextDisabled(s_inputs.empty() ? "No macro loaded" : "Unsaved recording");
+        else ImGui::Text("Loaded: %s", s_loadedName.c_str());
+        ImGui::TextDisabled("%zu clicks%s%s", s_inputs.size(), s_levelName.empty() ? "" : " - ", s_levelName.c_str());
+        if (recording()) ImGui::TextDisabled("Finishing the level in practice saves it automatically.");
+        ImGui::Separator();
 
         ImGui::PushItemWidth(-1);
         ImGui::InputTextWithHint("##name", "macro name", s_name, sizeof(s_name));
         ImGui::PopItemWidth();
         float half = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) / 2.f;
         if (ImGui::Button("Save", {half, 0})) {
+            auto name = safeName(s_name);
             if (s_inputs.empty()) log::warn("Nothing recorded to save");
-            else if (save(s_name)) log::info("Saved macro {} ({} inputs)", s_name, s_inputs.size());
-            else log::error("Could not save macro {}", s_name);
+            else if (save(name)) log::info("Saved macro {} ({} clicks)", name, s_inputs.size());
+            else log::error("Could not save macro {}", name);
         }
         ImGui::SameLine();
         if (ImGui::Button("Clear", {half, 0})) {
             s_inputs.clear();
             s_next = 0;
+            s_loadedName.clear();
         }
 
         if (s_filesDirty) refreshFiles();
-        if (ImGui::BeginListBox("##macros", {-1, ImGui::GetTextLineHeightWithSpacing() * 5})) {
+        if (ImGui::BeginListBox("##macros", {-1, ImGui::GetTextLineHeightWithSpacing() * 6})) {
             for (auto const& f : s_files) {
-                if (ImGui::Selectable(f.c_str(), f == s_name)) {
+                bool selected = f == s_loadedName;
+                auto label = selected ? "> " + f : f;
+                if (ImGui::Selectable(label.c_str(), selected)) {
                     std::snprintf(s_name, sizeof(s_name), "%s", f.c_str());
-                    if (load(f)) log::info("Loaded macro {} ({} inputs)", f, s_inputs.size());
+                    s_confirmDelete = false;
+                    if (load(f)) log::info("Loaded macro {} ({} clicks)", f, s_inputs.size());
                     else log::error("Could not load macro {}", f);
                 }
             }
             ImGui::EndListBox();
         }
-        if (ImGui::Button("Refresh list", {-1, 0})) s_filesDirty = true;
         ImGui::TextDisabled("Click a macro to load it.");
+
+        float third = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) / 2.f;
+        if (ImGui::Button("Refresh list", {third, 0})) s_filesDirty = true;
+        ImGui::SameLine();
+        bool canDelete = !s_loadedName.empty();
+        if (!canDelete) ImGui::BeginDisabled();
+        if (ImGui::Button(s_confirmDelete ? "Really delete?" : "Delete", {third, 0})) {
+            if (!s_confirmDelete) {
+                s_confirmDelete = true;
+            } else {
+                std::error_code ec;
+                std::filesystem::remove(folder() / (s_loadedName + ".txt"), ec);
+                if (ec) log::error("Could not delete macro {}: {}", s_loadedName, ec.message());
+                else log::info("Deleted macro {}", s_loadedName);
+                s_loadedName.clear();
+                s_confirmDelete = false;
+                s_filesDirty = true;
+            }
+        }
+        if (!canDelete) ImGui::EndDisabled();
+        if (s_confirmDelete && ImGui::IsItemHovered()) ImGui::SetTooltip("Deletes %s for good. Click again to confirm.", s_loadedName.c_str());
     }
 }
 
@@ -178,24 +249,36 @@ class $modify(ReplayGameLayer, GJBaseGameLayer) {
             // While playing, your own clicks are ignored so they don't mix in.
             if (playing()) return;
             if (recording()) {
-                s_inputs.push_back({m_gameState.m_currentProgress, down, button, !isPlayer1});
+                unsigned tick = m_gameState.m_currentProgress;
+                // A click Click Before Frames gives GD at the start of a tick acts
+                // one tick sooner than one made between frames: store it to match.
+                unsigned ppt = cmm::cbf::progressPerTick();
+                if (cmm::cbf::injecting() && tick >= ppt) tick -= ppt;
+                // A recording belongs to the level it's made in.
+                if (auto pl = PlayLayer::get(); pl && pl->m_level) {
+                    s_levelName = pl->m_level->m_levelName;
+                    s_levelID = pl->m_level->m_levelID.value();
+                }
+                s_inputs.push_back({tick, down, button, !isPlayer1});
                 s_next = s_inputs.size();
             }
         }
         GJBaseGameLayer::handleButton(down, button, isPlayer1);
     }
 
-    void processQueuedButtons(float dt, bool clearInputQueue) {
+    // At the start of each tick, give GD the clicks that act on it.
+    void processCommands(float dt, bool isHalfTick, bool isLastTick) {
         if (isMain() && playing()) {
-            unsigned now = m_gameState.m_currentProgress;
-            while (s_next < s_inputs.size() && s_inputs[s_next].tick <= now) {
+            unsigned now = m_gameState.m_currentProgress;  // progress before this tick
+            unsigned ppt = cmm::cbf::progressPerTick();
+            while (s_next < s_inputs.size() && s_inputs[s_next].tick + ppt <= now) {
                 auto const& in = s_inputs[s_next++];
                 s_injecting = true;
                 this->handleButton(in.down, in.button, !in.player2);
                 s_injecting = false;
             }
         }
-        GJBaseGameLayer::processQueuedButtons(dt, clearInputQueue);
+        GJBaseGameLayer::processCommands(dt, isHalfTick, isLastTick);
     }
 };
 
@@ -207,6 +290,26 @@ class $modify(ReplayPlayLayer, PlayLayer) {
             s_levelID = level->m_levelID.value();
         }
         return true;
+    }
+
+    // Finishing a level in practice while recording saves the macro.
+    void levelComplete() {
+        PlayLayer::levelComplete();
+        if (!recording() || !m_isPracticeMode || s_inputs.empty()) return;
+        std::string name = s_name;
+        if (name.empty() || name == "my-macro") {
+            auto t = std::time(nullptr);
+            char stamp[32];
+            std::strftime(stamp, sizeof stamp, "%Y-%m-%d %H-%M", std::localtime(&t));
+            name = fmt::format("{} {}", m_level ? std::string(m_level->m_levelName) : "level", stamp);
+        }
+        name = safeName(name);
+        if (save(name)) {
+            std::snprintf(s_name, sizeof(s_name), "%s", name.c_str());
+            log::info("Practice run finished: macro saved as {} ({} clicks)", name, s_inputs.size());
+        } else {
+            log::error("Practice run finished but the macro could not be saved as {}", name);
+        }
     }
 
     void resetLevel() {

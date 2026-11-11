@@ -17,6 +17,9 @@ namespace cmm::fw {
     // index could act on and survive. False if it isn't analysed yet.
     bool earliestFor(size_t replayIndex, unsigned& progress);
 
+    // True while the loading screen is measuring the bot's macro.
+    bool loading();
+
     // ImGui tally, drawn with the menu overlay.
     void drawOverlay();
 }

@@ -11,11 +11,14 @@
 #include <core/Hacks.hpp>
 #include <features/ClickBeforeFrames.hpp>
 #include <features/Replay.hpp>
+#include <features/FrameWindow.hpp>
 #include <gui/Menu.hpp>
 #include <features/Sim.hpp>
 #include <features/Stats.hpp>
 #include <Geode/modify/GJBaseGameLayer.hpp>
 #include <Geode/modify/MenuLayer.hpp>
+#include <Geode/modify/EndLevelLayer.hpp>
+#include <Geode/modify/CCScheduler.hpp>
 #include <Geode/modify/PlayLayer.hpp>
 #include <Geode/modify/PlayerObject.hpp>
 #include <cmath>
@@ -68,6 +71,7 @@ namespace {
             cmm::cbf::setReplay(s_oldReplay);
             std::error_code ec;
             std::filesystem::remove(saveDir() / "macros" / "cmm-selftest.txt", ec);
+            std::filesystem::remove(saveDir() / "macros" / "cmm-selftest-bot.txt", ec);
             s_replayTouched = false;
         }
         for (auto& [id, on] : s_oldHacks) {
@@ -118,6 +122,8 @@ namespace {
         bool shot = false;
     } s_run;
     int s_diagTicks = 1000;  // ticks logged at the start of each CBF pass
+    int s_fpsFrames = 0;
+    float s_fpsTime = 0.f;
     int s_diagUpdates = 0;   // PlayerObject::update calls on player 1 since the pass started
 
     void finish() {
@@ -211,6 +217,8 @@ namespace {
     std::vector<int> const kExtra = {0, 3, 6, 9, 12, 20, -5};
     std::vector<cmm::replay::Input> s_recorded;
     int s_pass = 1;
+    std::vector<float> s_pass1Y;   // player Y just past each spike set in pass 1 (for the bot check)
+    bool s_yLogged = false;
 
     void writeMacro(PlayLayer* pl) {
         std::error_code ec;
@@ -226,13 +234,15 @@ namespace {
         if (s_run.group >= kSnapGroups) {
             if (s_pass == 1) {
                 writeMacro(pl);
+                setHack("bot.record", false);
+                bool saved = cmm::replay::saveCurrent("cmm-selftest-bot");
+                log::info("SELFTEST bot recorded {} clicks in pass 1 (saved: {})", cmm::replay::botInputs(), saved);
                 setHack("cbf", true);
                 s_replayTouched = true;
                 cmm::cbf::setReplay("cmm-selftest");
                 setHack("prediction", true);
                 setHack("framecounter", true);
-                s_oldHide10 = cmm::val<bool>("framecounter.hide10", true);
-                cmm::val<bool>("framecounter.hide10", true) = false;  // our windows are 11 ticks
+                log::info("SELFTEST pass 1 average {:.0f} FPS with the Frame Window Counter on", s_fpsTime > 0.f ? s_fpsFrames / s_fpsTime : 0.f);
                 log::info("SELFTEST pass 1 recorded {} clicks, restarting for pass 2 with CBF following them", s_recorded.size());
                 s_pass = 2;
                 s_run.group = 0;
@@ -242,6 +252,20 @@ namespace {
                 s_diagUpdates = 0;
                 return;
             }
+            if (s_pass == 2) {
+                setHack("cbf", false);
+                setHack("prediction", false);
+                setHack("framecounter", false);
+                bool loaded = cmm::replay::loadIntoBot("cmm-selftest-bot");
+                setHack("bot.play", true);
+                log::info("SELFTEST pass 3: Replay Bot plays pass 1 back ({} clicks, loaded: {})", cmm::replay::botInputs(), loaded);
+                s_pass = 3;
+                s_run.group = 0;
+                s_run.pressed = false;
+                pl->resetLevel();
+                return;
+            }
+            setHack("bot.play", false);
             setHack("cbf", false);
             setHack("prediction", false);
             setHack("framecounter", false);
@@ -251,6 +275,24 @@ namespace {
             s_run.stage = Stage::DeathHitboxes;
             s_run.wait = 0;
             log::info("SELFTEST noclip off, waiting to die for hitboxes-on-death");
+            return;
+        }
+        // Player Y just past each spike set: pass 3 (the bot) must match pass 1.
+        if (!s_yLogged && real->getPositionX() >= kFirstGroup + kGroupGap * s_run.group + 100.f) {
+            s_yLogged = true;
+            float y = real->getPositionY();
+            if (s_pass == 1) s_pass1Y.push_back(y);
+            if (s_pass == 3) {
+                float want = s_run.group < static_cast<int>(s_pass1Y.size()) ? s_pass1Y[s_run.group] : -1.f;
+                log::info("SELFTEST pass 3 group {}: y {:.3f} (pass 1: {:.3f}) -> {}", s_run.group, y, want,
+                    std::fabs(y - want) < 0.01f ? "same" : "DIFFERENT");
+            }
+        }
+        if (s_pass == 3 && !s_run.pressed) {
+            s_run.pressed = true;
+            s_run.released = true;
+            s_run.deathsBefore = cmm::stats::noclipDeaths;
+            s_yLogged = false;
             return;
         }
         int extra = s_pass == 2 ? kExtra[s_run.group % kExtra.size()] : 0;
@@ -263,6 +305,7 @@ namespace {
             s_run.deathsBefore = cmm::stats::noclipDeaths;
             s_run.savedBefore = cmm::cbf::savedThisSession();
             s_run.sentAt = now;
+            s_yLogged = false;
             log::info("SELFTEST diag press pass {} group {}: progress {} x {:.2f} playerUpdates {}", s_pass, s_run.group,
                 pl->m_gameState.m_currentProgress, real->getPositionX(), s_diagUpdates);
             if (s_pass == 1) s_recorded.push_back({pl->m_gameState.m_currentProgress, true, 1, false});
@@ -287,7 +330,9 @@ namespace {
 
         int died = cmm::stats::noclipDeaths - s_run.deathsBefore;
         int saved = cmm::cbf::savedThisSession() - s_run.savedBefore;
-        if (s_pass == 1) {
+        if (s_pass == 3) {
+            log::info("SELFTEST pass 3 group {} (bot): {}", s_run.group, died ? "DIED" : "survived");
+        } else if (s_pass == 1) {
             log::info("SELFTEST pass 1: press 40 units early -> {}", died ? "DIED" : "survived");
         } else {
             auto const& d = cmm::cbf::lastDecision();
@@ -334,6 +379,16 @@ namespace {
                     s_run.pressed = false;
                     s_pass = 1;
                     s_recorded.clear();
+                    s_pass1Y.clear();
+                    // The Replay Bot records pass 1 too; pass 3 plays it back.
+                    cmm::replay::clearBot();
+                    setHack("bot.record", true);
+                    // The counter measures pass 1's own presses.
+                    setHack("framecounter", true);
+                    s_oldHide10 = cmm::val<bool>("framecounter.hide10", true);
+                    cmm::val<bool>("framecounter.hide10", true) = false;
+                    s_fpsFrames = 0;
+                    s_fpsTime = 0.f;
                 }
                 break;
             case Stage::Accuracy:
@@ -413,6 +468,10 @@ class $modify(SelfTestPlayLayer, PlayLayer) {
             return;
         }
 
+        if (s_run.stage == Stage::Sweep && s_pass == 1) {
+            s_fpsFrames++;
+            s_fpsTime += dt;
+        }
         int64_t now = cmm::cbf::currentTick();
         if (now == s_run.lastTick) return;
         s_run.lastTick = now;
@@ -429,9 +488,27 @@ namespace {
     int s_typesTicks = 0;
     int64_t s_typesLast = -1;
 
+    // Keybinds: bind K to a harmless hack and press K through GD's keyboard handler.
+    void keybindTest() {
+        auto hack = cmm::find("freezeattempts");
+        if (!hack) return;
+        int oldBind = cmm::val<int>("bind.freezeattempts", 0);
+        bool before = hack->enabled;
+        cmm::save<int>("bind.freezeattempts", static_cast<int>(KEY_K));
+        CCKeyboardDispatcher::get()->dispatchKeyboardMSG(KEY_K, true, false, 0.0);
+        CCKeyboardDispatcher::get()->dispatchKeyboardMSG(KEY_K, false, false, 0.0);
+        bool after = hack->enabled;
+        log::info("SELFTEST keybind: K bound to Freeze Attempts, pressing K turned it {} -> {} ({})",
+            before ? "on" : "off", after ? "on" : "off", after != before ? "works" : "BROKEN");
+        cmm::setEnabled(*hack, before);
+        cmm::save<int>("bind.freezeattempts", oldBind);
+    }
+
     void startMain() {
         s_diagTicks = 0;
         s_diagUpdates = 0;
+        s_replayTouched = true;  // the bot macros get cleaned up at the end
+        keybindTest();
         // Flat ground, then sets of three spikes, end far away.
         std::string raw = "kA2,0,kA4,0;";
         for (int g = 0; g < kGroups; g++) {
@@ -595,11 +672,193 @@ class $modify(SelfTestTypesLayer, PlayLayer) {
     }
 };
 
+// ---- test 3: the end screen shows up (selftest-end.txt) ----
+namespace {
+    bool s_endActive = false;
+    float s_endTimer = -1.f;   // seconds since the level was completed
+
+    void startEndTest() {
+        // A short level: flat ground, the end a few seconds in.
+        std::string raw = "kA2,0,kA4,0;1,1,2,900,3,15;";
+        auto level = GJGameLevel::create();
+        level->retain();
+        level->m_levelName = "CMM Self Test End";
+        level->m_levelString = ZipUtils::compressString(raw, false, 0, 0);
+        level->m_levelType = GJLevelType::Editor;
+        setHack("hidecompletevfx", true);
+        setHack("noendshake", true);
+        setHack("classicpercentage", true);
+        setHack("bestinpercentage", true);
+        setHack("nomusicfadeout", true);
+        setHack("noclip", true);
+        // Recording in practice: finishing must save the macro on its own.
+        setHack("autopracticemode", true);
+        cmm::replay::clearBot();
+        setHack("bot.record", true);
+        s_endActive = true;
+        s_endTimer = -1.f;
+        log::info("SELFTEST3 start (Hide Level Complete VFX on)");
+        CCDirector::get()->replaceScene(PlayLayer::scene(level, false));
+    }
+
+    void endTestFinish(char const* result) {
+        if (!s_endActive) return;
+        s_endActive = false;
+        log::info("SELFTEST3 {}", result);
+        // Did finishing in practice save the macro? (Then delete the test file.)
+        std::error_code ec;
+        std::string found;
+        for (auto& entry : std::filesystem::directory_iterator(saveDir() / "macros", ec)) {
+            auto name = entry.path().stem().string();
+            if (name.rfind("CMM Self Test End", 0) == 0) {
+                found = name;
+                std::filesystem::remove(entry.path(), ec);
+            }
+        }
+        log::info("SELFTEST3 practice auto-save: {}", found.empty() ? "NOT saved" : "saved as \"" + found + "\"");
+        setHack("bot.record", false);
+        cmm::replay::clearBot();
+        restoreSettings();
+        log::info("SELFTEST DONE");
+    }
+}
+
+class $modify(SelfTestEndPlayLayer, PlayLayer) {
+    void postUpdate(float dt) {
+        PlayLayer::postUpdate(dt);
+        static int ticks = 0;
+        static int64_t last = -1;
+        if (!s_endActive || s_endTimer >= 0.f) { ticks = 0; return; }
+        int64_t now = cmm::cbf::currentTick();
+        if (now == last) return;
+        last = now;
+        ticks++;
+        if (ticks == 60) this->handleButton(true, 1, true);
+        if (ticks == 62) this->handleButton(false, 1, true);
+    }
+
+    void levelComplete() {
+        PlayLayer::levelComplete();
+        if (s_endActive) {
+            s_endTimer = 0.f;
+            log::info("SELFTEST3 level complete");
+        }
+    }
+};
+
+class $modify(SelfTestEndLayer, EndLevelLayer) {
+    void customSetup() {
+        EndLevelLayer::customSetup();
+        if (s_endActive && s_endTimer >= 0.f) {
+            log::info("SELFTEST3 end screen shown {:.1f}s after completing", s_endTimer);
+            this->runAction(CCSequence::create(CCDelayTime::create(1.5f),
+                CCCallFunc::create(this, callfunc_selector(SelfTestEndLayer::shot)), nullptr));
+        }
+    }
+    void shot() {
+        screenshot("selftest-end.png");
+        endTestFinish("end screen OK");
+    }
+};
+
+class $modify(SelfTestEndScheduler, CCScheduler) {
+    void update(float dt) {
+        CCScheduler::update(dt);
+        if (!s_endActive || s_endTimer < 0.f) return;
+        s_endTimer += dt;
+        if (s_endTimer > 15.f) {
+            screenshot("selftest-end.png");
+            endTestFinish("end screen NEVER showed (15s after completing)");
+        }
+    }
+};
+
+// ---- test 4: the loading screen pre-measures the bot's macro (selftest-preload.txt) ----
+namespace {
+    bool s_preActive = false;
+    GJGameLevel* s_preLevel = nullptr;
+    int s_preMarkersLogged = 0;
+
+    void startPreloadTest() {
+        // The spike level from the CBF test and a macro for it: the same
+        // presses pass 1 makes there (press, release one tick later).
+        std::string raw = "kA2,0,kA4,0;";
+        for (int g = 0; g < kGroups; g++) {
+            int x = static_cast<int>(kFirstGroup + kGroupGap * g);
+            for (int i = 0; i < 3; i++) raw += fmt::format("1,8,2,{},3,15;", x + 30 * i);
+        }
+        raw += "1,1,2,30000,3,15;";
+        std::error_code ec;
+        std::filesystem::create_directories(saveDir() / "macros", ec);
+        {
+            std::ofstream file(saveDir() / "macros" / "cmm-selftest-preload.txt");
+            file << "Cat's Mod Menu macro v1\nlevel=CMM Self Test Preload\nid=0\n";
+            for (unsigned t : {2252u, 3174u, 4098u, 5024u, 5948u, 6872u, 7796u}) file << t << " 1 1 0\n" << t + 2 << " 0 1 0\n";
+        }
+        auto level = GJGameLevel::create();
+        level->retain();
+        s_preLevel = level;
+        level->m_levelName = "CMM Self Test Preload";
+        level->m_levelString = ZipUtils::compressString(raw, false, 0, 0);
+        level->m_levelType = GJLevelType::Editor;
+        bool loaded = cmm::replay::loadIntoBot("cmm-selftest-preload");
+        setHack("bot.play", true);
+        setHack("framecounter", true);
+        setHack("noclip", true);
+        setHack("cbf", false);
+        s_oldHide10 = cmm::val<bool>("framecounter.hide10", true);
+        cmm::val<bool>("framecounter.hide10", true) = false;
+        s_replayTouched = true;
+        s_preActive = true;
+        log::info("SELFTEST4 start (macro loaded: {}, {} clicks)", loaded, cmm::replay::botInputs());
+        CCDirector::get()->replaceScene(PlayLayer::scene(level, false));
+    }
+}
+
+class $modify(SelfTestPreLayer, PlayLayer) {
+    void postUpdate(float dt) {
+        PlayLayer::postUpdate(dt);
+        if (!s_preActive || PlayLayer::get() != this) return;
+        if (m_level != s_preLevel) { s_preActive = false; restoreSettings(); log::info("SELFTEST4 stopped"); return; }
+        if (cmm::fw::loading()) return;  // the real run starts after the loading screen
+        static bool shot = false;
+        float x = m_player1->getPositionX();
+        // Group 3's press is at x ~ 3260: look just after it.
+        if (!shot && x > 3300.f && x < 3500.f) {
+            shot = true;
+            screenshot("selftest-preload.png");
+        }
+        if (x > 5300.f) {
+            s_preActive = false;
+            setHack("bot.play", false);
+            std::error_code ec;
+            std::filesystem::remove(saveDir() / "macros" / "cmm-selftest-preload.txt", ec);
+            cmm::replay::clearBot();
+            restoreSettings();
+            log::info("SELFTEST DONE");
+        }
+    }
+};
+
 class $modify(SelfTestMenu, MenuLayer) {
     bool init() {
         if (!MenuLayer::init()) return false;
         std::error_code ec;
         auto trigger = saveDir() / "selftest.txt";
+        auto triggerPre = saveDir() / "selftest-preload.txt";
+        if (!s_started && std::filesystem::exists(triggerPre, ec)) {
+            s_started = true;
+            std::filesystem::remove(triggerPre, ec);
+            this->scheduleOnce(schedule_selector(SelfTestMenu::startPre), 1.f);
+            return true;
+        }
+        auto triggerEnd = saveDir() / "selftest-end.txt";
+        if (!s_started && std::filesystem::exists(triggerEnd, ec)) {
+            s_started = true;
+            std::filesystem::remove(triggerEnd, ec);
+            this->scheduleOnce(schedule_selector(SelfTestMenu::startEnd), 1.f);
+            return true;
+        }
         auto triggerTypes = saveDir() / "selftest-hitboxes.txt";
         if (!s_started && std::filesystem::exists(triggerTypes, ec)) {
             s_typesOnly = true;
@@ -611,6 +870,14 @@ class $modify(SelfTestMenu, MenuLayer) {
             this->scheduleOnce(schedule_selector(SelfTestMenu::startSelfTest), 1.f);
         }
         return true;
+    }
+
+    void startPre(float) {
+        startPreloadTest();
+    }
+
+    void startEnd(float) {
+        startEndTest();
     }
 
     void startSelfTest(float) {

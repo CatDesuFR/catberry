@@ -57,6 +57,8 @@ namespace cmm::cbf {
         Decision s_last;
 
         std::string s_replayName;
+        std::string s_replayLevel;
+        int s_replayLevelID = 0;
         std::vector<replay::Input> s_replay;
         std::vector<bool> s_used;
 
@@ -175,17 +177,31 @@ namespace cmm::cbf {
     int windowTicks() { return kStages[stage()].all; }
 
     std::string const& replayName() { return s_replayName; }
+    std::string const& replayLevel() { return s_replayLevel; }
+
+    bool replayUsable(PlayLayer* pl) {
+        if (s_replay.empty() || !pl || !pl->m_level) return false;
+        int id = pl->m_level->m_levelID.value();
+        if (s_replayLevelID != 0 && id != 0) return s_replayLevelID == id;
+        if (!s_replayLevel.empty()) return s_replayLevel == std::string(pl->m_level->m_levelName);
+        return true;  // recorded before levels were saved: can't check
+    }
     int replayClicks() { return static_cast<int>(s_replay.size()); }
     std::vector<replay::Input> const& replayInputs() { return s_replay; }
     unsigned progressPerTick() { return s_progressPerTick; }
+    bool injecting() { return s_injecting; }
 
     bool setReplay(std::string const& name) {
         std::vector<replay::Input> inputs;
-        if (!name.empty() && !replay::readMacro(name, inputs)) {
+        std::string level;
+        int levelID = 0;
+        if (!name.empty() && !replay::readMacro(name, inputs, level, levelID)) {
             log::error("CBF: could not read macro {}", name);
             return false;
         }
         s_replay = std::move(inputs);
+        s_replayLevel = level;
+        s_replayLevelID = levelID;
         s_used.assign(s_replay.size(), false);
         s_replayName = name;
         save<std::string>("cbf.replay", name);
@@ -228,7 +244,7 @@ class $modify(CBFGameLayer, GJBaseGameLayer) {
         s_last.down = down;
         s_last.yourTick = progress / s_progressPerTick;
 
-        int snap = (pl->m_playerDied || pl->m_isPaused) ? -1 : findSnap(progress, down, !isPlayer1, limit);
+        int snap = (pl->m_playerDied || pl->m_isPaused || !replayUsable(pl)) ? -1 : findSnap(progress, down, !isPlayer1, limit);
         if (snap < 0) {
             // Nothing to snap to. Pass through, or keep spacing behind a held-back click.
             if (s_queue.empty()) return GJBaseGameLayer::handleButton(down, button, isPlayer1);

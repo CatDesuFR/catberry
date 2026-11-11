@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+class PlayLayer;
 #include "Replay.hpp"
 
 // Click Before Frames (replay based).
@@ -23,10 +24,17 @@ namespace cmm::cbf {
 
     // The macro CBF follows ("" = none). Shares the Replay Bot's macros folder.
     std::string const& replayName();
+    // The level the replay was recorded on ("" when it wasn't saved).
+    std::string const& replayLevel();
+    // False when the replay was recorded on another level than this one.
+    // (Replays without a saved level can't be checked and count as usable.)
+    bool replayUsable(PlayLayer* pl);
     // The clicks of that replay, sorted by tick.
     std::vector<replay::Input> const& replayInputs();
     // GD progress units per physics tick (normally 2).
     unsigned progressPerTick();
+    // True while CBF gives a held-back click to GD (at the start of a tick).
+    bool injecting();
     bool setReplay(std::string const& name);
     void reloadReplay();
     int replayClicks();

@@ -96,20 +96,50 @@ namespace cmm::gui {
             log::info("{} {} favourites", hack.name, now ? "added to" : "removed from");
         }
 
+        // Keybind + favourite controls, shown in every hack's options popup.
+        void drawHackExtras(Hack& hack) {
+            auto bound = keyName(val<int>(bindKey(hack.id), 0));
+            ImGui::Text("Keybind: %s", bound.empty() ? "none" : bound.c_str());
+            if (ImGui::Button(s_bindTarget == hack.id ? "Press a key..." : "Set key")) s_bindTarget = hack.id;
+            ImGui::SameLine();
+            if (ImGui::Button("Clear") && !bound.empty()) {
+                save<int>(bindKey(hack.id), 0);
+                log::info("Keybind for {}: none", hack.name);
+            }
+            bool fav = isFavourite(hack);
+            if (ImGui::Checkbox("Favourite", &fav)) toggleFavourite(hack);
+        }
+
+        void drawOptionsButton(Hack& hack) {
+            float w = ImGui::GetFrameHeight();
+            ImGui::SameLine(ImGui::GetContentRegionMax().x - w);
+            if (ImGui::ArrowButton("##opts", ImGuiDir_Right)) ImGui::OpenPopup("options");
+            if (ImGui::BeginPopup("options")) {
+                ImGui::TextColored(accent(), "%s", hack.name.c_str());
+                ImGui::Separator();
+                ImGui::PushItemWidth(ImGui::GetFontSize() * 10.f);
+                if (hack.options) {
+                    hack.options();
+                    ImGui::Separator();
+                }
+                drawHackExtras(hack);
+                ImGui::PopItemWidth();
+                ImGui::EndPopup();
+            }
+        }
+
         void drawHack(Hack& hack) {
             ImGui::PushID(hack.id.c_str());
+            auto bound = keyName(val<int>(bindKey(hack.id), 0));
             if (hack.action) {
-                auto bound = keyName(val<int>(bindKey(hack.id), 0));
                 auto label = bound.empty() ? hack.name : fmt::format("{}  [{}]", hack.name, bound);
-                if (ImGui::Button(label.c_str(), {-1, 0})) {
+                float w = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x;
+                if (ImGui::Button(label.c_str(), {ImGui::GetContentRegionAvail().x - w, 0})) {
                     log::info("Shortcut: {}", hack.name);
                     hack.action();
                 }
-                if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
-                    if (ImGui::GetIO().KeyShift) toggleFavourite(hack);
-                    else s_bindTarget = hack.id;
-                }
                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) ImGui::SetTooltip("%s", hack.desc.c_str());
+                drawOptionsButton(hack);
                 ImGui::PopID();
                 return;
             }
@@ -117,38 +147,21 @@ namespace cmm::gui {
 
             bool enabled = hack.enabled;
             if (ImGui::Checkbox(hack.name.c_str(), &enabled)) setEnabled(hack, enabled);
-            if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
-                if (ImGui::GetIO().KeyShift) toggleFavourite(hack);
-                else s_bindTarget = hack.id;
-            }
-            if (auto bound = keyName(val<int>(bindKey(hack.id), 0)); !bound.empty()) {
+            bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort);
+            if (!bound.empty()) {
                 ImGui::SameLine();
                 ImGui::TextDisabled("[%s]", bound.c_str());
             }
-
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+            if (hovered) {
                 ImGui::BeginTooltip();
                 ImGui::PushTextWrapPos(ImGui::GetFontSize() * 18.f);
                 ImGui::TextUnformatted(hack.desc.c_str());
                 ImGui::TextColored(pcColor(hack.pc), "%s", pcName(hack.pc));
-                ImGui::TextDisabled("Right-click: keybind. Shift + right-click: favourite.");
+                ImGui::TextDisabled("The arrow on the right: options, keybind, favourite.");
                 ImGui::PopTextWrapPos();
                 ImGui::EndTooltip();
             }
-
-            if (hack.options) {
-                float w = ImGui::GetFrameHeight();
-                ImGui::SameLine(ImGui::GetContentRegionMax().x - w);
-                if (ImGui::ArrowButton("##opts", ImGuiDir_Right)) ImGui::OpenPopup("options");
-                if (ImGui::BeginPopup("options")) {
-                    ImGui::TextColored(accent(), "%s", hack.name.c_str());
-                    ImGui::Separator();
-                    ImGui::PushItemWidth(ImGui::GetFontSize() * 10.f);
-                    hack.options();
-                    ImGui::PopItemWidth();
-                    ImGui::EndPopup();
-                }
-            }
+            drawOptionsButton(hack);
             ImGui::PopID();
         }
 
@@ -493,14 +506,61 @@ namespace cmm::gui {
         return true;
     }
 
+    // ImGui key -> GD/cocos key code (the Windows virtual-key codes).
+    int cocosKey(ImGuiKey k) {
+        if (k >= ImGuiKey_A && k <= ImGuiKey_Z) return 0x41 + (k - ImGuiKey_A);
+        if (k >= ImGuiKey_0 && k <= ImGuiKey_9) return 0x30 + (k - ImGuiKey_0);
+        if (k >= ImGuiKey_F1 && k <= ImGuiKey_F12) return 0x70 + (k - ImGuiKey_F1);
+        if (k >= ImGuiKey_Keypad0 && k <= ImGuiKey_Keypad9) return 0x60 + (k - ImGuiKey_Keypad0);
+        switch (k) {
+            case ImGuiKey_Space: return 0x20;
+            case ImGuiKey_Enter: return 0x0D;
+            case ImGuiKey_Escape: return 0x1B;
+            case ImGuiKey_Backspace: return 0x08;
+            case ImGuiKey_Tab: return 0x09;
+            case ImGuiKey_LeftArrow: return 0x25;
+            case ImGuiKey_UpArrow: return 0x26;
+            case ImGuiKey_RightArrow: return 0x27;
+            case ImGuiKey_DownArrow: return 0x28;
+            case ImGuiKey_Insert: return 0x2D;
+            case ImGuiKey_Delete: return 0x2E;
+            case ImGuiKey_Home: return 0x24;
+            case ImGuiKey_End: return 0x23;
+            case ImGuiKey_PageUp: return 0x21;
+            case ImGuiKey_PageDown: return 0x22;
+            case ImGuiKey_LeftShift: case ImGuiKey_RightShift: return 0x10;
+            case ImGuiKey_LeftCtrl: case ImGuiKey_RightCtrl: return 0x11;
+            case ImGuiKey_LeftAlt: case ImGuiKey_RightAlt: return 0x12;
+            case ImGuiKey_Comma: return 0xBC;
+            case ImGuiKey_Period: return 0xBE;
+            case ImGuiKey_Minus: return 0xBD;
+            case ImGuiKey_Equal: return 0xBB;
+            case ImGuiKey_Semicolon: return 0xBA;
+            case ImGuiKey_Slash: return 0xBF;
+            case ImGuiKey_Apostrophe: return 0xDE;
+            case ImGuiKey_LeftBracket: return 0xDB;
+            case ImGuiKey_RightBracket: return 0xDD;
+            case ImGuiKey_Backslash: return 0xDC;
+            case ImGuiKey_GraveAccent: return 0xC0;
+            default: return 0;
+        }
+    }
+
     void drawBindPopup() {
         if (s_bindTarget.empty()) return;
         auto hack = find(s_bindTarget);
         if (!hack) { s_bindTarget.clear(); return; }
+        // The menu can take keyboard input before GD sees it, so read the key here too.
+        for (int k = ImGuiKey_NamedKey_BEGIN; k < ImGuiKey_NamedKey_END; k++) {
+            if (!ImGui::IsKeyPressed(static_cast<ImGuiKey>(k), false)) continue;
+            int code = cocosKey(static_cast<ImGuiKey>(k));
+            if (code && captureBindKey(code)) return;
+        }
         auto& io = ImGui::GetIO();
         ImGui::SetNextWindowPos({io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f}, ImGuiCond_Always, {0.5f, 0.5f});
         if (ImGui::Begin("Keybind", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings)) {
             ImGui::Text("Press a key for %s", hack->name.c_str());
+            if (ImGui::Button("Cancel")) s_bindTarget.clear();
             ImGui::TextDisabled("Esc: cancel   Backspace: remove the keybind");
         }
         ImGui::End();
