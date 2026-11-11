@@ -2,13 +2,14 @@
 
 `catberry` is one command for a set of input tools, on **Linux** and
 **Windows 10/11**. This branch is the `catberry` command itself (version
-1.3.5). Each tool lives on its own branch and is installed separately:
+1.3.6). Each tool lives on its own branch and is installed separately:
 
 | Tool | Branch | Version | What it does |
 | --- | --- | --- | --- |
 | `catberry ac` | [`ac`](https://github.com/CatDesuFR/catberry/tree/ac) | 2.0.1 | Autoclicker: clicks, scrolls or presses a key at a set rate |
 | `catberry mtools` | [`mtools`](https://github.com/CatDesuFR/catberry/tree/mtools) | 2.1.2 | Macro recorder, hotkey macros (`catberry -config`) and quick click |
 | `catberry roofce` | [`roof-carton-engine`](https://github.com/CatDesuFR/catberry/tree/roof-carton-engine) | 1.2.5 | Roof Carton Engine: live wallpapers, clock and music widgets (Linux, Wayland) |
+| `catberry cbmm` | [`cbmm`](https://github.com/CatDesuFR/catberry/tree/cbmm) | 0.13.0 | Catberry's Mod Menu for Geometry Dash (Geode): `catberry cbmm load` puts it into the game |
 
 Install this launcher once; it then installs, updates and removes the tools.
 
@@ -19,28 +20,28 @@ Install this launcher once; it then installs, updates and removes the tools.
 **CachyOS, Garuda and other Arch-based distros**
 
 ```bash
-curl -LO https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.5/catberry-1.3.5-1-x86_64.pkg.tar.zst && sudo pacman -U catberry-1.3.5-1-x86_64.pkg.tar.zst
+curl -LO https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.6/catberry-1.3.6-1-x86_64.pkg.tar.zst && sudo pacman -U catberry-1.3.6-1-x86_64.pkg.tar.zst
 ```
 
 **Fedora**
 
 ```bash
-sudo dnf install https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.5/catberry-1.3.5-1.fc44.x86_64.rpm
+sudo dnf install https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.6/catberry-1.3.6-1.fc44.x86_64.rpm
 ```
 
 **Debian 13**
 
 ```bash
-curl -LO https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.5/catberry_1.3.5-1+debian13_amd64.deb && sudo apt install ./catberry_1.3.5-1+debian13_amd64.deb
+curl -LO https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.6/catberry_1.3.6-1+debian13_amd64.deb && sudo apt install ./catberry_1.3.6-1+debian13_amd64.deb
 ```
 
 **Ubuntu 26.04 or newer** (and distros built on it, like Linux Mint)
 
 ```bash
-curl -LO https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.5/catberry_1.3.5-1+ubuntu26.04_amd64.deb && sudo apt install ./catberry_1.3.5-1+ubuntu26.04_amd64.deb
+curl -LO https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.6/catberry_1.3.6-1+ubuntu26.04_amd64.deb && sudo apt install ./catberry_1.3.6-1+ubuntu26.04_amd64.deb
 ```
 
-**Windows 10/11**: download [`catberry-windows.zip`](https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.5/catberry-windows.zip),
+**Windows 10/11**: download [`catberry-windows.zip`](https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.6/catberry-windows.zip),
 extract it and double-click `install.bat` (if Windows shows "Windows protected
 your PC", click **More info** → **Run anyway**). It goes into
 `%LOCALAPPDATA%\Programs\catberry`, which is added to your PATH; open a new
@@ -54,6 +55,7 @@ All downloads, for every version: [Releases](https://github.com/CatDesuFR/catber
 catberry install ac          # the autoclicker
 catberry install mtools      # the macro recorder
 catberry install roofce      # the wallpaper manager (Linux, Wayland)
+catberry install cbmm        # Catberry's Mod Menu for Geometry Dash
 ```
 
 catberry picks the right package for your system and installs it with
@@ -122,20 +124,25 @@ catberry -quickpick NAME HOTKEY [GAP_MS]
 catberry -quickload NAME        start a saved quick click in the background
 catberry -quickunload [NAME]    stop one loaded quick click, or all of them
 catberry roofce gui             open the wallpaper manager (Linux, Wayland)
+catberry cbmm load              put Catberry's Mod Menu into Geometry Dash (needs Geode)
+catberry cbmm unload            take it out of Geometry Dash again
+catberry cbmm status            show whether it is loaded
+catberry cbmm -v                print the mod menu version
 ```
 
 `catberry -v` shows which tools are installed:
 
 ```
-catberry 1.3.5
+catberry 1.3.6
   ac      2.0.1
   mtools  2.1.2
   roofce  1.2.5
+  cbmm    0.13.0
 ```
 
 `catberry ac ...` runs the `catberry-ac` program, `catberry mtools ...` (and
 the `-config` and `-quick` commands) run `catberry-mtools`, and `catberry roofce ...` runs
-`catberry-roofce`. The launcher looks for them
+`catberry-roofce`, and `catberry cbmm ...` runs `catberry-cbmm`. The launcher looks for them
 next to itself first, then on your PATH. See each branch's README for how the
 tools work.
 
@@ -146,9 +153,9 @@ tools work.
 | Linux program | `make` | `catberry` |
 | Install on Linux | `make install` | `~/.local/bin/catberry` |
 | Windows package | `make windows` | `dist/catberry-windows.zip` |
-| Arch package | `cd packaging/arch && makepkg` | `catberry-1.3.5-1-x86_64.pkg.tar.zst` |
+| Arch package | `cd packaging/arch && makepkg` | `catberry-1.3.6-1-x86_64.pkg.tar.zst` |
 | Unit tests | `make test` | |
-| Every package, tested and published | `ci/release-local.sh catberry` (podman) | a GitHub Release |
+| Every package, tested and published | `ci/release-local.sh catberry` (or `ac`, `mtools`, `roofce`, `cbmm`; podman) | a GitHub Release |
 | install/uninstall on every distro | `ci/test-install-local.sh` (podman) | |
 
 Ready-built downloads are on the [Releases](https://github.com/CatDesuFR/catberry/releases)

@@ -6,7 +6,7 @@
 # The version comes from the tool branch's packaging/arch/PKGBUILD (as on
 # GitHub). A version that is already released is never rebuilt or overwritten.
 set -euo pipefail
-tool=${1:?usage: ci/release-local.sh <catberry|ac|mtools|roofce> [--no-publish]}
+tool=${1:?usage: ci/release-local.sh <catberry|ac|mtools|roofce|cbmm> [--no-publish]}
 publish=yes
 [ "${2:-}" = --no-publish ] && publish=no
 
@@ -15,6 +15,7 @@ catberry) branch=main program=catberry ;;
 ac) branch=ac program=catberry-ac ;;
 mtools) branch=mtools program=catberry-mtools ;;
 roofce) branch=roof-carton-engine program=catberry-roofce ;;
+cbmm) branch=cbmm program=catberry-cbmm ;;
 *) echo "unknown tool $tool" >&2; exit 2 ;;
 esac
 
@@ -52,7 +53,7 @@ echo "== working in $work"
 
 # The tools are tested with the launcher installed: its newest release.
 launcher=""
-if [ "$tool" = ac ] || [ "$tool" = mtools ]; then
+if [ "$tool" = ac ] || [ "$tool" = mtools ] || [ "$tool" = cbmm ]; then
     ltag=$(gh release list -R "$repo" --limit 200 --json tagName -q '.[].tagName' | grep '^catberry-v' | sort -V | tail -1 || true)
     [ -n "$ltag" ] || { echo "no catberry-v* release yet: publish catberry first" >&2; exit 1; }
     mkdir -p "$work/launcher"

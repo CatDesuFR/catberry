@@ -308,8 +308,8 @@ int installTool(const std::string &name, const std::string &wanted, bool reinsta
         return 0;
     }
 
-    // ac and mtools are packaged to need the launcher's package.
-    if ((name == "ac" || name == "mtools") && !installedAsPackage(sys.family, "catberry")) {
+    // ac, mtools and cbmm are packaged to need the launcher's package.
+    if ((name == "ac" || name == "mtools" || name == "cbmm") && !installedAsPackage(sys.family, "catberry")) {
         const Tool *launcher = toolByName("catberry");
         std::vector<std::string> launcherVersions;
         if (!publishedVersions("catberry", tmp, launcherVersions)) return 1;
@@ -323,6 +323,7 @@ int installTool(const std::string &name, const std::string &wanted, bool reinsta
     std::printf("%s %s installed.\n", tool->name, version.c_str());
     if (name == "roofce")
         std::printf("If the wallpaper is running, restart it: catberry roofce stop; catberry roofce start\n");
+    if (name == "cbmm") std::printf("Put it into Geometry Dash with: catberry cbmm load\n");
     return 0;
 }
 
@@ -458,6 +459,13 @@ bool offerPersonalFiles(const std::vector<std::string> &files) {
 
 } // namespace
 
+// cbmm puts a mod into Geometry Dash; offer to take it out before removing cbmm.
+void offerUnloadMod(const std::string &name) {
+    if (name != "cbmm") return;
+    std::string path = findTool("catberry-cbmm");
+    if (!path.empty() && askYesNo("Also remove the mod from Geometry Dash?")) runProgram({path, "unload"});
+}
+
 int uninstallTool(const std::string &name) {
     const Tool *tool = toolByName(name);
     if (!tool) return 2;
@@ -469,6 +477,7 @@ int uninstallTool(const std::string &name) {
     }
     SystemInfo sys = thisSystem();
     int code = 0;
+    offerUnloadMod(name);
 
     if (name != "catberry") {
         bool found = removeCopies(sys, *tool, code);
@@ -480,13 +489,13 @@ int uninstallTool(const std::string &name) {
         return code;
     }
 
-    // The launcher: ac and mtools cannot run without it; roofce can.
+    // The launcher: ac, mtools and cbmm cannot run without it; roofce can.
     std::vector<const Tool *> chosen;
     std::vector<std::string> needing;
-    for (const char *dep : {"ac", "mtools"})
+    for (const char *dep : {"ac", "mtools", "cbmm"})
         if (isInstalled(sys.family, *toolByName(dep))) needing.push_back(dep);
     if (!needing.empty()) {
-        std::string who = needing.size() == 2 ? "ac and mtools need" : needing[0] + " needs";
+        std::string who = needing.size() == 1 ? needing[0] + " needs" : "the tools need";
         if (!askYesNo(who + " the launcher and will be removed too. Continue?")) {
             std::printf("Nothing was changed.\n");
             return 0;
@@ -650,11 +659,19 @@ int installTool(const std::string &name, const std::string &wanted, bool reinsta
     return 0;
 }
 
+// cbmm puts a mod into Geometry Dash; offer to take it out before removing cbmm.
+void offerUnloadMod(const std::string &name) {
+    if (name != "cbmm") return;
+    std::string path = findTool("catberry-cbmm");
+    if (!path.empty() && askYesNo("Also remove the mod from Geometry Dash?")) runProgram({path, "unload"});
+}
+
 int uninstallTool(const std::string &name) {
     const Tool *tool = toolByName(name);
     if (!tool || linuxOnly(name)) return tool ? 1 : 2;
     int code = 0;
     std::error_code ec;
+    offerUnloadMod(name);
 
     if (name != "catberry") {
         bool found = removeExe(*tool, code);
@@ -664,10 +681,10 @@ int uninstallTool(const std::string &name) {
     }
 
     std::vector<std::string> needing;
-    for (const char *dep : {"ac", "mtools"})
+    for (const char *dep : {"ac", "mtools", "cbmm"})
         if (fs::exists(exePath(*toolByName(dep)), ec)) needing.push_back(dep);
     if (!needing.empty()) {
-        std::string who = needing.size() == 2 ? "ac and mtools need" : needing[0] + " needs";
+        std::string who = needing.size() == 1 ? needing[0] + " needs" : "the tools need";
         if (!askYesNo(who + " the launcher and will be removed too. Continue?")) {
             std::printf("Nothing was changed.\n");
             return 0;

@@ -35,7 +35,7 @@ void usage(FILE *out) {
                  "  catberry -v                     print the versions of catberry and its tools\n"
                  "\n"
                  "  catberry install TOOL [VERSION] install a tool, or another version of it (default: latest)\n"
-                 "                                  TOOL is ac, mtools, roofce or catberry; add --reinstall\n"
+                 "                                  TOOL is ac, mtools, roofce, cbmm or catberry; add --reinstall\n"
                  "                                  to install the same version again\n"
                  "  catberry uninstall TOOL         remove a tool, then choose whether to keep its settings\n"
                  "  catberry update [TOOL]          update everything installed, or one tool, to the newest version\n"
@@ -56,6 +56,10 @@ void usage(FILE *out) {
                  "  catberry -quickunload [NAME]    stop one loaded quick click, or all of them\n"
                  "  catberry roofce gui             open the wallpaper manager (Linux, Wayland)\n"
                  "  catberry roofce -v              print the wallpaper manager version\n"
+                 "  catberry cbmm load              put Catberry's Mod Menu into Geometry Dash (Geode)\n"
+                 "  catberry cbmm unload            take it out of Geometry Dash again\n"
+                 "  catberry cbmm status            show whether it is loaded\n"
+                 "  catberry cbmm -v                print the mod menu version\n"
                  "\n"
                  "Releases: %s/releases\n",
                  kVersion, kRepo);

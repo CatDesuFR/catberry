@@ -31,6 +31,10 @@ void testArgs() {
     CHECK(parse({"catberry", "uninstall"}).kind == Command::Uninstall);
 
     // Everything else still goes to the tool, untouched.
+    c = parse({"cbmm", "load"});
+    CHECK(c.kind == Command::RunTool && c.tool == "cbmm" && c.toolArgStart == 2);
+    c = parse({"install", "cbmm"});
+    CHECK(c.kind == Command::Install && c.tool == "cbmm" && c.version == "latest");
     c = parse({"roofce", "gui"});
     CHECK(c.kind == Command::RunTool && c.tool == "roofce" && c.toolArgStart == 2);
     c = parse({"roofce"});
