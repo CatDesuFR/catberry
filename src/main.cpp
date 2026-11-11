@@ -38,7 +38,7 @@ namespace fs = std::filesystem;
 
 // The mod file, embedded at build time.
 #ifdef _WIN32
-#define CBMM_SECTION ".rdata"
+#define CBMM_SECTION ".rdata,\"dr\""
 #else
 #define CBMM_SECTION ".rodata"
 #endif
@@ -50,7 +50,7 @@ __asm__(".section " CBMM_SECTION "\n"
         ".global cbmm_geode_end\n"
         "cbmm_geode_end:\n"
         ".byte 0\n"
-        ".previous\n");
+        ".text\n");  // back to code (MinGW's assembler has no .previous)
 extern "C" const unsigned char cbmm_geode_start[];
 extern "C" const unsigned char cbmm_geode_end[];
 
