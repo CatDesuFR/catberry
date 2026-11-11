@@ -1,9 +1,9 @@
 @echo off
-rem Installs catberry.exe for the current user into %LOCALAPPDATA%\Programs\catberry,
+rem Installs catberry-cbmm.exe for the current user into %LOCALAPPDATA%\Programs\catberry,
 rem the folder shared by all catberry programs, and adds it to the user PATH.
 rem No administrator rights needed.
 setlocal
-set "EXE=catberry.exe"
+set "EXE=catberry-cbmm.exe"
 set "DEST=%LOCALAPPDATA%\Programs\catberry"
 
 if not exist "%~dp0%EXE%" (
@@ -28,7 +28,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
 
 echo.
 echo Installed %EXE% to %DEST%
-echo Open a NEW terminal (cmd or PowerShell) and run:  catberry -help
-echo Then install the tools you want: catberry-ac-windows.zip and catberry-mtools-windows.zip.
+echo Open a NEW terminal (cmd or PowerShell) and run:  catberry cbmm load
+echo (This needs the catberry launcher too: install catberry-windows.zip if you have not.)
 echo.
 pause

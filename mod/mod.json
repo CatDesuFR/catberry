@@ -1,0 +1,16 @@
+{
+	"geode": "6.0.0-alpha.1",
+	"gd": {
+		"win": "2.2091"
+	},
+	"id": "catdesu.cats-mod-menu",
+	"name": "Catberry's Mod Menu",
+	"version": "v0.13.0",
+	"developer": "CatDesu",
+	"description": "A mod menu with Click Before Frames, a Pointercrate-rules cheat indicator and a live console.",
+	"resources": {
+		"files": [
+			"resources/Roboto-Medium.ttf"
+		]
+	}
+}

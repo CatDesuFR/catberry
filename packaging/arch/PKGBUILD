@@ -1,33 +1,26 @@
 # Builds the Arch package from the source tree this file sits in:
 #   cd packaging/arch && makepkg -si
-pkgname=catberry
-pkgver=1.3.5
+pkgname=catberry-cbmm
+pkgver=0.13.0
 pkgrel=1
-pkgdesc='catberry launcher: runs the catberry autoclicker, macro tools and wallpaper manager'
+pkgdesc="Catberry's Mod Menu for Geometry Dash (Geode): catberry cbmm load"
 arch=('x86_64')
-url='https://github.com/CatDesuFR/catberry'
+url='https://github.com/CatDesuFR/catberry/tree/cbmm'
 license=('custom')
-depends=('gcc-libs' 'glibc')
+depends=('catberry')
 makedepends=('gcc' 'make')
-optdepends=('catberry-ac: the autoclicker (catberry ac)'
-            'catberry-roofce: the wallpaper manager (catberry roofce)'
-            'catberry-mtools: the macro recorder and hotkey macros (catberry mtools, -config)')
-install=catberry.install
 options=('!debug')
 source=()
 
 build() {
     rm -rf "$srcdir/$pkgname"
-    mkdir -p "$srcdir/$pkgname"
-    cp -r "$startdir/../../src" "$startdir/../../Makefile" "$srcdir/$pkgname/"
-    cd "$srcdir/$pkgname"
-    make CXXFLAGS="$CXXFLAGS -Wall -Wextra" catberry
+    mkdir -p "$srcdir/$pkgname/packaging/arch"
+    cp -r "$startdir/../../src" "$startdir/../../geode" "$startdir/../../Makefile" "$srcdir/$pkgname/"
+    cp "$startdir/PKGBUILD" "$srcdir/$pkgname/packaging/arch/"
+    make -C "$srcdir/$pkgname" catberry-cbmm
 }
 
 package() {
-    cd "$srcdir/$pkgname"
-    install -Dm755 catberry "$pkgdir/usr/bin/catberry"
-    # Shared by the tools: lets them create their virtual mouse/keyboard.
-    install -Dm644 "$startdir/70-catberry-uinput.rules" "$pkgdir/usr/lib/udev/rules.d/70-catberry-uinput.rules"
+    install -Dm755 "$srcdir/$pkgname/catberry-cbmm" "$pkgdir/usr/bin/catberry-cbmm"
     install -Dm644 "$startdir/../../README.md" "$pkgdir/usr/share/doc/$pkgname/README.md"
 }

@@ -1,0 +1,141 @@
+// Third batch of modules from QOLMod / Eclipse's feature lists, written from scratch.
+#include <core/Hacks.hpp>
+#include <algorithm>
+#include <core/Log.hpp>
+#include <Geode/modify/CCCircleWave.hpp>
+#include <Geode/modify/CCScheduler.hpp>
+#include <Geode/modify/FMODAudioEngine.hpp>
+#include <Geode/modify/GJBaseGameLayer.hpp>
+#include <Geode/modify/LevelInfoLayer.hpp>
+#include <Geode/modify/PlayLayer.hpp>
+#include <imgui.h>
+
+using namespace geode::prelude;
+
+namespace {
+    bool isPlayLayer(GJBaseGameLayer* layer) {
+        auto pl = PlayLayer::get();
+        return pl && static_cast<GJBaseGameLayer*>(pl) == layer;
+    }
+
+    struct ParticleOption {
+        char const* key;
+        char const* label;
+    };
+    constexpr ParticleOption kParticles[] = {
+        {"particles.ground", "Ground particles"},
+        {"particles.trailing", "Trailing particles"},
+        {"particles.shipclick", "Ship click particles"},
+        {"particles.vehicleground", "Vehicle ground particles"},
+        {"particles.ufoclick", "UFO click particles"},
+        {"particles.robotburst", "Robot burst particles"},
+    };
+}
+
+// No Circles: the circle effects from orbs, pads and portals.
+class $modify(B3Circle, CCCircleWave) {
+    static CCCircleWave* create(float startRadius, float endRadius, float duration, bool fadeIn, bool easeOut) {
+        auto wave = CCCircleWave::create(startRadius, endRadius, duration, fadeIn, easeOut);
+        if (wave && cmm::on("nocircles") && PlayLayer::get()) wave->setVisible(false);
+        return wave;
+    }
+};
+
+class $modify(B3GameLayer, GJBaseGameLayer) {
+    // All Passable: the player goes through solid blocks and slopes. GD checks
+    // hazards in the same pass, so only the solids are taken out of the list.
+    void collisionCheckObjects(PlayerObject* player, std::vector<GameObject*>* objects, int count, float dt) {
+        if (!cmm::on("allpassable") || !isPlayLayer(this) || !objects) {
+            return GJBaseGameLayer::collisionCheckObjects(player, objects, count, dt);
+        }
+        std::vector<GameObject*> kept;
+        kept.reserve(static_cast<size_t>(std::max(0, count)));
+        for (int i = 0; i < count && i < static_cast<int>(objects->size()); i++) {
+            auto o = (*objects)[static_cast<size_t>(i)];
+            if (o && (o->m_objectType == GameObjectType::Solid || o->m_objectType == GameObjectType::Slope)) continue;
+            kept.push_back(o);
+        }
+        GJBaseGameLayer::collisionCheckObjects(player, &kept, static_cast<int>(kept.size()), dt);
+    }
+
+    // No Particle Triggers
+    void spawnParticleTrigger(int particleID, CCPoint position, float rotation, float scale) {
+        if (cmm::on("noparticletriggers") && isPlayLayer(this)) return;
+        GJBaseGameLayer::spawnParticleTrigger(particleID, position, rotation, scale);
+    }
+};
+
+class $modify(B3PlayLayer, PlayLayer) {
+    void postUpdate(float dt) {
+        PlayLayer::postUpdate(dt);
+
+        if (cmm::on("hideattempts") && m_attemptLabel) m_attemptLabel->setVisible(false);
+
+        if (!cmm::on("particletoggles")) return;
+        for (auto p : {m_player1, m_player2}) {
+            if (!p) continue;
+            CCParticleSystemQuad* systems[] = {
+                p->m_playerGroundParticles, p->m_trailingParticles, p->m_shipClickParticles,
+                p->m_vehicleGroundParticles, p->m_ufoClickParticles, p->m_robotBurstParticles,
+            };
+            for (size_t i = 0; i < std::size(systems); i++) {
+                if (systems[i] && cmm::val<bool>(kParticles[i].key, false)) systems[i]->setVisible(false);
+            }
+        }
+    }
+};
+
+// No Music Fade Out
+class $modify(B3Audio, FMODAudioEngine) {
+    void fadeOutMusic(float duration, int channel) {
+        if (cmm::on("nomusicfadeout") && PlayLayer::get()) return;
+        FMODAudioEngine::fadeOutMusic(duration, channel);
+    }
+};
+
+// Auto Song Download
+class $modify(B3LevelInfo, LevelInfoLayer) {
+    bool init(GJGameLevel* level, bool challenge) {
+        if (!LevelInfoLayer::init(level, challenge)) return false;
+        if (cmm::on("autosongdownload") && m_songWidget && m_songWidget->m_downloadBtn && m_songWidget->m_downloadBtn->isVisible()) {
+            m_songWidget->onDownload(nullptr);
+            cmm::log::info("Auto Song Download: downloading the song for {}", std::string(level->m_levelName));
+        }
+        return true;
+    }
+};
+
+// Hide Editor UI
+class $modify(B3Scheduler, CCScheduler) {
+    void update(float dt) {
+        CCScheduler::update(dt);
+        static bool hidden = false;
+        auto editor = LevelEditorLayer::get();
+        bool want = cmm::on("hideeditorui") && editor && editor->m_editorUI;
+        if (editor && editor->m_editorUI && want != hidden) {
+            editor->m_editorUI->setVisible(!want);
+        }
+        hidden = want && editor;
+    }
+};
+
+namespace cmm {
+    void registerBatch3() {
+        using enum Tab;
+        constexpr auto OK = PC::Allowed;
+        constexpr auto NO = PC::NotAllowed;
+
+        add({"nocircles", "No Circles", "Hides the circle effects from orbs, pads and portals.", Level, OK});
+        add({"particletoggles", "Player Particles", "Hide each kind of player particle separately (see options).", Player, OK,
+            false, [] {
+                for (auto const& p : kParticles) optBool(p.label, p.key, false);
+                ImGui::TextDisabled("Ticked = hidden");
+            }});
+        add({"noparticletriggers", "No Particle Triggers", "Particle objects from the level's triggers don't spawn.", Level, OK});
+        add({"allpassable", "All Passable", "You pass through solid blocks.", Level, NO});
+        add({"hideattempts", "Hide Attempt Label", "Hides the \"Attempt N\" text in levels.", Level, OK});
+        add({"nomusicfadeout", "No Music Fade Out", "The song doesn't fade out at the end of a level.", Level, OK});
+        add({"autosongdownload", "Auto Song Download", "Downloads a level's song when you open the level page.", Bypass, OK});
+        add({"hideeditorui", "Hide Editor UI", "Hides the editor's buttons and toolbars (bind it to a key to toggle).", Creator, OK});
+    }
+}

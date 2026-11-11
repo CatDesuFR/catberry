@@ -1,25 +1,18 @@
-# catberry: the launcher that runs the catberry tools (catberry-ac and
-# catberry-mtools, built from the ac and mtools branches).
+# catberry-cbmm: installs Catberry's Mod Menu into Geometry Dash.
+# The compiled mod (geode/catdesu.cats-mod-menu.geode) is built into the program.
 CXX ?= g++
 WINCXX ?= x86_64-w64-mingw32-g++
 CXXFLAGS ?= -O2 -Wall -Wextra
 PREFIX ?= $(HOME)/.local
 
-PROGRAM = catberry
+PROGRAM = catberry-cbmm
+VERSION := $(shell sed -n 's/^pkgver=//p' packaging/arch/PKGBUILD)
+GEODE = $(CURDIR)/geode/catdesu.cats-mod-menu.geode
+DEFS = -DCBMM_VERSION='"$(VERSION)"' -DCBMM_GEODE='"$(GEODE)"'
 WINDOWS_DIST = dist/$(PROGRAM)-windows
-SRCS = $(wildcard src/*.cpp)
-HEADERS = $(wildcard src/*.h)
-# Everything but main(), for the tests.
-LIB_SRCS = $(filter-out src/main.cpp,$(SRCS))
-TEST_SRCS = $(wildcard tests/*.cpp)
 
-$(PROGRAM): $(SRCS) $(HEADERS)
-	$(CXX) $(CXXFLAGS) -std=c++17 $(SRCS) -o $@
-
-# Unit tests of the launcher's logic: make test
-test: $(LIB_SRCS) $(TEST_SRCS) $(HEADERS) tests/test.h
-	$(CXX) $(CXXFLAGS) -std=c++17 $(LIB_SRCS) $(TEST_SRCS) -o tests/run-tests
-	cd tests && ./run-tests
+$(PROGRAM): src/main.cpp $(GEODE) packaging/arch/PKGBUILD
+	$(CXX) $(CXXFLAGS) -std=c++17 $(DEFS) src/main.cpp -o $@
 
 install: $(PROGRAM)
 	install -Dm755 $(PROGRAM) $(DESTDIR)$(PREFIX)/bin/$(PROGRAM)
@@ -35,9 +28,9 @@ windows: $(WINDOWS_DIST)/$(PROGRAM).exe $(WINDOWS_DIST)/install.bat $(WINDOWS_DI
 		echo "Built dist/$(PROGRAM)-windows.zip"; \
 	else echo "Built $(WINDOWS_DIST)/"; fi
 
-$(WINDOWS_DIST)/$(PROGRAM).exe: $(SRCS) $(HEADERS)
+$(WINDOWS_DIST)/$(PROGRAM).exe: src/main.cpp $(GEODE) packaging/arch/PKGBUILD
 	mkdir -p $(@D)
-	$(WINCXX) $(CXXFLAGS) -std=c++17 -static -s $(SRCS) -o $@
+	$(WINCXX) $(CXXFLAGS) -std=c++17 -static -s $(DEFS) src/main.cpp -o $@ -ladvapi32
 
 # Batch files need Windows line endings.
 $(WINDOWS_DIST)/%.bat: windows/%.bat
@@ -45,6 +38,7 @@ $(WINDOWS_DIST)/%.bat: windows/%.bat
 	sed 's/\r*$$/\r/' $< > $@
 
 clean:
-	rm -rf $(PROGRAM) dist tests/run-tests
+	rm -f $(PROGRAM)
+	rm -rf dist
 
-.PHONY: install uninstall windows clean test
+.PHONY: install uninstall windows clean
