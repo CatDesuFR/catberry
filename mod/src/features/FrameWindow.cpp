@@ -250,7 +250,8 @@ namespace cmm::fw::own {
         int64_t s_ringTick[kRing];
         bool s_ringReady = false;
 
-        struct Click { int64_t act; bool down; };
+        // fix: the bot's position fix for this click (bot clicks only)
+        struct Click { int64_t act; bool down; replay::Fix fix = {}; };
         std::deque<Click> s_clicks;        // recent clicks of player 1
 
         struct Activation { Ref<EnhancedGameObject> obj; int64_t tick; };
@@ -319,6 +320,12 @@ namespace cmm::fw::own {
             return slot;
         }
 
+        int freeSlots() {
+            int n = 0;
+            for (bool used : s_slotUsed) n += !used;
+            return n;
+        }
+
         int freeSlot() {
             for (int i = 0; i < kPendingSlots; i++) {
                 if (!s_slotUsed[i]) { s_slotUsed[i] = true; return 4 + i; }
@@ -371,15 +378,25 @@ namespace cmm::fw::own {
 
             sim::copyState(p, from);
             sim::clearStopped();
-            struct Event { double time; bool down; };
+            struct Event { double time; bool down; replay::Fix const* fix; };
             std::vector<Event> events;
+            // The bot puts the player back where the recording had it at each
+            // of its clicks; do the same for the clicks before the moved one,
+            // so the re-run matches the real run up to it. (Not after it: that
+            // would undo the move.)
+            double movedFrom = static_cast<double>(job.act) + std::min(0.0, offset);
+            std::vector<std::pair<int64_t, replay::Fix const*>> fixes;
             for (auto const& c : s_clicks) {
                 double t = static_cast<double>(c.act);
                 bool moved = job.isRelease ? (c.act == job.act && !c.down)
                                            : ((c.act == job.act && c.down) || (c.act == job.release && !c.down));
                 if (moved) t += offset;
                 if (t < static_cast<double>(start) || t > static_cast<double>(job.horizon)) continue;
-                events.push_back({t, c.down});
+                // The bot's fix lands at the end of the click's tick (the start
+                // of the next one); only while that's still before the move.
+                bool useFix = !moved && c.fix.ok && t + 1.0 <= movedFrom;
+                events.push_back({t, c.down, nullptr});
+                if (useFix) fixes.push_back({c.act + 1, &c.fix});
             }
             std::stable_sort(events.begin(), events.end(), [](auto const& a, auto const& b) { return a.time < b.time; });
 
@@ -389,7 +406,21 @@ namespace cmm::fw::own {
             };
             bool alive = true;
             size_t e = 0;
+            size_t fi = 0;
+            std::sort(fixes.begin(), fixes.end(), [](auto const& a, auto const& b) { return a.first < b.first; });
             for (int64_t t = start; t < job.horizon && alive; t++) {
+                // The bot's fixes due at the start of this tick.
+                while (fi < fixes.size() && fixes[fi].first <= t) {
+                    if (fixes[fi].first == t) {
+                        auto const* fx = fixes[fi].second;
+                        p->m_position = CCPoint(fx->x, fx->y);
+                        p->setPosition(p->m_position);
+                        p->setRotation(fx->rotation);
+                        p->m_yVelocity = fx->yVelocity;
+                        if (p->m_isPlatformer) p->m_platformerXVelocity = fx->xVelocity;
+                    }
+                    fi++;
+                }
                 // Clicks on this tick; ones between ticks split it.
                 double done = 0.0;
                 while (alive && e < events.size() && events[e].time < static_cast<double>(t + 1)) {
@@ -535,6 +566,10 @@ namespace cmm::fw::own {
         int s_preTotal = 0;      // presses in the macro
         int s_preMeasured = 0;
         bool s_preStepping = false;  // still fast-forwarding the level
+        bool s_preDied = false;      // the macro died while fast-forwarding
+        float s_preDiedAt = 0.f;     // where (percent)
+        bool s_preAsking = false;    // waiting for "Play anyway" / "Cancel"
+        int s_preUnknown = 0;        // clicks that came out as "?"
 
         // Already measured behind the loading screen: show it right away.
         bool fromTable(PlayLayer* pl, int64_t act, bool release) {
@@ -573,8 +608,11 @@ namespace cmm::fw::own {
             // A second kept state just before the click, for the moves later.
             int nearSlot = -1;
             int64_t nearBase = -1;
-            if (s_ringStride > 1) {
-                int nearRing = ringAtOrBefore(act - 1, nearBase);
+            if (s_ringStride > 1 || release) {
+                // A release starts from the real state of its own tick: a short
+                // tap re-run from further back can miss what really happened
+                // and come out as "?". (It can't move before its press anyway.)
+                int nearRing = ringAtOrBefore(release ? act : act - 1, nearBase);
                 if (nearRing >= 0 && nearBase > base) {
                     nearSlot = freeSlot();
                     auto nf = sim::scratch(pl, kRingBase + nearRing);
@@ -680,7 +718,9 @@ class $modify(FrameWindowGameLayer, GJBaseGameLayer) {
         auto pl = static_cast<PlayLayer*>(static_cast<GJBaseGameLayer*>(this));
         if (pl->m_playerDied || pl->m_isPaused) return;
         int64_t act = own::s_inStep ? own::s_tick : own::s_tick + 2;
-        own::s_clicks.push_back({act, down});
+        cmm::replay::Fix fix;
+        if (auto f = cmm::replay::injectingFix(); f && own::s_inStep) fix = *f;
+        own::s_clicks.push_back({act, down, fix});
         if (down) own::onPress(pl, act);
         else own::onRelease(pl, act);
     }
@@ -719,6 +759,7 @@ class $modify(FrameWindowLayer, PlayLayer) {
         bool lastRelease = false;
         std::string listKey;
         Ref<CCNode> loading;           // the loading screen
+        bool preloadDone = false;      // the loading screen already ran on this visit
         Ref<CCLayerColor> loadingFill;
         Ref<CCLabelBMFont> loadingText;
     };
@@ -735,7 +776,14 @@ class $modify(FrameWindowLayer, PlayLayer) {
 
     void startGame() {
         PlayLayer::startGame();
-        if (own::active() && cmm::val<bool>("framecounter.preload", true) && macroForThisLevel()) beginLoading();
+        // Once per visit to the level: not again after Cancel, "Play anyway"
+        // or a finished measurement restarts it.
+        auto f = m_fields.self();
+        if (f->preloadDone) return;
+        if (own::active() && cmm::val<bool>("framecounter.preload", true) && macroForThisLevel()) {
+            f->preloadDone = true;
+            beginLoading();
+        }
     }
 
     void beginLoading() {
@@ -744,6 +792,9 @@ class $modify(FrameWindowLayer, PlayLayer) {
         own::s_table.clear();
         own::s_preMeasured = 0;
         own::s_preTotal = 0;
+        own::s_preDied = false;
+        own::s_preAsking = false;
+        own::s_preUnknown = 0;
         for (auto const& in : cmm::replay::botMacro()) {
             if (in.button == 1 && !in.player2) own::s_preTotal++;  // presses and releases
         }
@@ -789,20 +840,29 @@ class $modify(FrameWindowLayer, PlayLayer) {
         float done = own::s_preTotal > 0 ? static_cast<float>(own::s_preMeasured) / own::s_preTotal : 1.f;
         auto win = CCDirector::get()->getWinSize();
         f->loadingFill->setContentSize({std::max(1.f, win.width * 0.6f * std::clamp(done, 0.f, 1.f)), 12.f});
-        f->loadingText->setString(fmt::format("{} / {} clicks measured", own::s_preMeasured, own::s_preTotal).c_str());
+        if (own::s_preAsking) return;
+        f->loadingText->setString(fmt::format("{} / {} clicks measured{}", own::s_preMeasured, own::s_preTotal,
+            own::s_preUnknown ? fmt::format(" ({} unsure)", own::s_preUnknown) : std::string()).c_str());
     }
 
     // The loading screen's loop: run the level fast with the bot, measure
     // the presses, and when all are done start the level for real.
     void loadingFrame() {
+        if (own::s_preAsking) return;
         auto start = std::chrono::steady_clock::now();
         auto elapsed = [&] { return std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - start).count(); };
         int64_t lastPress = 0;
         for (auto const& in : cmm::replay::botMacro()) {
             if (in.button == 1 && !in.player2) lastPress = in.tick;
         }
-        while (own::s_preStepping && elapsed() < 10.f) {
+        // Keep slots free for the clicks still to come: wait for the measuring
+        // to catch up instead of skipping clicks.
+        while (own::s_preStepping && elapsed() < 10.f && own::freeSlots() >= 4) {
             if (m_playerDied || m_gameState.m_currentProgress > lastPress + 480 * cmm::cbf::progressPerTick()) {
+                if (m_playerDied) {
+                    own::s_preDied = true;
+                    own::s_preDiedAt = this->getCurrentPercent();
+                }
                 own::s_preStepping = false;
                 break;
             }
@@ -816,11 +876,37 @@ class $modify(FrameWindowLayer, PlayLayer) {
         for (auto const& r : own::s_done) {
             own::s_table[r.rel * 2 + (r.release ? 1 : 0)] = {r.window, r.unknown};
             own::s_preMeasured++;
+            if (r.unknown) own::s_preUnknown++;
         }
         own::s_done.clear();
         own::s_pressed.clear();
         updateLoading();
-        if (!own::s_preStepping && own::s_jobs.empty()) finishLoading(true);
+        if (own::s_preStepping || !own::s_jobs.empty()) return;
+        if (own::s_preDied) askAfterDeath();
+        else finishLoading(true);
+    }
+
+    // The macro died before its last click: it's probably for another level
+    // (or an old recording). Say so instead of starting with clicks missing.
+    void askAfterDeath() {
+        auto f = m_fields.self();
+        own::s_preAsking = true;
+        log::warn("Frame windows: the macro died at {:.1f}% while measuring ({} of {} clicks measured)",
+            own::s_preDiedAt, own::s_preMeasured, own::s_preTotal);
+        if (!f->loading) return;
+        f->loadingText->setString(fmt::format("The macro died at {:.0f}%: {} of {} clicks measured.\nIs it recorded on this level?",
+            own::s_preDiedAt, own::s_preMeasured, own::s_preTotal).c_str());
+        f->loadingText->setAlignment(kCCTextAlignmentCenter);
+        auto win = CCDirector::get()->getWinSize();
+        auto menu = CCMenu::create();
+        auto play = CCMenuItemSpriteExtra::create(ButtonSprite::create("Play anyway"), this, menu_selector(FrameWindowLayer::onPlayAnyway));
+        menu->addChild(play);
+        menu->setPosition({win.width / 2, win.height / 2 - 110.f});
+        f->loading->addChild(menu);
+    }
+
+    void onPlayAnyway(CCObject*) {
+        if (own::s_pre == own::Pre::Loading) finishLoading(true);
     }
 
     void finishLoading(bool keep) {
@@ -828,6 +914,8 @@ class $modify(FrameWindowLayer, PlayLayer) {
         if (f->loading) f->loading->removeFromParent();
         f->loading = nullptr;
         own::s_pre = keep ? own::Pre::Ready : own::Pre::Off;
+        own::s_preAsking = false;
+        own::s_preDied = false;
         if (!keep) own::s_table.clear();
         log::info("Frame windows: {} ({} clicks measured)", keep ? "ready" : "cancelled", own::s_preMeasured);
         // Start the level for real (this also restarts the music).
@@ -1046,13 +1134,9 @@ class $modify(FrameWindowLayer, PlayLayer) {
     }
 
     void resetLevel() {
-        // The macro died while fast-forwarding: GD respawns on its own; keep what was measured.
-        if (own::s_pre == own::Pre::Loading && !own::s_preStepping && own::s_jobs.empty()) {
-            auto f = m_fields.self();
-            if (f->loading) f->loading->removeFromParent();
-            f->loading = nullptr;
-            own::s_pre = own::Pre::Ready;
-        }
+        // The macro died while fast-forwarding: GD wants to respawn on its own,
+        // but the loading screen is still up (measuring the rest, or asking).
+        if (own::s_pre == own::Pre::Loading && own::s_preDied) return;
         PlayLayer::resetLevel();
         own::s_attemptStart = own::s_tick;
         // Clicks waiting to be measured belong to the attempt that ended.
@@ -1126,6 +1210,7 @@ class $modify(FrameWindowLayer, PlayLayer) {
             for (auto const& r : own::s_done) {
                 own::s_table[r.rel * 2 + (r.release ? 1 : 0)] = {r.window, r.unknown};
                 own::s_preMeasured++;
+                if (r.unknown) own::s_preUnknown++;
             }
             own::s_done.clear();
             own::s_pressed.clear();

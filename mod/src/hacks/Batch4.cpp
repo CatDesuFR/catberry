@@ -27,24 +27,39 @@ class $modify(B4PlayLayer, PlayLayer) {
     }
 };
 
-// End Screen Stats: noclip deaths/accuracy and where the run started.
+// End Screen Stats: clicks, how long this attempt took and (with noclip)
+// deaths and accuracy, on a line under GD's own stats.
 class $modify(B4EndLevel, EndLevelLayer) {
+    // No End Shake: the box appears in place instead of dropping and bouncing in.
+    void showLayer(bool instant) {
+        EndLevelLayer::showLayer(instant || cmm::on("noendshake"));
+    }
+
     void customSetup() {
         EndLevelLayer::customSetup();
         if (!cmm::on("endscreenstats")) return;
         auto pl = PlayLayer::get();
-        if (!pl) return;
-        std::string text;
-        if (cmm::on("noclip")) {
-            text = fmt::format("Noclip: {} deaths, {:.2f}% accuracy", cmm::stats::noclipDeaths, cmm::stats::noclipAccuracy());
+        if (!pl || !m_mainLayer) return;
+        std::string text = fmt::format("Clicks: {}   Attempt: {:.2f}s", cmm::stats::attemptClicks, pl->m_gameState.m_levelTime);
+        if (cmm::on("noclip") || cmm::stats::noclipDeaths > 0) {
+            text += fmt::format("\nNoclip: {} deaths, {:.2f}% accuracy", cmm::stats::noclipDeaths, cmm::stats::noclipAccuracy());
         }
-        text += fmt::format("{}Jumps: {}  Attempt time: {:.1f}s", text.empty() ? "" : "\n", pl->m_jumps, pl->m_attemptTime);
         auto label = CCLabelBMFont::create(text.c_str(), "goldFont.fnt");
-        label->setScale(0.45f);
+        label->setScale(0.5f);
         label->setAlignment(kCCTextAlignmentCenter);
-        auto win = CCDirector::get()->getWinSize();
-        label->setPosition({win.width / 2.f, 38.f});
         label->setID("cats-mod-menu-end-stats");
+        // Under the lowest of GD's stat lines (attempts / jumps / time).
+        CCNode* lowest = nullptr;
+        for (auto child : CCArrayExt<CCNode*>(m_mainLayer->getChildren())) {
+            auto bm = typeinfo_cast<CCLabelBMFont*>(child);
+            if (!bm || !bm->isVisible()) continue;
+            std::string s = bm->getString();
+            if (s.rfind("Attempts", 0) != 0 && s.rfind("Jumps", 0) != 0 && s.rfind("Time", 0) != 0) continue;
+            if (!lowest || bm->getPositionY() < lowest->getPositionY()) lowest = bm;
+        }
+        auto win = CCDirector::get()->getWinSize();
+        if (lowest) label->setPosition({lowest->getPositionX(), lowest->getPositionY() - lowest->getScaledContentSize().height / 2.f - 12.f});
+        else label->setPosition({win.width / 2.f, win.height / 2.f - 20.f});
         m_mainLayer->addChild(label, 10);
     }
 };

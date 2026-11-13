@@ -9,7 +9,7 @@
 using namespace geode::prelude;
 
 namespace cmm::global { void applyFps(); }
-namespace cmm { void registerShortcuts(); void registerPerformance(); void registerBatch1(); void registerBatch2(); void registerBatch3(); void registerBatch4(); void registerBatch5(); }
+namespace cmm { void registerShortcuts(); void registerPerformance(); void registerBatch1(); void registerBatch2(); void registerBatch3(); void registerBatch4(); void registerBatch5(); void registerPauseZoom(); }
 namespace cmm::labels { void registerLabels(); }
 
 namespace cmm {
@@ -97,13 +97,13 @@ namespace cmm {
         add({"showhitboxes", "Show Hitboxes", "Draws hitboxes all the time.", Level, NO,
             false, [] { optBool("Hide player icon", "showhitboxes.hideplayer", false); }});
         add({"hitboxesondeath", "Hitboxes On Death", "Draws hitboxes only after you die.", Level, OK});
-        add({"hitboxtrail", "Hitbox Trail", "Draws your hitbox for every tick while hitboxes are showing (Show Hitboxes, or after death with Hitboxes on Death). Green = you pressed, blue = you let go.", Level, NO,
+        add({"hitboxtrail", "Hitbox Trail", "Draws your hitbox for every tick while hitboxes are showing (Show Hitboxes, or after death with Hitboxes on Death). Green = you pressed, blue = you let go.", Level, OK,
             false, [] { optInt("Length (ticks)", "hitboxtrail.length", 240, 10, 2000); }});
         add({"autopracticemode", "Auto Practice Mode", "Starts every level in practice mode.", Level, OK,
             false, [] { optBool("Demons only", "autopracticemode.demons", false); }});
         add({"noparticles", "No Particles", "Hides particles in levels.", Level, OK});
         add({"noglow", "No Object Glow", "Removes object glow (re-enter the level to apply).", Level, OK});
-        add({"noendshake", "No End Shake", "Removes the camera shake when you beat a level.", Level, OK});
+        add({"noendshake", "No End Shake", "The level complete screen appears right away instead of bouncing in, and the camera doesn't shake when you beat a level.", Level, OK});
         add({"autoldm", "Auto LDM", "Turns on low detail mode for every level that has it.", Level, OK});
         add({"confirmrestart", "Confirm Restart", "Asks before restarting from the pause menu.", Level, OK});
         add({"confirmexit", "Confirm Exit", "Asks before leaving the level from the pause menu.", Level, OK});
@@ -154,6 +154,7 @@ namespace cmm {
         registerBatch3();
         registerBatch4();
         registerBatch5();
+        registerPauseZoom();
 
         // ---------------- Replay Bot ----------------
         add({"bot.record", "Record", "Records your inputs.", Bot, NO});

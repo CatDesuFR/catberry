@@ -40,4 +40,6 @@ namespace cmm::replay {
     int botLevelID();
 
     void drawWindowContents();
+    // While the bot hands GD a click: that click's position fix, else null.
+    Fix const* injectingFix();
 }

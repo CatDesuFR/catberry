@@ -58,7 +58,7 @@ namespace cmm {
     void loadHacks() {
         for (auto& hack : all()) {
             if (hack.action) continue;
-            hack.enabled = geode::Mod::get()->getSavedValue<bool>("hack." + hack.id, false);
+            hack.enabled = geode::Mod::get()->getSavedValue<bool>("hack." + hack.id, hack.enabled);
             if (hack.enabled && hack.onToggle) hack.onToggle(true);
         }
     }

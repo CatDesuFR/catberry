@@ -6,6 +6,7 @@
 #include <Geode/modify/CCScheduler.hpp>
 #include <Geode/modify/FMODAudioEngine.hpp>
 #include <Geode/modify/GJBaseGameLayer.hpp>
+#include <Geode/modify/GameObject.hpp>
 #include <Geode/modify/LevelInfoLayer.hpp>
 #include <Geode/modify/PlayLayer.hpp>
 #include <imgui.h>
@@ -133,6 +134,48 @@ class $modify(B3OrbPulse, PlayLayer) {
     }
 };
 
+// No Pad Signal: no flash on a pad or orb when you use it.
+class $modify(B3PadSignal, GameObject) {
+    void playShineEffect() {
+        if (cmm::on("nopadsignal") && PlayLayer::get()) {
+            switch (m_objectType) {
+                case GameObjectType::YellowJumpPad: case GameObjectType::PinkJumpPad: case GameObjectType::GravityPad:
+                case GameObjectType::RedJumpPad: case GameObjectType::SpiderPad:
+                case GameObjectType::YellowJumpRing: case GameObjectType::PinkJumpRing: case GameObjectType::GravityRing:
+                case GameObjectType::GreenRing: case GameObjectType::DropRing: case GameObjectType::RedJumpRing:
+                case GameObjectType::CustomRing: case GameObjectType::DashRing: case GameObjectType::GravityDashRing:
+                case GameObjectType::SpiderOrb: case GameObjectType::TeleportOrb:
+                    return;
+                default: break;
+            }
+        }
+        GameObject::playShineEffect();
+    }
+};
+
+// No Pad Signal / No Gravity Signal: GD tells the level's Event triggers when
+// you touch or use an orb, use a pad, or flip gravity; levels use those
+// "signals" for effects (like making orbs pulse or the screen flash). These
+// stop the signals, so those effects don't run.
+class $modify(B3GameEvents, GJBaseGameLayer) {
+    void gameEventTriggered(GJGameEvent event, int material, int playerID) {
+        if (PlayLayer::get() && static_cast<GJBaseGameLayer*>(PlayLayer::get()) == this) {
+            bool pad = event == GJGameEvent::OrbTouched || event == GJGameEvent::OrbActivated || event == GJGameEvent::PadActivated;
+            bool gravity = event == GJGameEvent::GravityInverted || event == GJGameEvent::GravityRestored;
+            if ((pad && cmm::on("nopadsignal")) || (gravity && cmm::on("nogravitysignal"))) return;
+        }
+        GJBaseGameLayer::gameEventTriggered(event, material, playerID);
+    }
+};
+
+// No Gravity Signal also hides GD's arrows on screen when gravity flips.
+class $modify(B3GravitySignal, PlayLayer) {
+    void playGravityEffect(bool flip) {
+        if (cmm::on("nogravitysignal")) return;
+        PlayLayer::playGravityEffect(flip);
+    }
+};
+
 namespace cmm {
     void registerBatch3() {
         using enum Tab;
@@ -140,6 +183,8 @@ namespace cmm {
         constexpr auto NO = PC::NotAllowed;
 
         add({"nocircles", "No Circles", "Hides the circle effects from orbs, pads and portals.", Level, OK});
+        add({"nopadsignal", "No Pad Signal", "Touching or using an orb, or using a pad, no longer sets off the level's effects for it (like orbs pulsing or the screen flashing), and pads and orbs don't flash.", Level, OK});
+        add({"nogravitysignal", "No Gravity Signal", "Flipping gravity no longer sets off the level's effects for it, and GD's arrows don't show on screen.", Level, OK});
         add({"noorbpulse", "No Orb Pulse", "Orbs and pads stop pulsing to the music and stay one size.", Level, OK,
             false, [] { optFloat("Orb size (0.75 = normal size)", "noorbpulse.size", 0.75f, 0.f, 1.f, "%.2f"); }});
         add({"particletoggles", "Player Particles", "Hide each kind of player particle separately (see options).", Player, OK,

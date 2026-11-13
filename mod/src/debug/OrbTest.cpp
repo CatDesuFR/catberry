@@ -7,6 +7,7 @@
 #include <Geode/modify/PlayLayer.hpp>
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <unordered_map>
 #include <unordered_set>
@@ -40,7 +41,7 @@ class $modify(OrbTestLayer, PlayLayer) {
     void postUpdate(float dt) {
         PlayLayer::postUpdate(dt);
         if (!s_active || PlayLayer::get() != this) return;
-        if (m_level != s_level) { s_active = false; return; }
+        if (!m_level || std::string(m_level->m_levelName) != std::string(s_level->m_levelName)) { s_active = false; return; }
         if (m_gameState.m_currentProgress == 0) return;
         s_frames++;
         auto win = CCDirector::get()->getWinSize();
@@ -86,6 +87,23 @@ class $modify(OrbTestLayer, PlayLayer) {
             log::info("ORBTEST diag: {} with parent, {} visible, {} with parent on screen; win {:.0f}", par, vis, ons, win.width);
         }
         if (s_frames == 10) log::info("ORBTEST {} objects in the level, player at x {:.0f}", m_objects ? m_objects->count() : 0u, m_player1->getPositionX());
+        // Pictures of the orbs: three frames 12 apart, while one is on screen.
+        static int s_shots = 0, s_shotFrame = 0;
+        if (s_frames == 1) { s_shots = 0; s_shotFrame = 0; }
+        if (s_seen > 0 && s_shots < 3 && s_frames > 240 && (s_shotFrame == 0 || s_frames - s_shotFrame >= 12)) {
+            s_shotFrame = s_frames;
+            auto size = CCDirector::get()->getWinSize();
+            auto rt = CCRenderTexture::create(static_cast<int>(size.width), static_cast<int>(size.height));
+            rt->begin();
+            CCDirector::get()->getRunningScene()->visit();
+            rt->end();
+            if (auto img = rt->newCCImage(true)) {
+                auto file = fmt::format("orbtest-{}-{}.png", s_phase, s_shots);
+                img->saveToFile((saveDir() / file).string().c_str(), false);
+                img->release();
+            }
+            s_shots++;
+        }
         if (s_frames < 240 * 6) return;
         double spread = 0, cspread = 0, avgSize = 0;
         int counted = 0;
@@ -111,9 +129,19 @@ class $modify(OrbTestMenu, MenuLayer) {
         std::error_code ec;
         auto trigger = saveDir() / "selftest-orb.txt";
         if (s_active || !std::filesystem::exists(trigger, ec)) return true;
-        std::filesystem::remove(trigger, ec);
-        auto level = GameLevelManager::get()->getMainLevel(3, false);  // Polargeist: orbs and pads
+        // A saved level by name (the trigger file's text), else Polargeist.
+        std::string name;
+        { std::ifstream in(trigger); std::getline(in, name); }
+        GJGameLevel* level = nullptr;
+        if (!name.empty()) {
+            if (auto levels = GameLevelManager::get()->getSavedLevels(false, 0)) {
+                for (auto l : CCArrayExt<GJGameLevel*>(levels)) if (l && std::string(l->m_levelName) == name) level = l;
+            }
+        }
+        if (!level) level = GameLevelManager::get()->getMainLevel(3, false);  // Polargeist: orbs and pads
         if (!level) return true;
+        log::info("ORBTEST level {}", std::string(level->m_levelName));
+        std::filesystem::remove(trigger, ec);
         level->retain();
         s_level = level;
         if (auto h = cmm::find("noorbpulse")) s_oldOn = h->enabled;

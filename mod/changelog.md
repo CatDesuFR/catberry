@@ -1,3 +1,15 @@
+# v1.1.1
+
+- Replay Bot: accurate with real clicks. A real click (keyboard or mouse) acts partway through its physics tick, at the moment its timestamp says, but a bot can only hand clicks over at the start of a tick. Each click's position fix is now taken at the end of its tick and put back at the end of the same tick when playing, so the runs line up from there on. Tested with clicks made through GD's own keyboard handler: drift went from 0.074 to 0.001 units on average, every click on the right tick, also at 144 FPS.
+- Frame Window Counter: the loading screen measures every click before you play. It no longer skips clicks when many wait at once (it waits for the measuring to catch up), re-runs follow the bot's position fixes, and releases start from their own tick, so clicks no longer come out as "?". Tested: 14 of 14 test clicks measured, none unsure. If the macro dies while measuring (wrong level or an old recording), the loading screen says where and asks "Play anyway" or "Cancel" instead of starting with clicks missing; Cancel no longer starts the loading screen again.
+- End Screen Stats: on its own line under GD's stats (it covered the buttons), with your clicks and the real time of the attempt (it showed GD's jump count, 0 with the bot).
+- No End Shake: the level complete screen appears in place instead of bouncing in.
+- New: Pause Zoom (on by default). While paused, scroll to zoom into the level around the mouse; hitboxes zoom with it. The pause menu hides while zoomed in; scroll back out (or resume) to get it back.
+- New: No Pad Signal. Touching or using an orb, or using a pad, no longer sets off the level's own effects for it (levels use these to make orbs pulse or the screen flash), and pads and orbs don't flash. If orbs still pulse on a level with No Orb Pulse on, this is what stops it.
+- New: No Gravity Signal. Flipping gravity no longer sets off the level's effects for it, and GD's arrows don't show. Tested on Deadlocked: 37 signals and 6 arrow effects with both off, none with both on.
+- Best Run: follows the furthest you've got this session live, and a finished level counts as 100% (it showed 99.56%).
+- Hitbox Trail no longer turns the cheat indicator red.
+
 # v1.1.0
 
 - Replay Bot is accurate now, the way Eclipse's bot is. Every click is saved with the tick it really reached the player on (before, it was saved with the tick it came in on and played back one tick late, so every click landed off and runs drifted until they died), and with where the player was at the start of that tick: position, rotation and speed. Playback puts the player back exactly there before giving it the click, so tiny differences can't add up. Tested in game on Deadlocked with 159 clicks: every click on the same tick and no drift at all (0.0000 units), also at 144 FPS; played the old way, 0 of 159 clicks were on the right tick and the player drifted up to 3.4 units. New macro format (v2); old macros still play, but record them again for full accuracy (the bot window says so).

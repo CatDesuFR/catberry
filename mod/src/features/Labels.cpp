@@ -22,7 +22,6 @@ namespace {
     using Clock = std::chrono::steady_clock;
 
     std::deque<Clock::time_point> s_clickTimes;
-    int s_attemptClicks = 0;
     int s_sessionDeaths = 0;
     // For the Speed label: X and time when it was last measured.
     float s_speedX = 0.f, s_speedTime = 0.f, s_speedValue = 0.f;
@@ -95,7 +94,7 @@ class $modify(LabelsInputLayer, GJBaseGameLayer) {
         auto pl = PlayLayer::get();
         if (down && button == 1 && pl && static_cast<GJBaseGameLayer*>(pl) == this) {
             s_clickTimes.push_back(Clock::now());
-            s_attemptClicks++;
+            cmm::stats::attemptClicks++;
         }
     }
 };
@@ -135,14 +134,15 @@ class $modify(LabelsPlayLayer, PlayLayer) {
     void resetLevel() {
         PlayLayer::resetLevel();
         m_fields->needRunStart = true;
-        s_attemptClicks = 0;
+        cmm::stats::attemptClicks = 0;
         cmm::stats::resetAttempt();
         cmm::indicator::onAttemptStart();
     }
 
-    void recordRunEnd() {
+    // The furthest you've got this session (updated live while you play).
+    void recordRunEnd(float to = -1.f) {
         auto f = m_fields.self();
-        float to = std::clamp(this->getCurrentPercent(), 0.f, 100.f);
+        if (to < 0.f) to = std::clamp(this->getCurrentPercent(), 0.f, 100.f);
         // Keep the run that got furthest; on a tie, the one that started earlier.
         if (!f->hasBest || to > f->bestTo || (to == f->bestTo && f->runFrom < f->bestFrom)) {
             f->bestFrom = f->runFrom;
@@ -162,7 +162,7 @@ class $modify(LabelsPlayLayer, PlayLayer) {
 
     void levelComplete() {
         PlayLayer::levelComplete();
-        recordRunEnd();
+        recordRunEnd(m_isPlatformer ? -1.f : 100.f);  // a finished level is 100%
     }
 
     void postUpdate(float dt) {
@@ -187,6 +187,7 @@ class $modify(LabelsPlayLayer, PlayLayer) {
         }
 
         cmm::indicator::onFrame();
+        if (!m_isPaused && !m_playerDied && !f->needRunStart) recordRunEnd();
 
         s_frameTimes.push_back(CCDirector::get()->getDeltaTime());
         while (s_frameTimes.size() > 60) s_frameTimes.pop_front();
@@ -282,7 +283,7 @@ namespace {
             if (tag == "percent") return cmm::labels::pct(l->getCurrentPercent());
             if (tag == "best") return level ? std::to_string(l->m_isPracticeMode ? level->m_practicePercent : level->m_normalPercent.value()) : "0";
             if (tag == "jumps") return std::to_string(l->m_jumps);
-            if (tag == "clicks") return std::to_string(s_attemptClicks);
+            if (tag == "clicks") return std::to_string(cmm::stats::attemptClicks);
             if (tag == "cps") return std::to_string(s_clickTimes.size());
             if (tag == "time") return formatTime(l->m_attemptTime);
             if (tag == "x") return p ? fmt::format("{:.0f}", p->getPositionX()) : "0";
@@ -329,7 +330,7 @@ namespace cmm::labels {
             return Line{f->fpsText};
         }});
         add({"cps", "CPS", "Clicks per second and clicks this attempt.", PC::Allowed, 0, [](LabelsPlayLayer*) -> std::optional<Line> {
-            return Line{fmt::format("{} CPS ({} clicks)", s_clickTimes.size(), s_attemptClicks)};
+            return Line{fmt::format("{} CPS ({} clicks)", s_clickTimes.size(), cmm::stats::attemptClicks)};
         }});
         add({"attempt", "Attempt", "Attempt number.", PC::Allowed, 0, [](LabelsPlayLayer* l) -> std::optional<Line> {
             return Line{fmt::format("Attempt {}", l->m_attempts)};

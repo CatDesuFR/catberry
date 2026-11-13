@@ -9,6 +9,7 @@ namespace cmm::stats {
     inline int noclipDeaths = 0;
     inline int noclipDeadFrames = 0;
     inline int attemptFrames = 0;
+    inline int attemptClicks = 0;  // clicks this attempt (yours and the bot's)
     // Set while a hack kills the player on purpose, so noclip lets it through.
     inline bool forceKill = false;
     // Keys held right now (cocos key codes), for the Keys label.

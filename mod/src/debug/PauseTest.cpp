@@ -11,6 +11,7 @@ using namespace geode::prelude;
 
 namespace {
     bool s_active = false;
+    bool s_oldHitboxes = false;
     int s_frames = 0;
     GJGameLevel* s_level = nullptr;
 
@@ -51,8 +52,7 @@ class $modify(PauseTestLayer, PlayLayer) {
     void postUpdate(float dt) {
         PlayLayer::postUpdate(dt);
         if (!s_active || PlayLayer::get() != this) return;
-        if (s_frames == 0 && !m_isPracticeMode) this->togglePracticeMode(true);
-        if (++s_frames == 120) this->pauseGame(true);
+        if (++s_frames == 480) this->pauseGame(true);
     }
 };
 
@@ -63,13 +63,11 @@ class $modify(PauseTestMenu, MenuLayer) {
         auto trigger = saveDir() / "selftest-pause.txt";
         if (s_active || !std::filesystem::exists(trigger, ec)) return true;
         std::filesystem::remove(trigger, ec);
-        // An online-style level (has an Edit button with Level Edit) in practice mode.
-        auto level = GJGameLevel::create();
-        level->m_levelName = "CMM Pause Test";
-        level->m_levelString = ZipUtils::compressString("kA2,0,kA4,0;1,1,2,30000,3,15;", false, 0, 0);
-        level->m_levelType = GJLevelType::Saved;
-        level->m_levelID = 128;
+        // Stereo Madness with hitboxes showing, paused two seconds in.
+        auto level = GameLevelManager::get()->getMainLevel(1, false);
+        if (!level) return true;
         level->retain();
+        if (auto h = cmm::find("showhitboxes")) { s_oldHitboxes = h->enabled; h->enabled = true; }
         s_level = level;
         s_active = true;
         s_frames = 0;
@@ -97,12 +95,17 @@ void PauseChecker::check(float) {
             shot("selftest-pause.png");
         }
         if (s_step == 3) {
-            if (auto sv = pause->getChildByIDRecursive("cats-mod-menu-pause-scroll")) {
-                if (auto scroll = typeinfo_cast<ScrollLayer*>(sv)) scroll->scrollLayer(-200.f);
-            }
+            // Pause Zoom: six notches of the wheel towards you (zoom in).
+            for (int i = 0; i < 6; i++) CCDirector::get()->getMouseDispatcher()->dispatchScrollMSG(-1.f, 0.f);
+            auto pl = PlayLayer::get();
+            log::info("PAUSETEST zoomed: level scale {:.2f}, pause menu visible {}", pl ? pl->getScale() : 0.f, pause->isVisible());
         }
         if (s_step == 4) {
-            shot("selftest-pause-scrolled.png");
+            shot("selftest-pause-zoomed.png");
+            for (int i = 0; i < 20; i++) CCDirector::get()->getMouseDispatcher()->dispatchScrollMSG(1.f, 0.f);
+            auto pl = PlayLayer::get();
+            log::info("PAUSETEST zoomed back out: level scale {:.2f}, pause menu visible {}", pl ? pl->getScale() : 0.f, pause->isVisible());
+            if (auto h = cmm::find("showhitboxes")) h->enabled = s_oldHitboxes;
             s_active = false;
             log::info("PAUSETEST DONE");
             CCScheduler::get()->unscheduleSelector(schedule_selector(PauseChecker::check), this);

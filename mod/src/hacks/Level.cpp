@@ -157,10 +157,36 @@ class $modify(CMMLevel, PlayLayer) {
     }
 };
 
+// No End Shake: GD shakes the camera as the level completes, before it sets
+// m_levelEndAnimationStarted, so block every shake from the moment the level
+// is completed until the next attempt.
+namespace { bool s_levelEnding = false; }
+
 class $modify(CMMEndShake, GJBaseGameLayer) {
     void shakeCamera(float duration, float strength, float interval) {
-        if (cmm::on("noendshake") && m_levelEndAnimationStarted) return;
+        if (cmm::on("noendshake") && (s_levelEnding || m_levelEndAnimationStarted)) return;
         GJBaseGameLayer::shakeCamera(duration, strength, interval);
+    }
+};
+
+class $modify(CMMEndShakePlay, PlayLayer) {
+    bool init(GJGameLevel* level, bool dontCreateObjects) {
+        s_levelEnding = false;
+        return PlayLayer::init(level, dontCreateObjects);
+    }
+    void levelComplete() {
+        s_levelEnding = true;
+        PlayLayer::levelComplete();
+        if (cmm::on("noendshake")) m_gameState.m_cameraShakeEnabled = false;
+    }
+    void playEndAnimationToPos(CCPoint pos) {
+        s_levelEnding = true;
+        PlayLayer::playEndAnimationToPos(pos);
+        if (cmm::on("noendshake")) m_gameState.m_cameraShakeEnabled = false;
+    }
+    void resetLevel() {
+        s_levelEnding = false;
+        PlayLayer::resetLevel();
     }
 };
 

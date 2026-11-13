@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <map>
 
 using namespace geode::prelude;
@@ -23,6 +24,7 @@ namespace cmm::global { void applyFps(); }
 
 namespace {
     bool s_active = false;
+    bool s_keys = false;  // press Space through GD's keyboard handler (like real input)
     int s_run = 0;  // 0 record, 1 play+fixes, 2 play without fixes, 3 play+fixes at 144 FPS, 4 like the old bot
     int s_frames = 0;
     int s_nextClick = 0, s_release = -1;
@@ -140,13 +142,15 @@ class $modify(BotTestLayer, PlayLayer) {
         if (s_run == 0) {
             if (s_frames == s_nextClick) {
                 s_arrivals.push_back(m_gameState.m_currentProgress * 2);
-                this->handleButton(true, 1, true);
+                if (s_keys) CCKeyboardDispatcher::get()->dispatchKeyboardMSG(KEY_Space, true, false, geode::utils::getInputTimestamp());
+                else this->handleButton(true, 1, true);
                 s_release = s_frames + static_cast<int>(rnd(3, 45));
                 s_nextClick = s_release + static_cast<int>(rnd(8, 90));
             }
             if (s_frames == s_release) {
                 s_arrivals.push_back(m_gameState.m_currentProgress * 2 + 1);
-                this->handleButton(false, 1, true);
+                if (s_keys) CCKeyboardDispatcher::get()->dispatchKeyboardMSG(KEY_Space, false, false, geode::utils::getInputTimestamp());
+                else this->handleButton(false, 1, true);
             }
         }
         int limit = s_run == 3 ? kFrames * 144 / 240 : kFrames;
@@ -180,6 +184,12 @@ class $modify(BotTestMenu, MenuLayer) {
         std::error_code ec;
         auto trigger = saveDir() / "selftest-bot.txt";
         if (s_active || !std::filesystem::exists(trigger, ec)) return true;
+        {
+            std::ifstream in(trigger);
+            std::string mode;
+            in >> mode;
+            s_keys = mode == "keys";
+        }
         std::filesystem::remove(trigger, ec);
         auto level = GameLevelManager::get()->getMainLevel(20, false);
         if (!level) return true;
@@ -195,7 +205,7 @@ class $modify(BotTestMenu, MenuLayer) {
         setHack("vsync", false);
         s_active = true;
         s_run = 0;
-        log::info("BOTTEST start");
+        log::info("BOTTEST start ({})", s_keys ? "clicks through GD's keyboard handler" : "clicks handed to GD directly");
         Loader::get()->queueInMainThread([] {
             CCDirector::get()->replaceScene(PlayLayer::scene(s_level, false));
             Loader::get()->queueInMainThread([] {
