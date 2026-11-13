@@ -335,7 +335,7 @@ namespace cmm::gui {
                 ImGui::InputTextWithHint("##search", "Search hacks...", s_search, sizeof(s_search));
                 ImGui::PopItemWidth();
 
-                auto pc = indicator::current();
+                auto pc = indicator::attempt();
                 ImGui::TextColored(pcColor(pc), "Indicator: %s",
                     pc == PC::NotAllowed ? "red" : "green");
 

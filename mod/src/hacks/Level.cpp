@@ -28,6 +28,7 @@ namespace cmm {
 class $modify(CMMLevel, PlayLayer) {
     struct Fields {
         bool drawingHitboxes = false;
+        bool gdWasDrawing = false;  // GD's own hitbox drawing before a death turned ours on
         // GD's hitbox node sits in a layer that 2.2 doesn't draw, so we draw
         // its contents through this proxy on the PlayLayer.
         cmm::overlay::Proxy* proxy = nullptr;
@@ -76,10 +77,12 @@ class $modify(CMMLevel, PlayLayer) {
     }
 
     void drawHitboxesNow() {
+        auto f = m_fields.self();
+        if (!f->drawingHitboxes) f->gdWasDrawing = m_isDebugDrawEnabled;
         m_isDebugDrawEnabled = true;
         this->updateDebugDraw();
         if (m_debugDrawNode) m_debugDrawNode->setVisible(true);
-        m_fields->drawingHitboxes = true;
+        f->drawingHitboxes = true;
         showProxy(true);
     }
 
@@ -93,11 +96,15 @@ class $modify(CMMLevel, PlayLayer) {
     void resetLevel() {
         PlayLayer::resetLevel();
         auto f = m_fields.self();
-        if (f->drawingHitboxes && !cmm::on("showhitboxes") && !PlayLayer::shouldDrawDebugHitboxes()) {
-            m_isDebugDrawEnabled = false;
+        // After a death showed them: back to how GD had it before the death.
+        // (Asking shouldDrawDebugHitboxes() here would ask our own hook, which
+        // still says yes, so in practice mode they never turned off again and
+        // every death drew on top of the last.)
+        if (f->drawingHitboxes && !cmm::on("showhitboxes")) {
+            m_isDebugDrawEnabled = f->gdWasDrawing;
             if (m_debugDrawNode) {
                 m_debugDrawNode->clear();
-                m_debugDrawNode->setVisible(false);
+                m_debugDrawNode->setVisible(f->gdWasDrawing);
             }
             f->drawingHitboxes = false;
             showProxy(false);

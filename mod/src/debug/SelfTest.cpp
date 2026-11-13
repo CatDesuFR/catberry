@@ -64,7 +64,14 @@ namespace {
     bool s_oldHide10 = true;
     bool s_replayTouched = false;
 
+    int s_oldRange = 0;
+    bool s_rangeTouched = false;
+
     void restoreSettings() {
+        if (s_rangeTouched) {
+            cmm::val<int>("framecounter.range", 0) = s_oldRange;
+            s_rangeTouched = false;
+        }
         cmm::val<float>("hitboxmultiplier.player", 1.f) = s_oldHbPlayer;
         cmm::val<bool>("framecounter.hide10", true) = s_oldHide10;
         if (s_replayTouched) {
@@ -848,6 +855,17 @@ class $modify(SelfTestMenu, MenuLayer) {
         auto triggerPre = saveDir() / "selftest-preload.txt";
         if (!s_started && std::filesystem::exists(triggerPre, ec)) {
             s_started = true;
+            {
+                // Optional: the counter's range for this test (restored after).
+                std::ifstream in(triggerPre);
+                int r = 0;
+                if (in >> r && r > 0) {
+                    s_oldRange = cmm::val<int>("framecounter.range", 0);
+                    s_rangeTouched = true;
+                    cmm::val<int>("framecounter.range", 0) = r;
+                    log::info("SELFTEST4 counter range {}", r);
+                }
+            }
             std::filesystem::remove(triggerPre, ec);
             this->scheduleOnce(schedule_selector(SelfTestMenu::startPre), 1.f);
             return true;

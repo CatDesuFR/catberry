@@ -20,8 +20,10 @@ namespace cmm::indicator {
         return PC::Allowed;
     }
 
+    // Red for the rest of the attempt once a disallowed hack was used, even
+    // if it's turned off again (e.g. noclip saved you, then you turned it off).
     PC attempt() {
-        return current();
+        return s_used ? PC::NotAllowed : current();
     }
 
     bool usedThisAttempt() {

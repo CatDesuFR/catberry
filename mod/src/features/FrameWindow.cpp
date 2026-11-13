@@ -242,7 +242,7 @@ namespace cmm::fw::own {
         constexpr int kLegSlot = 3;
         constexpr int kPendingSlots = 16;  // sim slots 4..19
         constexpr int kRingBase = 20;      // sim slots 20..
-        constexpr int kRing = 72;          // ticks of history (more than the biggest range)
+        constexpr int kRing = 72;          // kept states of history, kStride() ticks apart
 
         int64_t s_tick = 0;                // physics ticks, counted here
         unsigned s_lastProgress = ~0u;
@@ -269,6 +269,9 @@ namespace cmm::fw::own {
             int64_t base;           // tick the kept state is from (start of that tick)
             int64_t horizon = -1;   // must survive until this tick; -1 = not known yet
             int slot;               // sim slot holding the kept state
+            int nearSlot = -1;      // a kept state just before the click (for later moves), or -1
+            int64_t nearBase = -1;  // tick of that state
+            int gHi = 0;            // doubling search: first offset found that dies (0 = none yet)
             CCPoint where;
             // 0 = as it was, 1 = later, 2 = earlier, 3 = sub-tick at the late
             // edge, 4 = sub-tick at the early edge, 5 = done
@@ -288,8 +291,33 @@ namespace cmm::fw::own {
         std::vector<OwnResult> s_done;     // finished, waiting to be shown
         std::vector<int> s_dropped;        // presses that won't be measured (their placeholder goes)
 
-        // Counter accuracy: how far each press is moved, each way.
-        int range() { return cmm::val<int>("framecounter.accuracy", 1) == 0 ? 32 : 64; }
+        // Counter accuracy: how far each press is moved, each way (32 to 4096
+        // ticks). Older settings: accuracy 0 = Balanced (32), 1 = Max (64).
+        int range() {
+            int r = cmm::val<int>("framecounter.range", 0);
+            if (r <= 0) r = cmm::val<int>("framecounter.accuracy", 1) == 0 ? 32 : 64;
+            return std::clamp(r, 32, 4096);
+        }
+        // Up to this many ticks a click is moved one tick at a time; past it
+        // the search doubles its step, then narrows down to the exact tick.
+        constexpr int kLinear = 64;
+        // Ticks between kept states: 1 up to a range of 64, more beyond, so
+        // the 72 kept states always reach back further than the range.
+        int stride() {
+            int r = range();
+            return r <= kLinear ? 1 : (r + 2 + kRing - 3) / (kRing - 2);
+        }
+        int s_ringStride = 1;  // stride the ring was filled with
+        // The kept state from tick `at` or the last one before it, or -1.
+        int ringAtOrBefore(int64_t at, int64_t& tick) {
+            int st = s_ringStride;
+            int64_t want = at >= 0 ? at / st * st : -1;
+            if (want < 0) return -1;
+            int slot = static_cast<int>((want / st) % kRing);
+            if (!s_ringReady || s_ringTick[slot] != want) return -1;
+            tick = want;
+            return slot;
+        }
 
         int freeSlot() {
             for (int i = 0; i < kPendingSlots; i++) {
@@ -302,7 +330,7 @@ namespace cmm::fw::own {
         }
 
         void clearAll() {
-            for (auto& j : s_jobs) releaseSlot(j.slot);
+            for (auto& j : s_jobs) { releaseSlot(j.slot); if (j.nearSlot >= 0) releaseSlot(j.nearSlot); }
             s_jobs.clear();
             s_clicks.clear();
             s_activations.clear();
@@ -315,8 +343,17 @@ namespace cmm::fw::own {
         // between two ticks splits that tick in two. True if the player is
         // still alive at the horizon.
         bool leg(PlayLayer* pl, Job const& job, double offset) {
+            // Start from the kept state just before the click when the moved
+            // click is still after it (much shorter re-run for big ranges).
+            int64_t start = job.base;
+            int startSlot = job.slot;
+            double movedAt = static_cast<double>(job.act) + std::min(0.0, offset);
+            if (job.nearSlot >= 0 && movedAt >= static_cast<double>(job.nearBase)) {
+                start = job.nearBase;
+                startSlot = job.nearSlot;
+            }
             auto p = sim::scratch(pl, kLegSlot);
-            auto from = sim::scratch(pl, job.slot);
+            auto from = sim::scratch(pl, startSlot);
             if (!p || !from) return false;
 
             // Orbs and pads the real player used after the kept moment have to
@@ -324,7 +361,7 @@ namespace cmm::fw::own {
             struct Saved { EnhancedGameObject* obj; bool p1, p2, active; };
             std::vector<Saved> saved;
             for (auto const& a : s_activations) {
-                if (a.tick < job.base || !a.obj) continue;
+                if (a.tick < start || !a.obj) continue;
                 auto o = a.obj.data();
                 if (!o->m_activatedByPlayer1 && !o->m_activatedByPlayer2 && !o->m_isActivated) continue;
                 saved.push_back({o, o->m_activatedByPlayer1, o->m_activatedByPlayer2, o->m_isActivated});
@@ -341,7 +378,7 @@ namespace cmm::fw::own {
                 bool moved = job.isRelease ? (c.act == job.act && !c.down)
                                            : ((c.act == job.act && c.down) || (c.act == job.release && !c.down));
                 if (moved) t += offset;
-                if (t < static_cast<double>(job.base) || t > static_cast<double>(job.horizon)) continue;
+                if (t < static_cast<double>(start) || t > static_cast<double>(job.horizon)) continue;
                 events.push_back({t, c.down});
             }
             std::stable_sort(events.begin(), events.end(), [](auto const& a, auto const& b) { return a.time < b.time; });
@@ -352,7 +389,7 @@ namespace cmm::fw::own {
             };
             bool alive = true;
             size_t e = 0;
-            for (int64_t t = job.base; t < job.horizon && alive; t++) {
+            for (int64_t t = start; t < job.horizon && alive; t++) {
                 // Clicks on this tick; ones between ticks split it.
                 double done = 0.0;
                 while (alive && e < events.size() && events[e].time < static_cast<double>(t + 1)) {
@@ -392,18 +429,45 @@ namespace cmm::fw::own {
                         if (!leg(pl, job, 0.0)) { job.unknown = true; job.phase = 5; }
                         else job.phase = 1;
                         break;
-                    case 1:  // later, a whole tick at a time
-                        if (job.latest < r && leg(pl, job, job.latest + 1)) job.latest++;
-                        else {
+                    case 1: {  // later: a whole tick at a time, then doubling + narrowing down
+                        bool more = false;
+                        if (job.latest < r && job.latest < kLinear) {
+                            more = leg(pl, job, job.latest + 1);
+                            if (more) job.latest++;
+                        } else if (job.latest < r) {
+                            int cand = job.gHi == 0 ? std::min(r, job.latest * 2) : (job.latest + job.gHi) / 2;
+                            if (cand > job.latest && (job.gHi == 0 || job.gHi - job.latest > 1)) {
+                                more = true;
+                                if (leg(pl, job, cand)) job.latest = cand;
+                                else job.gHi = cand;
+                            }
+                        }
+                        if (!more) {
                             job.phase = 2;
                             job.right = job.latest;
+                            job.gHi = 0;
                         }
                         break;
-                    case 2: {  // earlier, a whole tick at a time
-                        bool canGoEarlier = job.act + job.earliest - 1 >= job.base &&
-                                            job.act + job.earliest - 1 > job.pressAt;
-                        if (job.earliest > -r && canGoEarlier && leg(pl, job, job.earliest - 1)) job.earliest--;
-                        else {
+                    }
+                    case 2: {  // earlier: a whole tick at a time, then doubling + narrowing down
+                        // The furthest back the click can go: the kept state, and
+                        // for a release, just after its press.
+                        int minOff = static_cast<int>(std::max<int64_t>(job.base - job.act + 1, -r));
+                        if (job.pressAt >= 0) minOff = std::max(minOff, static_cast<int>(job.pressAt - job.act + 1));
+                        bool more = false;
+                        if (job.earliest > minOff && -job.earliest < kLinear) {
+                            more = leg(pl, job, job.earliest - 1);
+                            if (more) job.earliest--;
+                        } else if (job.earliest > minOff) {
+                            int cand = job.gHi == 0 ? std::max(minOff, job.earliest * 2) : (job.earliest + job.gHi) / 2;
+                            if (cand < job.earliest && (job.gHi == 0 || job.earliest - job.gHi > 1)) {
+                                more = true;
+                                if (leg(pl, job, cand)) job.earliest = cand;
+                                else job.gHi = cand;
+                            }
+                        }
+                        if (!more) {
+                            job.gHi = 0;
                             job.left = job.earliest;
                             // Late edge: between the last tick that survives and the next.
                             if (job.latest < r) {
@@ -457,6 +521,7 @@ namespace cmm::fw::own {
                     log::debug("Frame window ({} at tick {}): {}", job.isRelease ? "release" : "press", job.act,
                         job.unknown ? std::string("? (can't reproduce)") : fmt::format("{:.2f} (from {:+.2f} to {:+.2f})", window, job.left, job.right));
                     releaseSlot(job.slot);
+                    if (job.nearSlot >= 0) releaseSlot(job.nearSlot);
                     s_jobs.erase(it);
                 }
             }
@@ -486,15 +551,38 @@ namespace cmm::fw::own {
 
         // Keeps the state from before a click and queues it to be measured.
         void startJob(PlayLayer* pl, int64_t act, bool release) {
-            int64_t base = act - range() - 1;
-            int ringSlot = static_cast<int>(((base % kRing) + kRing) % kRing);
-            if (!s_ringReady || s_ringTick[ringSlot] != base) return;  // not enough history yet
+            int64_t base = 0;
+            int ringSlot = ringAtOrBefore(act - range() - 1, base);
+            if (ringSlot < 0 && s_ringReady) {
+                // Not that much history (a click near the start of the level):
+                // start from the oldest kept state, the click can't go earlier.
+                for (int i = 0; i < kRing; i++) {
+                    if (s_ringTick[i] >= 0 && s_ringTick[i] < act && (ringSlot < 0 || s_ringTick[i] < base)) {
+                        ringSlot = i;
+                        base = s_ringTick[i];
+                    }
+                }
+            }
+            if (ringSlot < 0) return;  // no history yet
             int slot = freeSlot();
             if (slot < 0) return;  // too many clicks waiting
             auto from = sim::scratch(pl, kRingBase + ringSlot);
             auto to = sim::scratch(pl, slot);
             if (!from || !to) { releaseSlot(slot); return; }
             sim::copyState(to, from);
+            // A second kept state just before the click, for the moves later.
+            int nearSlot = -1;
+            int64_t nearBase = -1;
+            if (s_ringStride > 1) {
+                int nearRing = ringAtOrBefore(act - 1, nearBase);
+                if (nearRing >= 0 && nearBase > base) {
+                    nearSlot = freeSlot();
+                    auto nf = sim::scratch(pl, kRingBase + nearRing);
+                    auto nt = nearSlot >= 0 ? sim::scratch(pl, nearSlot) : nullptr;
+                    if (nf && nt) sim::copyState(nt, nf);
+                    else if (nearSlot >= 0) { releaseSlot(nearSlot); nearSlot = -1; }
+                }
+            }
             Job job;
             job.id = s_nextId++;
             job.isRelease = release;
@@ -506,6 +594,8 @@ namespace cmm::fw::own {
             job.act = act;
             job.base = base;
             job.slot = slot;
+            job.nearSlot = nearSlot;
+            job.nearBase = nearSlot >= 0 ? nearBase : -1;
             job.where = pl->m_player1->getPosition();
             s_pressed.push_back({job.id, job.where, release});
             s_jobs.push_back(job);
@@ -560,14 +650,23 @@ class $modify(FrameWindowGameLayer, GJBaseGameLayer) {
             if (progress != own::s_lastProgress) {
                 own::s_lastProgress = progress;
                 own::s_tick++;
-                int slot = static_cast<int>(own::s_tick % own::kRing);
-                if (auto p = cmm::sim::scratch(pl, own::kRingBase + slot); p && m_player1) {
-                    cmm::sim::copyState(p, m_player1);
-                    own::s_ringTick[slot] = own::s_tick;
-                    own::s_ringReady = true;
+                int stride = own::stride();
+                if (stride != own::s_ringStride) {  // accuracy changed: start the history over
+                    own::s_ringStride = stride;
+                    for (auto& t : own::s_ringTick) t = -1;
+                    own::s_ringReady = false;
                 }
-                while (!own::s_clicks.empty() && own::s_clicks.front().act < own::s_tick - 2000) own::s_clicks.pop_front();
-                while (!own::s_activations.empty() && own::s_activations.front().tick < own::s_tick - 2000) own::s_activations.pop_front();
+                if (own::s_tick % stride == 0) {
+                    int slot = static_cast<int>((own::s_tick / stride) % own::kRing);
+                    if (auto p = cmm::sim::scratch(pl, own::kRingBase + slot); p && m_player1) {
+                        cmm::sim::copyState(p, m_player1);
+                        own::s_ringTick[slot] = own::s_tick;
+                        own::s_ringReady = true;
+                    }
+                }
+                int64_t keep = std::max<int64_t>(2000, own::range() + stride * 2 + 1000);
+                while (!own::s_clicks.empty() && own::s_clicks.front().act < own::s_tick - keep) own::s_clicks.pop_front();
+                while (!own::s_activations.empty() && own::s_activations.front().tick < own::s_tick - keep) own::s_activations.pop_front();
             }
         }
         own::s_inStep = true;
@@ -772,7 +871,7 @@ class $modify(FrameWindowLayer, PlayLayer) {
 
     // A ring with the window next to it ("?" in grey when unknown).
     // pending = placeholder shown at the press until it's measured.
-    // Releases get a diamond instead of a ring.
+    // Releases get a hollow ring.
     void spawnMarker(int id, CCPoint where, double window, bool unknown, bool pending = false, bool release = false) {
         auto f = m_fields.self();
         if (!f->markersRoot) return;
@@ -786,11 +885,6 @@ class $modify(FrameWindowLayer, PlayLayer) {
         auto node = CCNode::create();
         auto ring = CCDrawNode::create();
         auto circle = [&](float radius, ccColor4F fill, float width, ccColor4F line) {
-            if (release) {  // a diamond
-                CCPoint v[4] = {{0.f, radius * 1.15f}, {radius * 1.15f, 0.f}, {0.f, -radius * 1.15f}, {-radius * 1.15f, 0.f}};
-                ring->drawPolygon(v, 4, fill, width, line);
-                return;
-            }
             constexpr int n = 48;
             CCPoint v[n];
             for (int i = 0; i < n; i++) {
@@ -800,7 +894,8 @@ class $modify(FrameWindowLayer, PlayLayer) {
             ring->drawPolygon(v, n, fill, width, line);
         };
         circle(17.f, {0, 0, 0, 0}, 3.f, tint(0.22f));          // soft glow
-        circle(13.f, tint(0.28f), 4.f, {0.f, 0.f, 0.f, 0.85f}); // dark outline, tinted inside
+        // Releases are circles too, hollow inside so they read apart from presses.
+        circle(13.f, release ? ccColor4F{0, 0, 0, 0} : tint(0.28f), 4.f, {0.f, 0.f, 0.f, 0.85f}); // dark outline, tinted inside
         circle(13.f, {0, 0, 0, 0}, 2.f, tint(1.f));             // the coloured ring
         node->addChild(ring);
 

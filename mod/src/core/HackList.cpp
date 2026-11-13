@@ -164,9 +164,15 @@ namespace cmm {
         add({"framecounter", "Frame Window Counter", "A ring and the window at every click of the replay, in NaN GD's colours, with a tally per colour.", CBF, NO,
             false, [] {
                 {
-                    static char const* kAcc[] = {"Balanced (32 ticks each way)", "Max (64 ticks each way)"};
-                    auto& acc = val<int>("framecounter.accuracy", 1);
-                    if (ImGui::Combo("Accuracy", &acc, kAcc, 2)) save<int>("framecounter.accuracy", acc);
+                    // How far each click is moved, each way. Older setting: Balanced = 32, Max = 64.
+                    static char const* kAcc[] = {"32 ticks each way", "64 ticks each way", "128 ticks each way", "256 ticks each way",
+                                                 "512 ticks each way", "1024 ticks each way", "2048 ticks each way", "4096 ticks each way"};
+                    int r = val<int>("framecounter.range", 0);
+                    if (r <= 0) r = val<int>("framecounter.accuracy", 1) == 0 ? 32 : 64;
+                    int idx = 0;
+                    while (idx < 7 && (32 << idx) < r) idx++;
+                    if (ImGui::Combo("Accuracy", &idx, kAcc, 8)) save<int>("framecounter.range", 32 << idx);
+                    if (idx >= 3) ImGui::TextDisabled("Big ranges take longer to measure each click.");
                 }
                 optBool("Measure the bot's macro first (loading screen)", "framecounter.preload", true);
                 optBool("Hide windows over 10 (like NaN GD)", "framecounter.hide10", true);

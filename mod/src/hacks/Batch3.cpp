@@ -119,6 +119,20 @@ class $modify(B3Scheduler, CCScheduler) {
     }
 };
 
+// No Orb Pulse: orbs, pads and other music-scaled objects stop pulsing.
+// GD sizes them from the audio effects layer's m_audioScale (0.4 quiet to 1.2
+// loud) while it works out what's on screen; hold it at the chosen size while
+// it does (the song itself isn't touched). Tested: orbs stay one size.
+class $modify(B3OrbPulse, PlayLayer) {
+    void updateVisibility(float dt) {
+        if (!cmm::on("noorbpulse") || !m_audioEffectsLayer) return PlayLayer::updateVisibility(dt);
+        float old = m_audioEffectsLayer->m_audioScale;
+        m_audioEffectsLayer->m_audioScale = std::clamp(cmm::val<float>("noorbpulse.size", 0.75f), 0.f, 1.f);
+        PlayLayer::updateVisibility(dt);
+        m_audioEffectsLayer->m_audioScale = old;
+    }
+};
+
 namespace cmm {
     void registerBatch3() {
         using enum Tab;
@@ -126,6 +140,8 @@ namespace cmm {
         constexpr auto NO = PC::NotAllowed;
 
         add({"nocircles", "No Circles", "Hides the circle effects from orbs, pads and portals.", Level, OK});
+        add({"noorbpulse", "No Orb Pulse", "Orbs and pads stop pulsing to the music and stay one size.", Level, OK,
+            false, [] { optFloat("Orb size (0.75 = normal size)", "noorbpulse.size", 0.75f, 0.f, 1.f, "%.2f"); }});
         add({"particletoggles", "Player Particles", "Hide each kind of player particle separately (see options).", Player, OK,
             false, [] {
                 for (auto const& p : kParticles) optBool(p.label, p.key, false);

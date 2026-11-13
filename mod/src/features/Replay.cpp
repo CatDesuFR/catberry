@@ -10,7 +10,14 @@
 // the same tick as when it was recorded. Clicks Click Before Frames gives to
 // GD at the start of a tick are recorded one tick earlier for the same reason.
 //
+// Accuracy (like Eclipse's bot): each click is stamped with the tick it
+// really reached the player on (seen in PlayerObject::pushButton /
+// releaseButton), and with where that player was right then: position,
+// rotation and speed. Playback puts the player back there just before giving
+// it the click, so tiny differences can't add up over a level.
+//
 // Macros are saved as plain text in <mod save folder>/macros/<name>.txt
+// (v2 lines: tick down button player2 [x y rotation yVelocity xVelocity]).
 #include <core/Hacks.hpp>
 #include <core/Log.hpp>
 #include "Replay.hpp"
@@ -19,6 +26,7 @@
 #include <ctime>
 #include <Geode/modify/GJBaseGameLayer.hpp>
 #include <Geode/modify/PlayLayer.hpp>
+#include <Geode/modify/PlayerObject.hpp>
 #include <imgui.h>
 #include <algorithm>
 #include <filesystem>
@@ -40,6 +48,25 @@ namespace cmm::replay {
         bool s_confirmDelete = false;
         std::vector<std::string> s_files;
         bool s_filesDirty = true;
+        // Recorded clicks GD hasn't handed to the player yet (index into s_inputs).
+        std::vector<size_t> s_waiting;
+        unsigned s_applyFixesStat = 0;  // fixes applied this attempt (for the window)
+        // Each player's state at the start of the current tick: GD can hand a
+        // click to the player partway through a tick, but playback puts the
+        // player back at the start of it, so that's the state to save.
+        struct TickStart { unsigned progress = ~0u; Fix fix; };
+        TickStart s_tickStart[2];
+
+        Fix stateOf(PlayerObject* p) {
+            Fix f;
+            f.ok = true;
+            f.x = p->m_position.x;
+            f.y = p->m_position.y;
+            f.rotation = p->getRotation();
+            f.yVelocity = p->m_yVelocity;
+            f.xVelocity = p->m_platformerXVelocity;
+            return f;
+        }
 
         bool recording() { return cmm::on("bot.record"); }
         bool playing() { return cmm::on("bot.play"); }
@@ -65,6 +92,8 @@ namespace cmm::replay {
                 s_inputs.erase(std::remove_if(s_inputs.begin(), s_inputs.end(), [&](auto const& i) { return i.tick >= tick; }), s_inputs.end());
             }
             s_next = std::lower_bound(s_inputs.begin(), s_inputs.end(), tick, [](Input const& i, unsigned t) { return i.tick < t; }) - s_inputs.begin();
+            s_waiting.clear();
+            s_applyFixesStat = 0;
         }
 
         bool save(std::string const& name) {
@@ -72,11 +101,18 @@ namespace cmm::replay {
             std::filesystem::create_directories(folder(), ec);
             std::ofstream file(folder() / (name + ".txt"));
             if (!file) return false;
-            file << "Cat's Mod Menu macro v1\n";
+            // Stamping can move a click a tick later: keep the list in order.
+            s_waiting.clear();
+            std::stable_sort(s_inputs.begin(), s_inputs.end(), [](auto const& a, auto const& b) { return a.tick < b.tick; });
+            file << "Cat's Mod Menu macro v2\n";
             file << "level=" << s_levelName << "\n";
             file << "id=" << s_levelID << "\n";
             for (auto const& i : s_inputs) {
-                file << i.tick << " " << (i.down ? 1 : 0) << " " << i.button << " " << (i.player2 ? 1 : 0) << "\n";
+                file << i.tick << " " << (i.down ? 1 : 0) << " " << i.button << " " << (i.player2 ? 1 : 0);
+                if (i.fix.ok) {
+                    file << fmt::format(" {:.9g} {:.9g} {:.9g} {:.17g} {:.17g}", i.fix.x, i.fix.y, i.fix.rotation, i.fix.yVelocity, i.fix.xVelocity);
+                }
+                file << "\n";
             }
             s_filesDirty = true;
             s_loadedName = name;
@@ -99,6 +135,11 @@ namespace cmm::replay {
                 if (ss >> in.tick >> down >> in.button >> p2) {
                     in.down = down;
                     in.player2 = p2;
+                    Fix fix;
+                    if (ss >> fix.x >> fix.y >> fix.rotation >> fix.yVelocity >> fix.xVelocity) {
+                        fix.ok = true;
+                        in.fix = fix;
+                    }
                     inputs.push_back(in);
                 }
             }
@@ -177,6 +218,11 @@ namespace cmm::replay {
         if (s_loadedName.empty()) ImGui::TextDisabled(s_inputs.empty() ? "No macro loaded" : "Unsaved recording");
         else ImGui::Text("Loaded: %s", s_loadedName.c_str());
         ImGui::TextDisabled("%zu clicks%s%s", s_inputs.size(), s_levelName.empty() ? "" : " - ", s_levelName.c_str());
+        if (!s_inputs.empty()) {
+            size_t fixes = std::count_if(s_inputs.begin(), s_inputs.end(), [](Input const& i) { return i.fix.ok; });
+            if (fixes == 0) ImGui::TextDisabled("Old macro: no position fixes (record it again for full accuracy)");
+            else if (playing()) ImGui::TextDisabled("Position fixes: %zu (%u used this attempt)", fixes, s_applyFixesStat);
+        }
         if (recording()) ImGui::TextDisabled("Finishing the level in practice saves it automatically.");
         ImGui::Separator();
 
@@ -260,6 +306,7 @@ class $modify(ReplayGameLayer, GJBaseGameLayer) {
                     s_levelID = pl->m_level->m_levelID.value();
                 }
                 s_inputs.push_back({tick, down, button, !isPlayer1});
+                s_waiting.push_back(s_inputs.size() - 1);
                 s_next = s_inputs.size();
             }
         }
@@ -268,11 +315,29 @@ class $modify(ReplayGameLayer, GJBaseGameLayer) {
 
     // At the start of each tick, give GD the clicks that act on it.
     void processCommands(float dt, bool isHalfTick, bool isLastTick) {
+        if (isMain() && recording()) {
+            unsigned now = m_gameState.m_currentProgress;
+            if (m_player1) s_tickStart[0] = {now, stateOf(m_player1)};
+            if (m_player2) s_tickStart[1] = {now, stateOf(m_player2)};
+        }
         if (isMain() && playing()) {
             unsigned now = m_gameState.m_currentProgress;  // progress before this tick
             unsigned ppt = cmm::cbf::progressPerTick();
             while (s_next < s_inputs.size() && s_inputs[s_next].tick + ppt <= now) {
                 auto const& in = s_inputs[s_next++];
+                // Only on the tick it was recorded on: a late click (after a
+                // lag spike) must not teleport the player backwards.
+                if (in.fix.ok && in.tick + ppt == now) {
+                    auto p = in.player2 ? m_player2 : m_player1;
+                    if (p && !p->m_isDead) {
+                        p->m_position = CCPoint(in.fix.x, in.fix.y);
+                        p->setPosition(CCPoint(in.fix.x, in.fix.y));
+                        p->setRotation(in.fix.rotation);
+                        p->m_yVelocity = in.fix.yVelocity;
+                        if (p->m_isPlatformer) p->m_platformerXVelocity = in.fix.xVelocity;
+                        s_applyFixesStat++;
+                    }
+                }
                 s_injecting = true;
                 this->handleButton(in.down, in.button, !in.player2);
                 s_injecting = false;
@@ -317,5 +382,43 @@ class $modify(ReplayPlayLayer, PlayLayer) {
         // After a full restart the tick is back at the start; after a checkpoint
         // respawn it's back at the checkpoint's tick.
         rewindTo(m_gameState.m_currentProgress);
+    }
+};
+
+// Stamps recorded clicks with the tick they really reached the player on,
+// and where the player was right then.
+class $modify(ReplayPlayer, PlayerObject) {
+    void stamp(PlayerButton button, bool down) {
+        if (!recording() || s_waiting.empty()) return;
+        auto pl = PlayLayer::get();
+        if (!pl || (this != pl->m_player1 && this != pl->m_player2)) return;  // hidden players
+        bool p2 = this == pl->m_player2;
+        for (auto it = s_waiting.begin(); it != s_waiting.end(); ++it) {
+            if (*it >= s_inputs.size()) continue;
+            auto& in = s_inputs[*it];
+            if (in.down != down || in.button != static_cast<int>(button)) continue;
+            // In one-player levels a click on player 1 also moves player 2:
+            // the first player that gets it decides the tick.
+            if (in.player2 != p2 && !(in.player2 == false && p2)) continue;
+            unsigned ppt = cmm::cbf::progressPerTick();
+            unsigned act = pl->m_gameState.m_currentProgress;
+            in.tick = act >= ppt ? act - ppt : 0;
+            // The state from the start of this tick (see s_tickStart). Before
+            // the first tick there's nothing to line up with.
+            auto const& start = s_tickStart[p2 ? 1 : 0];
+            in.fix = start.progress == act && act >= ppt ? start.fix : Fix{};
+            s_waiting.erase(it);
+            break;
+        }
+    }
+
+    bool pushButton(PlayerButton button) {
+        stamp(button, true);
+        return PlayerObject::pushButton(button);
+    }
+
+    bool releaseButton(PlayerButton button) {
+        stamp(button, false);
+        return PlayerObject::releaseButton(button);
     }
 };
