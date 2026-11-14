@@ -13,3 +13,7 @@ bool wallpaperRunning();
 // Shows the saved wallpaper: reloads a running wallpaper, or starts one.
 bool showWallpaper(QString &error);
 void stopWallpaper();
+// After an update the running wallpaper is still the old program (its file
+// was replaced, so it can't know about anything new). If so, stops it and
+// starts the new one. True if it restarted it.
+bool restartOutdatedWallpaper();

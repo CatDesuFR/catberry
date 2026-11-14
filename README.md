@@ -1,7 +1,7 @@
 # catberry roofce — Roof Carton Engine
 
 A wallpaper manager for **Linux on Wayland** (KDE Plasma on Fedora, CachyOS,
-Garuda; also Hyprland and Sway), version **1.2.6**. Your wallpaper is drawn
+Garuda; also Hyprland and Sway), version **1.2.7**. Your wallpaper is drawn
 by roofce itself, as part of the desktop, not in a window: live videos,
 GIFs and pictures, with a Mond-style clock and a music player on top.
 

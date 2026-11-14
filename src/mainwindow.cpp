@@ -109,6 +109,8 @@ QImage scaledImage(const QString &path) {
 } // namespace
 
 MainWindow::MainWindow() : settings_(Settings::load()) {
+    // Opened after an update: the wallpaper may still be the old program.
+    restartOutdatedWallpaper();
     setWindowTitle("Roof Carton Engine");
     setAcceptDrops(true);
     resize(1060, 680);

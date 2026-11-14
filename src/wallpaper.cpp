@@ -23,6 +23,7 @@
 #include <QProcess>
 #include <QScreen>
 #include <QStandardPaths>
+#include <QThread>
 #include <QVideoWidget>
 #include <QWidget>
 #include <QWindow>
@@ -316,7 +317,35 @@ bool wallpaperRunning() {
     return socket.waitForConnected(300);
 }
 
+// The running wallpaper process of this user, or 0.
+static pid_t wallpaperPid() {
+    for (const QFileInfo &entry : QDir("/proc").entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot)) {
+        bool number = false;
+        pid_t pid = entry.fileName().toInt(&number);
+        if (!number || pid == getpid() || entry.ownerId() != getuid()) continue;
+        QFile cmdline(entry.absoluteFilePath() + "/cmdline");
+        if (!cmdline.open(QIODevice::ReadOnly)) continue;
+        QList<QByteArray> args = cmdline.readAll().split('\0');
+        if (args.size() >= 2 && args[0].endsWith("catberry-roofce") && args[1] == "--wallpaper") return pid;
+    }
+    return 0;
+}
+
+bool restartOutdatedWallpaper() {
+    pid_t pid = wallpaperPid();
+    if (!pid) return false;
+    // A replaced program shows as "<path> (deleted)".
+    char target[4096];
+    ssize_t n = readlink(QString("/proc/%1/exe").arg(pid).toLocal8Bit().constData(), target, sizeof target - 1);
+    if (n <= 0) return false;
+    if (!QByteArray(target, int(n)).endsWith(" (deleted)")) return false;
+    send("stop");
+    for (int i = 0; i < 30 && wallpaperRunning(); i++) QThread::msleep(100);
+    return QProcess::startDetached(QCoreApplication::applicationFilePath(), {"--wallpaper"});
+}
+
 bool showWallpaper(QString &error) {
+    if (restartOutdatedWallpaper()) return true;  // the new one loads the settings itself
     if (send("reload")) return true;
     if (!QProcess::startDetached(QCoreApplication::applicationFilePath(), {"--wallpaper"})) {
         error = "Could not start the wallpaper process";
