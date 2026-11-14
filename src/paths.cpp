@@ -17,6 +17,7 @@ QString settingsFile() {
 }
 QString uploads() { return ensure(location(QStandardPaths::GenericDataLocation) + "/catberry/roofce/wallpapers"); }
 QString downloads() { return ensure(location(QStandardPaths::GenericDataLocation) + "/catberry/roofce/online"); }
+QString tracks() { return ensure(location(QStandardPaths::GenericDataLocation) + "/catberry/roofce/track"); }
 QString thumbs() { return ensure(location(QStandardPaths::GenericCacheLocation) + "/catberry/roofce/thumbs"); }
 QString autostartFile() {
     return ensure(location(QStandardPaths::GenericConfigLocation) + "/autostart") + "/catberry-roofce.desktop";

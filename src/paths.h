@@ -10,6 +10,8 @@ QString settingsFile();
 QString uploads();
 // ~/.local/share/catberry/roofce/online: online wallpapers the user picked.
 QString downloads();
+// ~/.local/share/catberry/roofce/track: the song that plays with the wallpaper.
+QString tracks();
 // ~/.cache/catberry/roofce/thumbs: small previews, safe to delete.
 QString thumbs();
 // ~/.config/autostart/catberry-roofce.desktop

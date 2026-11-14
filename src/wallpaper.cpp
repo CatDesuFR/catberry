@@ -3,6 +3,7 @@
 #include "fonts.h"
 #include "library.h"
 #include "settings.h"
+#include "track.h"
 #include "widgets.h"
 
 #include <LayerShellQt/window.h>
@@ -179,6 +180,16 @@ public:
         Settings s = Settings::load();
         QString play = kindOfFile(s.file) == Kind::Video ? screenCopy(s.file) : s.file;
         for (auto &view : views_) view->apply(s, play);
+        // The song that plays with the wallpaper. It keeps playing through
+        // reloads; only a different file starts it again.
+        if (s.track && !s.trackFile.isEmpty() && QFileInfo::exists(s.trackFile)) {
+            if (!track_) track_ = std::make_unique<TrackPlayer>();
+            track_->setVolume(s.trackVolume);
+            track_->setFile(s.trackFile);
+        } else {
+            if (players_) players_->setLocal(nullptr);
+            track_.reset();
+        }
         // The widgets go on the main screen, made after the wallpaper so
         // they sit on top of it.
         clock_.reset();
@@ -192,6 +203,7 @@ public:
         }
         if (s.music) {
             if (!players_) players_ = std::make_unique<MediaPlayers>();
+            players_->setLocal(track_.get());
             music_ = std::make_unique<MusicWidget>(screen, s, players_.get());
         } else {
             players_.reset();
@@ -280,6 +292,7 @@ private:
     }
 
     std::vector<std::unique_ptr<WallpaperView>> views_;
+    std::unique_ptr<TrackPlayer> track_;
     std::unique_ptr<MediaPlayers> players_;
     std::unique_ptr<ClockWidget> clock_;
     std::unique_ptr<MusicWidget> music_;

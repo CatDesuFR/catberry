@@ -13,12 +13,14 @@
 #include <QWidget>
 
 class QScreen;
+class TrackPlayer;
 namespace LayerShellQt {
 class Window;
 }
 
 // What a media player is playing, read over MPRIS (the desktop's shared
-// media-player interface): Spotify when it runs, otherwise any player.
+// media-player interface): Spotify when it runs, otherwise any player. While
+// roofce plays its own song with the wallpaper, that one instead.
 class MediaPlayers : public QObject {
     Q_OBJECT
 public:
@@ -45,11 +47,15 @@ public:
     void cycleLoop();
     void seek(double fraction);
 
+    // roofce's own song (null: none). While it's set, it's what is shown.
+    void setLocal(TrackPlayer *track);
+
 signals:
     void changed();
 
 private:
     void poll();
+    void pollLocal();
     void call(const QString &method);
     void setProperty(const QString &name, const QVariant &value);
     void setArt(const QImage &image);
@@ -62,6 +68,7 @@ private:
     Loop loop_ = Loop::None;
     qint64 positionUs_ = 0, lengthUs_ = 0, lastReportedUs_ = -1;
     QImage art_, backdrop_;
+    TrackPlayer *local_ = nullptr;
 };
 
 // A transparent surface on the wallpaper. It sits at its Position setting,

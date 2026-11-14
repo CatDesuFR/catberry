@@ -1210,6 +1210,59 @@ QWidget *MainWindow::buildWidgetsPage() {
     musicForm->addRow(musicNote);
     col->addWidget(musicGroup);
 
+    // A song (or a video's sound) that plays with the wallpaper.
+    auto *trackGroup = new QGroupBox("Background track");
+    auto *trackForm = new QFormLayout(trackGroup);
+    auto *trackOn = new QCheckBox("Play a song with the wallpaper (it loops)");
+    trackOn->setChecked(settings_.track);
+    auto *trackName = new QLabel(settings_.trackTitle.isEmpty() ? QString("No file chosen") : settings_.trackTitle);
+    trackName->setWordWrap(true);
+    auto *trackChoose = new QPushButton("Choose file...");
+    auto *trackRow = new QHBoxLayout;
+    trackRow->addWidget(trackName, 1);
+    trackRow->addWidget(trackChoose);
+    auto *trackVolume = new QSlider(Qt::Horizontal);
+    trackVolume->setRange(0, 100);
+    trackVolume->setValue(settings_.trackVolume);
+    trackForm->addRow(trackOn);
+    trackForm->addRow("File", trackRow);
+    trackForm->addRow("Volume", trackVolume);
+    auto *trackNote = new QLabel("Music or a video (only its sound plays). The Music player above shows it, and its "
+                                 "buttons pause it, start it again and seek.");
+    trackNote->setObjectName("dim");
+    trackNote->setWordWrap(true);
+    trackForm->addRow(trackNote);
+    col->addWidget(trackGroup);
+    connect(trackChoose, &QPushButton::clicked, this, [this, trackName, trackOn] {
+        QString file = QFileDialog::getOpenFileName(
+            this, "Choose a song or video", QDir::homePath(),
+            "Music and videos (*.mp3 *.flac *.ogg *.opus *.wav *.m4a *.aac *.wma *.mp4 *.webm *.mkv *.mov *.avi);;All files (*)");
+        if (file.isEmpty()) return;
+        // roofce keeps its own copy, so moving or deleting the original is fine.
+        QDir dir(paths::tracks());
+        for (const QFileInfo &old : dir.entryInfoList(QDir::Files)) QFile::remove(old.absoluteFilePath());
+        QFileInfo info(file);
+        QString copy = dir.filePath(info.fileName());
+        if (!QFile::copy(file, copy)) {
+            QMessageBox::warning(this, "Background track", "Could not copy " + info.fileName() + " (is the disk full?)");
+            return;
+        }
+        settings_.trackFile = copy;
+        settings_.trackTitle = info.fileName();
+        settings_.track = true;
+        trackName->setText(info.fileName());
+        trackOn->setChecked(true);  // saves too
+        saveWidgets();
+    });
+    connect(trackOn, &QCheckBox::toggled, this, [this](bool on) {
+        settings_.track = on;
+        saveWidgets();
+    });
+    connect(trackVolume, &QSlider::sliderReleased, this, [this, trackVolume] {
+        settings_.trackVolume = trackVolume->value();
+        saveWidgets();
+    });
+
     auto *arrangeRow = new QHBoxLayout;
     auto *reset = new QPushButton("Reset positions");
     auto *arrangeNote = new QLabel("Drag the clock (by its text) and the player (by its card) anywhere on the "

@@ -40,6 +40,10 @@ Settings Settings::load() {
     s.musicPlace = readPlace(in, "music_place", s.musicPlace);
     s.musicSize = qBound(50, in.value("music_size", s.musicSize).toInt(), 250);
     s.musicColor = in.value("music_color", s.musicColor).toString();
+    s.track = in.value("track", s.track).toBool();
+    s.trackFile = in.value("track_file").toString();
+    s.trackTitle = in.value("track_title").toString();
+    s.trackVolume = qBound(0, in.value("track_volume", s.trackVolume).toInt(), 100);
     s.clockPos = in.value("clock_pos", s.clockPos).toPoint();
     s.musicPos = in.value("music_pos", s.musicPos).toPoint();
     s.arrange = in.value("arrange", s.arrange).toBool();
@@ -67,6 +71,10 @@ void Settings::save() const {
     out.setValue("music_place", int(musicPlace));
     out.setValue("music_size", musicSize);
     out.setValue("music_color", musicColor);
+    out.setValue("track", track);
+    out.setValue("track_file", trackFile);
+    out.setValue("track_title", trackTitle);
+    out.setValue("track_volume", trackVolume);
     out.setValue("arrange", arrange);
     // Positions are left alone: the widgets save them when dragged.
 }

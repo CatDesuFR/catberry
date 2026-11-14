@@ -33,6 +33,13 @@ struct Settings {
     int musicSize = 100;     // percent
     QString musicColor = "#ffffff";
 
+    // A song (or a video's sound) that plays with the wallpaper, looping.
+    // The Music widget shows it and its buttons control it.
+    bool track = false;
+    QString trackFile;       // roofce's own copy of the imported file
+    QString trackTitle;      // the imported file's name, for the window
+    int trackVolume = 50;    // 0-100
+
     // Dragged positions (top-left on the screen); (-1, -1) means "use the
     // Position setting". Written only by the widgets themselves.
     QPoint clockPos{-1, -1};

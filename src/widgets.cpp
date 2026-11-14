@@ -1,5 +1,7 @@
 #include "widgets.h"
 
+#include "track.h"
+
 #include <LayerShellQt/window.h>
 
 #include <QDBusConnection>
@@ -75,7 +77,39 @@ QString MediaPlayers::pickPlayer() const {
     return players.first();
 }
 
+void MediaPlayers::setLocal(TrackPlayer *track) {
+    if (track == local_) return;
+    if (local_) disconnect(local_, nullptr, this, nullptr);
+    local_ = track;
+    artUrl_.clear();
+    title_.clear();
+    service_.clear();
+    if (local_) connect(local_, &TrackPlayer::changed, this, &MediaPlayers::poll);
+    poll();
+}
+
+// roofce's own song: read straight from the player, no MPRIS needed.
+void MediaPlayers::pollLocal() {
+    service_ = "roofce";
+    bool trackChanged = local_->file() != artUrl_;
+    title_ = local_->title();
+    artist_ = local_->artist();
+    playing_ = local_->playing();
+    shuffle_ = false;
+    loop_ = Loop::Track;  // it always loops
+    lengthUs_ = local_->lengthUs();
+    positionUs_ = local_->positionUs();
+    trackId_ = "roofce";
+    QImage cover = local_->cover();
+    if (trackChanged || cover.cacheKey() != art_.cacheKey()) {
+        artUrl_ = local_->file();
+        setArt(cover);
+    }
+    emit changed();
+}
+
 void MediaPlayers::poll() {
+    if (local_ && !local_->file().isEmpty()) return pollLocal();
     QString service = pickPlayer();
     if (service.isEmpty()) {
         if (!service_.isEmpty()) {
@@ -149,6 +183,12 @@ void MediaPlayers::setArt(const QImage &image) {
 }
 
 void MediaPlayers::call(const QString &method) {
+    if (local_ && service_ == "roofce") {
+        if (method == "PlayPause") local_->playPause();
+        else local_->restart();  // one song: next and previous start it again
+        QTimer::singleShot(100, this, &MediaPlayers::poll);
+        return;
+    }
     if (service_.isEmpty()) return;
     QDBusInterface player(service_, kMprisPath, kPlayerInterface);
     player.asyncCall(method);
@@ -162,14 +202,24 @@ void MediaPlayers::setProperty(const QString &name, const QVariant &value) {
     QTimer::singleShot(300, this, &MediaPlayers::poll);
 }
 
-void MediaPlayers::toggleShuffle() { setProperty("Shuffle", !shuffle_); }
+void MediaPlayers::toggleShuffle() {
+    if (local_ && service_ == "roofce") return;  // one song: nothing to shuffle
+    setProperty("Shuffle", !shuffle_);
+}
 
 void MediaPlayers::cycleLoop() {
+    if (local_ && service_ == "roofce") return;  // it always loops
     // Off -> whole playlist -> this song -> off, like Spotify's button.
     setProperty("LoopStatus", loop_ == Loop::None ? "Playlist" : loop_ == Loop::Playlist ? "Track" : "None");
 }
 
 void MediaPlayers::seek(double fraction) {
+    if (local_ && service_ == "roofce") {
+        local_->seek(fraction);
+        positionUs_ = local_->positionUs();
+        emit changed();
+        return;
+    }
     if (service_.isEmpty() || lengthUs_ <= 0 || trackId_.isEmpty()) return;
     qint64 target = qint64(qBound(0.0, fraction, 1.0) * lengthUs_);
     QDBusInterface player(service_, kMprisPath, kPlayerInterface);

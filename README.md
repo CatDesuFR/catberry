@@ -1,7 +1,7 @@
 # catberry roofce — Roof Carton Engine
 
 A wallpaper manager for **Linux on Wayland** (KDE Plasma on Fedora, CachyOS,
-Garuda; also Hyprland and Sway), version **1.2.5**. Your wallpaper is drawn
+Garuda; also Hyprland and Sway), version **1.2.6**. Your wallpaper is drawn
 by roofce itself, as part of the desktop, not in a window: live videos,
 GIFs and pictures, with a Mond-style clock and a music player on top.
 
@@ -116,6 +116,11 @@ the video from the browser instead, or copy its address.
 - **Music player**: what Spotify is playing (or any other player when
   Spotify is not), with previous / play-pause / next and a progress bar you
   can click. No Spotify login needed.
+- **Background track**: pick a song (or a video: only its sound plays) and it
+  plays with the wallpaper, looping, from when the wallpaper starts. The
+  Music player shows it with its cover and controls it (pause, start again,
+  seek); switch it off and the player shows Spotify again. roofce keeps its
+  own copy of the file.
 - Drag both around the desktop (the clock by its text); they stay put.
   **Reset positions** puts them back.
 
@@ -131,7 +136,7 @@ Anurati and fonts from other sites: download them in the browser, then
 | What | Where |
 | --- | --- |
 | Settings | `~/.config/catberry/roofce.conf` |
-| Uploaded and downloaded wallpapers | `~/.local/share/catberry/roofce/` |
+| Uploaded and downloaded wallpapers, the background track | `~/.local/share/catberry/roofce/` |
 | Fonts | `~/.local/share/fonts/catberry/` |
 | Previews and screen-sized video copies (safe to delete) | `~/.cache/catberry/roofce/` |
 
