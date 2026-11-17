@@ -20,8 +20,9 @@
 // differences can't add up over a level.
 //
 // Macros are saved as plain text in <mod save folder>/macros/<name>.txt
-// (v2 lines: tick down button player2 [x y rotation yVelocity xVelocity]).
+// (v2 lines: tick down button player2 [x y rotation yVelocity xVelocity [same for player 2]]).
 #include <core/Hacks.hpp>
+#include <core/Players.hpp>
 #include <core/Log.hpp>
 #include "Replay.hpp"
 #include "ClickBeforeFrames.hpp"
@@ -119,6 +120,9 @@ namespace cmm::replay {
                 file << i.tick << " " << (i.down ? 1 : 0) << " " << i.button << " " << (i.player2 ? 1 : 0);
                 if (i.fix.ok) {
                     file << fmt::format(" {:.9g} {:.9g} {:.9g} {:.17g} {:.17g}", i.fix.x, i.fix.y, i.fix.rotation, i.fix.yVelocity, i.fix.xVelocity);
+                    if (i.fix.ok2) {
+                        file << fmt::format(" {:.9g} {:.9g} {:.9g} {:.17g} {:.17g}", i.fix.x2, i.fix.y2, i.fix.rotation2, i.fix.yVelocity2, i.fix.xVelocity2);
+                    }
                 }
                 file << "\n";
             }
@@ -147,6 +151,7 @@ namespace cmm::replay {
                     Fix fix;
                     if (ss >> fix.x >> fix.y >> fix.rotation >> fix.yVelocity >> fix.xVelocity) {
                         fix.ok = true;
+                        if (ss >> fix.x2 >> fix.y2 >> fix.rotation2 >> fix.yVelocity2 >> fix.xVelocity2) fix.ok2 = true;
                         in.fix = fix;
                     }
                     inputs.push_back(in);
@@ -341,10 +346,19 @@ class $modify(ReplayGameLayer, GJBaseGameLayer) {
         if (isMain() && recording() && !s_pendingFixes.empty()) {
             for (auto it = s_pendingFixes.begin(); it != s_pendingFixes.end();) {
                 if (it->at != now) { ++it; continue; }
-                if (it->index < s_inputs.size()) {
+                if (it->index < s_inputs.size() && m_player1 && !m_player1->m_isDead) {
+                    // Both players' state when there are two to keep in line.
                     auto& in = s_inputs[it->index];
-                    auto p = in.player2 ? m_player2 : m_player1;
-                    if (p && !p->m_isDead) in.fix = stateOf(p);
+                    in.fix = stateOf(m_player1);
+                    if (m_player2 && (m_gameState.m_isDualMode || cmm::twoPlayer())) {
+                        Fix two = stateOf(m_player2);
+                        in.fix.ok2 = true;
+                        in.fix.x2 = two.x;
+                        in.fix.y2 = two.y;
+                        in.fix.rotation2 = two.rotation;
+                        in.fix.yVelocity2 = two.yVelocity;
+                        in.fix.xVelocity2 = two.xVelocity;
+                    }
                 }
                 it = s_pendingFixes.erase(it);
             }
@@ -356,13 +370,16 @@ class $modify(ReplayGameLayer, GJBaseGameLayer) {
             while (s_nextFix < s_inputs.size() && s_inputs[s_nextFix].tick + 2 * ppt <= now) {
                 auto const& in = s_inputs[s_nextFix++];
                 if (!in.fix.ok || in.tick + 2 * ppt != now) continue;
-                auto p = in.player2 ? m_player2 : m_player1;
-                if (!p || p->m_isDead) continue;
-                p->m_position = CCPoint(in.fix.x, in.fix.y);
-                p->setPosition(CCPoint(in.fix.x, in.fix.y));
-                p->setRotation(in.fix.rotation);
-                p->m_yVelocity = in.fix.yVelocity;
-                if (p->m_isPlatformer) p->m_platformerXVelocity = in.fix.xVelocity;
+                auto put = [](PlayerObject* p, float x, float y, float rotation, double yVel, double xVel) {
+                    if (!p || p->m_isDead) return;
+                    p->m_position = CCPoint(x, y);
+                    p->setPosition(CCPoint(x, y));
+                    p->setRotation(rotation);
+                    p->m_yVelocity = yVel;
+                    if (p->m_isPlatformer) p->m_platformerXVelocity = xVel;
+                };
+                put(m_player1, in.fix.x, in.fix.y, in.fix.rotation, in.fix.yVelocity, in.fix.xVelocity);
+                if (in.fix.ok2) put(m_player2, in.fix.x2, in.fix.y2, in.fix.rotation2, in.fix.yVelocity2, in.fix.xVelocity2);
                 s_applyFixesStat++;
             }
             while (s_next < s_inputs.size() && s_inputs[s_next].tick + ppt <= now) {
@@ -428,9 +445,9 @@ class $modify(ReplayPlayer, PlayerObject) {
             if (*it >= s_inputs.size()) continue;
             auto& in = s_inputs[*it];
             if (in.down != down || in.button != static_cast<int>(button)) continue;
-            // In one-player levels a click on player 1 also moves player 2:
-            // the first player that gets it decides the tick.
-            if (in.player2 != p2 && !(in.player2 == false && p2)) continue;
+            // The first player that gets a click decides its tick. In a one-player level both jump keys move player 1 (and both
+            // players in dual mode): only a two-player level keeps them apart.
+            if (cmm::twoPlayer() && in.player2 != p2) continue;
             unsigned ppt = cmm::cbf::progressPerTick();
             unsigned act = pl->m_gameState.m_currentProgress;
             in.tick = act >= ppt ? act - ppt : 0;

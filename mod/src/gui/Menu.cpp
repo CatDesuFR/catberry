@@ -339,6 +339,11 @@ namespace cmm::gui {
                 ImGui::TextColored(pcColor(pc), "Indicator: %s",
                     pc == PC::NotAllowed ? "red" : "green");
 
+                // The key that opens and closes this menu.
+                ImGui::Text("Menu key: %s", keyName(val<int>("menu.key", KEY_Tab)).c_str());
+                ImGui::SameLine();
+                if (ImGui::SmallButton(s_bindTarget == "__menu" ? "Press a key..." : "Change")) s_bindTarget = "__menu";
+
                 auto& console = val<bool>("console.open", false);
                 if (ImGui::Checkbox("Console", &console)) save<bool>("console.open", console);
 
@@ -496,6 +501,14 @@ namespace cmm::gui {
             s_bindTarget.clear();
             return true;
         }
+        // The menu's own key ("__menu"): Backspace puts it back to Tab.
+        if (s_bindTarget == "__menu") {
+            int value = key == KEY_Backspace ? static_cast<int>(KEY_Tab) : key;
+            save<int>("menu.key", value);
+            log::info("Menu key: {}", keyName(value));
+            s_bindTarget.clear();
+            return true;
+        }
         auto hack = find(s_bindTarget);
         if (hack) {
             int value = key == KEY_Backspace ? 0 : key;
@@ -548,8 +561,9 @@ namespace cmm::gui {
 
     void drawBindPopup() {
         if (s_bindTarget.empty()) return;
-        auto hack = find(s_bindTarget);
-        if (!hack) { s_bindTarget.clear(); return; }
+        bool menuKey = s_bindTarget == "__menu";
+        auto hack = menuKey ? nullptr : find(s_bindTarget);
+        if (!hack && !menuKey) { s_bindTarget.clear(); return; }
         // The menu can take keyboard input before GD sees it, so read the key here too.
         for (int k = ImGuiKey_NamedKey_BEGIN; k < ImGuiKey_NamedKey_END; k++) {
             if (!ImGui::IsKeyPressed(static_cast<ImGuiKey>(k), false)) continue;
@@ -559,9 +573,9 @@ namespace cmm::gui {
         auto& io = ImGui::GetIO();
         ImGui::SetNextWindowPos({io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f}, ImGuiCond_Always, {0.5f, 0.5f});
         if (ImGui::Begin("Keybind", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings)) {
-            ImGui::Text("Press a key for %s", hack->name.c_str());
+            ImGui::Text("Press a key for %s", menuKey ? "opening the menu" : hack->name.c_str());
             if (ImGui::Button("Cancel")) s_bindTarget.clear();
-            ImGui::TextDisabled("Esc: cancel   Backspace: remove the keybind");
+            ImGui::TextDisabled(menuKey ? "Esc: cancel   Backspace: back to Tab" : "Esc: cancel   Backspace: remove the keybind");
         }
         ImGui::End();
     }

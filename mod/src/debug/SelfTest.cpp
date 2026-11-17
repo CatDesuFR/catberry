@@ -64,6 +64,7 @@ namespace {
     bool s_oldHide10 = true;
     bool s_replayTouched = false;
 
+    bool s_preP2 = false;
     int s_oldRange = 0;
     bool s_rangeTouched = false;
 
@@ -800,7 +801,9 @@ namespace {
         {
             std::ofstream file(saveDir() / "macros" / "cmm-selftest-preload.txt");
             file << "Cat's Mod Menu macro v1\nlevel=CMM Self Test Preload\nid=0\n";
-            for (unsigned t : {2252u, 3174u, 4098u, 5024u, 5948u, 6872u, 7796u}) file << t << " 1 1 0\n" << t + 2 << " 0 1 0\n";
+            // "p2" in the trigger: clicks made with GD's second jump key.
+            char const* who = s_preP2 ? "1" : "0";
+            for (unsigned t : {2252u, 3174u, 4098u, 5024u, 5948u, 6872u, 7796u}) file << t << " 1 1 " << who << "\n" << t + 2 << " 0 1 " << who << "\n";
         }
         auto level = GJGameLevel::create();
         level->retain();
@@ -858,8 +861,14 @@ class $modify(SelfTestMenu, MenuLayer) {
             {
                 // Optional: the counter's range for this test (restored after).
                 std::ifstream in(triggerPre);
+                std::string word;
                 int r = 0;
-                if (in >> r && r > 0) {
+                while (in >> word) {
+                    if (word == "p2") s_preP2 = true;
+                    else if (std::atoi(word.c_str()) > 0) r = std::atoi(word.c_str());
+                }
+                if (s_preP2) log::info("SELFTEST4 clicks marked as player 2's key");
+                if (r > 0) {
                     s_oldRange = cmm::val<int>("framecounter.range", 0);
                     s_rangeTouched = true;
                     cmm::val<int>("framecounter.range", 0) = r;

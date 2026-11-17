@@ -2,6 +2,7 @@
 #include "Replay.hpp"
 #include "FrameWindow.hpp"
 #include <core/Hacks.hpp>
+#include <core/Players.hpp>
 #include <core/Log.hpp>
 #include <Geode/modify/GJBaseGameLayer.hpp>
 #include <Geode/modify/PlayLayer.hpp>
@@ -94,14 +95,14 @@ namespace cmm::cbf {
                 [](replay::Input const& in, unsigned p) { return in.tick < p; });
             for (; it != s_replay.end() && it->tick <= progress + maxAhead; ++it) {
                 size_t i = static_cast<size_t>(it - s_replay.begin());
-                if (s_used[i] || it->button != 1 || it->down != down || it->player2 != player2) continue;
+                if (s_used[i] || it->button != 1 || it->down != down || cmm::forPlayer2(it->player2) != cmm::forPlayer2(player2)) continue;
                 return static_cast<int>(i);
             }
             // With the Frame Window Analyser, a click is in reach when the
             // earliest tick of its window is, even if the replay's tick isn't.
             for (; it != s_replay.end() && it->tick <= progress + maxAhead + 64u * s_progressPerTick; ++it) {
                 size_t i = static_cast<size_t>(it - s_replay.begin());
-                if (s_used[i] || it->button != 1 || it->down != down || it->player2 != player2) continue;
+                if (s_used[i] || it->button != 1 || it->down != down || cmm::forPlayer2(it->player2) != cmm::forPlayer2(player2)) continue;
                 unsigned earliest = 0;
                 if (cmm::fw::earliestFor(i, earliest) && earliest <= progress + maxAhead) return static_cast<int>(i);
                 break;  // the next click of this kind is out of reach
@@ -235,7 +236,7 @@ class $modify(CBFGameLayer, GJBaseGameLayer) {
             return GJBaseGameLayer::handleButton(down, button, isPlayer1);
         }
         auto pl = static_cast<PlayLayer*>(static_cast<GJBaseGameLayer*>(this));
-        auto real = isPlayer1 ? m_player1 : m_player2;
+        auto real = cmm::forPlayer2(!isPlayer1) ? m_player2 : m_player1;
         int limit = limitFor(real && real->m_isDart);
         unsigned progress = m_gameState.m_currentProgress;
 

@@ -40,7 +40,7 @@ class $modify(CMMKeyboard, CCKeyboardDispatcher) {
                 else cmm::setEnabled(hack, !hack.enabled);
                 return true;
             }
-            if (key == KEY_Tab) {
+            if (static_cast<int>(key) == cmm::val<int>("menu.key", static_cast<int>(KEY_Tab))) {
                 cmm::gui::toggle();
                 return true;
             }

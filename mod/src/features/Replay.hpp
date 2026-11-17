@@ -10,8 +10,12 @@ namespace cmm::replay {
     // tiny differences can't add up over a level.
     struct Fix {
         bool ok = false;
-        float x = 0.f, y = 0.f, rotation = 0.f;
+        float x = 0.f, y = 0.f, rotation = 0.f;  // player 1
         double yVelocity = 0.0, xVelocity = 0.0;
+        // Player 2 too, in dual mode and two-player levels.
+        bool ok2 = false;
+        float x2 = 0.f, y2 = 0.f, rotation2 = 0.f;
+        double yVelocity2 = 0.0, xVelocity2 = 0.0;
     };
 
     struct Input {

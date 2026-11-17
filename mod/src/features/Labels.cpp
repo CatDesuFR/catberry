@@ -22,6 +22,7 @@ namespace {
     using Clock = std::chrono::steady_clock;
 
     std::deque<Clock::time_point> s_clickTimes;
+    size_t s_maxCps = 0;  // the most clicks in one second this attempt
     int s_sessionDeaths = 0;
     // For the Speed label: X and time when it was last measured.
     float s_speedX = 0.f, s_speedTime = 0.f, s_speedValue = 0.f;
@@ -95,6 +96,7 @@ class $modify(LabelsInputLayer, GJBaseGameLayer) {
         if (down && button == 1 && pl && static_cast<GJBaseGameLayer*>(pl) == this) {
             s_clickTimes.push_back(Clock::now());
             cmm::stats::attemptClicks++;
+            s_maxCps = std::max(s_maxCps, s_clickTimes.size());
         }
     }
 };
@@ -135,6 +137,7 @@ class $modify(LabelsPlayLayer, PlayLayer) {
         PlayLayer::resetLevel();
         m_fields->needRunStart = true;
         cmm::stats::attemptClicks = 0;
+        s_maxCps = 0;
         cmm::stats::resetAttempt();
         cmm::indicator::onAttemptStart();
     }
@@ -285,6 +288,7 @@ namespace {
             if (tag == "jumps") return std::to_string(l->m_jumps);
             if (tag == "clicks") return std::to_string(cmm::stats::attemptClicks);
             if (tag == "cps") return std::to_string(s_clickTimes.size());
+            if (tag == "maxcps") return std::to_string(s_maxCps);
             if (tag == "time") return formatTime(l->m_attemptTime);
             if (tag == "x") return p ? fmt::format("{:.0f}", p->getPositionX()) : "0";
             if (tag == "y") return p ? fmt::format("{:.0f}", p->getPositionY()) : "0";
@@ -329,8 +333,8 @@ namespace cmm::labels {
             }
             return Line{f->fpsText};
         }});
-        add({"cps", "CPS", "Clicks per second and clicks this attempt.", PC::Allowed, 0, [](LabelsPlayLayer*) -> std::optional<Line> {
-            return Line{fmt::format("{} CPS ({} clicks)", s_clickTimes.size(), cmm::stats::attemptClicks)};
+        add({"cps", "CPS", "Clicks per second / most clicks per second this attempt / total clicks this attempt.", PC::Allowed, 0, [](LabelsPlayLayer*) -> std::optional<Line> {
+            return Line{fmt::format("CPS: {}/{}/{}", s_clickTimes.size(), s_maxCps, cmm::stats::attemptClicks)};
         }});
         add({"attempt", "Attempt", "Attempt number.", PC::Allowed, 0, [](LabelsPlayLayer* l) -> std::optional<Line> {
             return Line{fmt::format("Attempt {}", l->m_attempts)};
@@ -467,7 +471,7 @@ namespace cmm::labels {
                     auto& text = cmm::val<std::string>("label.custom.text", "Attempt {attempt} - {percent}%");
                     if (!loaded) { std::snprintf(buf, sizeof(buf), "%s", text.c_str()); loaded = true; }
                     if (ImGui::InputText("Text", buf, sizeof(buf))) cmm::save<std::string>("label.custom.text", buf);
-                    ImGui::TextDisabled("Tags: {level} {author} {id} {attempt} {percent}\n{best} {jumps} {clicks} {cps} {time}\n{x} {y} {mode} {noclipacc} {noclipdeaths}");
+                    ImGui::TextDisabled("Tags: {level} {author} {id} {attempt} {percent}\n{best} {jumps} {clicks} {cps} {maxcps} {time}\n{x} {y} {mode} {noclipacc} {noclipdeaths}");
                 }
             };
             cmm::add(std::move(hack));

@@ -24,6 +24,7 @@ namespace {
     GJGameLevel* s_level = nullptr;
     bool s_oldOn = false;
     float s_oldSize = 0.5f;
+    int s_oldMaxDeaths = 0;
     struct Phase { char const* name; bool on; float size; };
     constexpr Phase kPhases[] = {{"off", false, 0.f}, {"on, size 0", true, 0.f}, {"on, size 0.75", true, 0.75f}, {"on, size 1", true, 1.f}};
 
@@ -34,6 +35,8 @@ namespace {
         cmm::val<float>("noorbpulse.size", 0.75f) = kPhases[s_phase].size;
         s_min = 1e9f; s_max = -1e9f; s_seen = 0; s_frames = 0;
         s_objs.clear();
+        // Each phase starts with a restart, like after a death.
+        if (auto pl = PlayLayer::get()) pl->resetLevel();
     }
 }
 
@@ -117,6 +120,7 @@ class $modify(OrbTestLayer, PlayLayer) {
         if (++s_phase < static_cast<int>(std::size(kPhases))) return apply();
         if (auto h = cmm::find("noorbpulse")) h->enabled = s_oldOn;
         cmm::val<float>("noorbpulse.size", 0.75f) = s_oldSize;
+        cmm::val<int>("noclip.maxdeaths", 0) = s_oldMaxDeaths;
         s_active = false;
         log::info("ORBTEST DONE");
         this->onQuit();
@@ -138,6 +142,25 @@ class $modify(OrbTestMenu, MenuLayer) {
                 for (auto l : CCArrayExt<GJGameLevel*>(levels)) if (l && std::string(l->m_levelName) == name) level = l;
             }
         }
+        if (!level && !name.empty()) {
+            // Downloaded levels (keyed by number, not by name).
+            if (auto online = GameLevelManager::get()->m_onlineLevels) {
+                for (auto [key, obj] : CCDictionaryExt<std::string, CCObject*>(online)) {
+                    auto l = typeinfo_cast<GJGameLevel*>(obj);
+                    if (l && std::string(l->m_levelName) == name) level = l;
+                }
+            }
+        }
+        if (!level && !name.empty()) {
+            int n = 0;
+            if (auto online = GameLevelManager::get()->m_onlineLevels) {
+                for (auto [key, obj] : CCDictionaryExt<std::string, CCObject*>(online)) {
+                    auto l = typeinfo_cast<GJGameLevel*>(obj);
+                    if (l && n++ < 60) log::info("ORBTEST known level: {} ({})", std::string(l->m_levelName), l->m_levelID.value());
+                }
+            }
+            log::info("ORBTEST {} downloaded levels known", n);
+        }
         if (!level) level = GameLevelManager::get()->getMainLevel(3, false);  // Polargeist: orbs and pads
         if (!level) return true;
         log::info("ORBTEST level {}", std::string(level->m_levelName));
@@ -147,6 +170,8 @@ class $modify(OrbTestMenu, MenuLayer) {
         if (auto h = cmm::find("noorbpulse")) s_oldOn = h->enabled;
         s_oldSize = cmm::val<float>("noorbpulse.size", 0.75f);
         if (auto h = cmm::find("noclip")) h->enabled = true;
+        s_oldMaxDeaths = cmm::val<int>("noclip.maxdeaths", 0);
+        cmm::val<int>("noclip.maxdeaths", 0) = 0;
         s_active = true;
         s_phase = 0;
         apply();

@@ -1,6 +1,7 @@
 // Hitbox Trail: draws the player's hitbox for every physics tick.
 // Green = the tick you started clicking, blue = the tick you let go.
 #include <core/Hacks.hpp>
+#include <core/Players.hpp>
 #include <features/WorldOverlay.hpp>
 #include <Geode/modify/GJBaseGameLayer.hpp>
 #include <Geode/modify/PlayLayer.hpp>
@@ -97,7 +98,7 @@ class $modify(TrailGameLayer, GJBaseGameLayer) {
     void handleButton(bool down, int button, bool isPlayer1) {
         GJBaseGameLayer::handleButton(down, button, isPlayer1);
         if (button != 1) return;
-        int idx = isPlayer1 ? 0 : 1;
+        int idx = cmm::forPlayer2(!isPlayer1) ? 1 : 0;
         (down ? s_pressed : s_released)[idx] = true;
     }
 

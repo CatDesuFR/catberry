@@ -4,18 +4,34 @@
 #include <Geode/modify/CCTransitionFade.hpp>
 #include <Geode/modify/PlayLayer.hpp>
 #include <Geode/fmod/fmod.hpp>
+#include <cmath>
 
 using namespace geode::prelude;
 
 namespace {
-    float s_lastPitch = 1.f;
-
+    // The music (and GD's other sound) at `pitch` times its normal speed.
+    // Checked every frame: a level brings new channels, which start at 1x.
     void setGlobalPitch(float pitch) {
-        if (pitch == s_lastPitch) return;
         auto engine = FMODAudioEngine::sharedEngine();
-        if (engine && engine->m_globalChannel) {
-            engine->m_globalChannel->setPitch(pitch);
-            s_lastPitch = pitch;
+        if (!engine) return;
+        // A group under another one already gets its speed from it (setting
+        // both would apply the speed twice).
+        auto under = [](FMOD::ChannelGroup* group, FMOD::ChannelGroup* ancestor) {
+            for (int depth = 0; group && depth < 8; depth++) {
+                FMOD::ChannelGroup* parent = nullptr;
+                if (group->getParentGroup(&parent) != FMOD_OK || !parent) return false;
+                if (parent == ancestor) return true;
+                group = parent;
+            }
+            return false;
+        };
+        auto music = engine->m_backgroundMusicChannel, global = engine->m_globalChannel;
+        if (music && global && under(music, global)) music = nullptr;
+        for (FMOD::ChannelGroup* group : {music, global}) {
+            if (!group) continue;
+            float now = 1.f;
+            group->getPitch(&now);
+            if (std::abs(now - pitch) > 0.0001f) group->setPitch(pitch);
         }
     }
 }

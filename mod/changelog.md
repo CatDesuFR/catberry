@@ -1,3 +1,12 @@
+# v1.1.2
+
+- Replay Bot: clicks made with GD's second jump key (the "player 2" key, which also moves player 1 in one-player levels) were recorded as player 2's, so they never got their real tick or their position fix: most of a macro played uncorrected and drifted. In one-player levels both keys now count as player 1's everywhere, and fixes keep both players in line in dual mode and two-player levels. Tested with the Up key through GD's keyboard handler: 159 of 159 clicks fixed, every click on the right tick, drift 0.001 units on average.
+- Frame Window Counter: it ignored clicks made with the second jump key, so its re-runs left most of your clicks out and came out as "?". They count now: with second-key clicks, the loading screen measured 14 of 14, none unsure. New option "Hide unsure (?) clicks" (on): a click that can't be measured gets no marker at all.
+- Speedhack music: with the speedhack's "Speedhack music" option, the song plays at the speedhack's speed, also after restarting or changing level (before, new music started at normal speed). Tested: 2x speedhack, music at 2.00x.
+- Menu key: change the key that opens the menu (Menu window: "Menu key", Change, press a key; Backspace puts it back to Tab).
+- CPS label: CPS / most CPS this attempt / total clicks, e.g. "CPS: 7/12/230" ({maxcps} tag for custom labels).
+- No Orb Pulse: also holds GD's audio scale at the source every frame and FMOD's pulse values while GD sizes objects.
+
 # v1.1.1
 
 - Replay Bot: accurate with real clicks. A real click (keyboard or mouse) acts partway through its physics tick, at the moment its timestamp says, but a bot can only hand clicks over at the start of a tick. Each click's position fix is now taken at the end of its tick and put back at the end of the same tick when playing, so the runs line up from there on. Tested with clicks made through GD's own keyboard handler: drift went from 0.074 to 0.001 units on average, every click on the right tick, also at 144 FPS.

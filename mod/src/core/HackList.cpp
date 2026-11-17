@@ -24,7 +24,7 @@ namespace cmm {
             false,
             [] {
                 optFloat("Speed", "speedhack.value", 1.f, 0.1f, 4.f, "%.2fx");
-                optBool("Change audio speed too", "speedhack.audio", true);
+                optBool("Speedhack music (the song plays at this speed too)", "speedhack.audio", true);
             },
             [] { return val<float>("speedhack.value", 1.f) != 1.f; }});
         add({"audiospeed", "Audio Speed", "Changes the speed (pitch) of all game audio.", Global, OK,
@@ -176,6 +176,7 @@ namespace cmm {
                     if (idx >= 3) ImGui::TextDisabled("Big ranges take longer to measure each click.");
                 }
                 optBool("Measure the bot's macro first (loading screen)", "framecounter.preload", true);
+                optBool("Hide unsure (?) clicks", "framecounter.hideunsure", true);
                 optBool("Hide windows over 10 (like NaN GD)", "framecounter.hide10", true);
                 optBool("Ding when you pass a click", "framecounter.sound", true);
                 optFloat("Ding volume", "framecounter.volume", 0.6f, 0.f, 1.f, "%.2f");

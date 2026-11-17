@@ -188,7 +188,9 @@ class $modify(RealTestMenu, MenuLayer) {
         }
         std::filesystem::remove(trigger, ec);
         GJGameLevel* level = nullptr;
-        if (levelName == "@short") {
+        if (levelName.rfind("@main", 0) == 0) {
+            level = GameLevelManager::get()->getMainLevel(std::atoi(levelName.c_str() + 5), false);
+        } else if (levelName == "@short") {
             // A short level: flat ground, the end a few seconds in.
             level = GJGameLevel::create();
             level->m_levelName = "CMM Short Test";
@@ -208,6 +210,7 @@ class $modify(RealTestMenu, MenuLayer) {
         if (s_mode == "preload") {
             setHack("framecounter", true);
             setHack("noclip", false);
+            setHack("cbf", false);
         } else {
             setHack("framecounter", false);
             setHack("noclip", true);

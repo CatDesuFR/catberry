@@ -1,7 +1,7 @@
 # Builds the Arch package from the source tree this file sits in:
 #   cd packaging/arch && makepkg -si
 pkgname=catberry-cbmm
-pkgver=1.1.1
+pkgver=1.1.2
 pkgrel=1
 pkgdesc="Catberry's Mod Menu for Geometry Dash (Geode): catberry cbmm load"
 arch=('x86_64')

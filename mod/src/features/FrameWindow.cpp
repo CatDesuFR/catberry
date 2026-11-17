@@ -9,6 +9,7 @@
 #include "Sim.hpp"
 #include "WorldOverlay.hpp"
 #include <core/Hacks.hpp>
+#include <core/Players.hpp>
 #include <core/Log.hpp>
 #include <Geode/modify/PlayLayer.hpp>
 #include <imgui.h>
@@ -125,7 +126,7 @@ namespace cmm::fw {
         }
         char const* kBandNames[] = {"1", "2", "3", "4", "5-6", "7-8", "9-10"};
 
-        bool isP1(replay::Input const& in) { return in.button == 1 && !in.player2; }
+        bool isP1(replay::Input const& in) { return in.button == 1 && !cmm::forPlayer2(in.player2); }
 
         // NaN GD shows no marker for windows over 10 (easy clicks); optional.
         bool shown(int window) { return window <= 10 || !cmm::val<bool>("framecounter.hide10", true); }
@@ -714,7 +715,7 @@ class $modify(FrameWindowGameLayer, GJBaseGameLayer) {
 
     void handleButton(bool down, int button, bool isPlayer1) {
         GJBaseGameLayer::handleButton(down, button, isPlayer1);
-        if (!isMain() || !own::active() || button != 1 || !isPlayer1 || cmm::sim::simulating()) return;
+        if (!isMain() || !own::active() || button != 1 || cmm::forPlayer2(!isPlayer1) || cmm::sim::simulating()) return;
         auto pl = static_cast<PlayLayer*>(static_cast<GJBaseGameLayer*>(this));
         if (pl->m_playerDied || pl->m_isPaused) return;
         int64_t act = own::s_inStep ? own::s_tick : own::s_tick + 2;
@@ -796,7 +797,7 @@ class $modify(FrameWindowLayer, PlayLayer) {
         own::s_preAsking = false;
         own::s_preUnknown = 0;
         for (auto const& in : cmm::replay::botMacro()) {
-            if (in.button == 1 && !in.player2) own::s_preTotal++;  // presses and releases
+            if (in.button == 1 && !cmm::forPlayer2(in.player2)) own::s_preTotal++;  // presses and releases
         }
         own::s_preStepping = true;
         if (auto engine = FMODAudioEngine::sharedEngine(); engine && engine->m_backgroundMusicChannel) {
@@ -853,7 +854,7 @@ class $modify(FrameWindowLayer, PlayLayer) {
         auto elapsed = [&] { return std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - start).count(); };
         int64_t lastPress = 0;
         for (auto const& in : cmm::replay::botMacro()) {
-            if (in.button == 1 && !in.player2) lastPress = in.tick;
+            if (in.button == 1 && !cmm::forPlayer2(in.player2)) lastPress = in.tick;
         }
         // Keep slots free for the clicks still to come: wait for the measuring
         // to catch up instead of skipping clicks.
@@ -1199,7 +1200,7 @@ class $modify(FrameWindowLayer, PlayLayer) {
             int lead = std::max(searchRange(), cmm::cbf::windowTicks()) + 3;
             for (size_t i = 0; i < inputs.size(); i++) {
                 auto const& in = inputs[i];
-                if (in.button != 1 || in.player2 || in.tick <= now) continue;
+                if (in.button != 1 || cmm::forPlayer2(in.player2) || in.tick <= now) continue;
                 if ((in.tick - now) / ppt > static_cast<unsigned>(lead)) break;
                 if (!s_results[i].analysed) analyse(this, inputs, i, now, ppt);
             }
@@ -1231,8 +1232,14 @@ class $modify(FrameWindowLayer, PlayLayer) {
         own::s_pressed.clear();
         for (int id : own::s_dropped) removeMarker(id);
         own::s_dropped.clear();
+        bool hideUnsure = cmm::val<bool>("framecounter.hideunsure", true);
         for (auto const& r : own::s_done) {
             int band = static_cast<int>(std::lround(r.window));
+            // Hide unsure: a click that couldn't be measured gets no marker.
+            if (r.unknown && hideUnsure) {
+                removeMarker(r.id);
+                continue;
+            }
             if (r.unknown) f->unknown++;
             else if (band > 10) f->counts[7]++;
             else f->counts[bandIndex(band)]++;

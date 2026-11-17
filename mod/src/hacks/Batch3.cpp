@@ -2,6 +2,7 @@
 #include <core/Hacks.hpp>
 #include <algorithm>
 #include <core/Log.hpp>
+#include <Geode/modify/AudioEffectsLayer.hpp>
 #include <Geode/modify/CCCircleWave.hpp>
 #include <Geode/modify/CCScheduler.hpp>
 #include <Geode/modify/FMODAudioEngine.hpp>
@@ -122,15 +123,35 @@ class $modify(B3Scheduler, CCScheduler) {
 
 // No Orb Pulse: orbs, pads and other music-scaled objects stop pulsing.
 // GD sizes them from the audio effects layer's m_audioScale (0.4 quiet to 1.2
-// loud) while it works out what's on screen; hold it at the chosen size while
-// it does (the song itself isn't touched). Tested: orbs stay one size.
+// loud), worked out from FMOD's pulse values. Right after a restart GD sizes
+// them before that layer has stepped, straight from the pulse values, so both
+// are held at the chosen size: the layer's value after every audio step, and
+// FMOD's pulses while GD works out what's on screen. (The song isn't touched.)
+namespace {
+    float orbSize() { return std::clamp(cmm::val<float>("noorbpulse.size", 0.75f), 0.f, 1.f); }
+}
+
+class $modify(B3OrbPulseAudio, AudioEffectsLayer) {
+    void audioStep(float dt) {
+        AudioEffectsLayer::audioStep(dt);
+        if (cmm::on("noorbpulse") && PlayLayer::get()) m_audioScale = orbSize();
+    }
+};
+
 class $modify(B3OrbPulse, PlayLayer) {
     void updateVisibility(float dt) {
-        if (!cmm::on("noorbpulse") || !m_audioEffectsLayer) return PlayLayer::updateVisibility(dt);
-        float old = m_audioEffectsLayer->m_audioScale;
-        m_audioEffectsLayer->m_audioScale = std::clamp(cmm::val<float>("noorbpulse.size", 0.75f), 0.f, 1.f);
+        if (!cmm::on("noorbpulse")) return PlayLayer::updateVisibility(dt);
+        float v = orbSize();
+        auto fmod = FMODAudioEngine::sharedEngine();
+        float p1 = fmod->m_pulse1, p2 = fmod->m_pulse2, p3 = fmod->m_pulse3;
+        fmod->m_pulse1 = fmod->m_pulse2 = fmod->m_pulse3 = v;
+        float old = m_audioEffectsLayer ? m_audioEffectsLayer->m_audioScale : 0.f;
+        if (m_audioEffectsLayer) m_audioEffectsLayer->m_audioScale = v;
         PlayLayer::updateVisibility(dt);
-        m_audioEffectsLayer->m_audioScale = old;
+        if (m_audioEffectsLayer) m_audioEffectsLayer->m_audioScale = old;
+        fmod->m_pulse1 = p1;
+        fmod->m_pulse2 = p2;
+        fmod->m_pulse3 = p3;
     }
 };
 
