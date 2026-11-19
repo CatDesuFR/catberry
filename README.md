@@ -2,7 +2,7 @@
 
 `catberry` is one command for a set of input tools, on **Linux** and
 **Windows 10/11**. This branch is the `catberry` command itself (version
-1.3.6). Each tool lives on its own branch and is installed separately:
+1.3.7). Each tool lives on its own branch and is installed separately:
 
 | Tool | Branch | Version | What it does |
 | --- | --- | --- | --- |
@@ -10,6 +10,7 @@
 | `catberry mtools` | [`mtools`](https://github.com/CatDesuFR/catberry/tree/mtools) | 2.1.2 | Macro recorder, hotkey macros (`catberry -config`) and quick click |
 | `catberry roofce` | [`roof-carton-engine`](https://github.com/CatDesuFR/catberry/tree/roof-carton-engine) | 1.2.7 | Roof Carton Engine: live wallpapers, clock and music widgets (Linux, Wayland) |
 | `catberry cbmm` | [`cbmm`](https://github.com/CatDesuFR/catberry/tree/cbmm) | 1.1.3 | Catberry's Mod Menu for Geometry Dash (Geode): `catberry cbmm load` puts it into the game |
+| `catberry vskm` | [`vskm`](https://github.com/CatDesuFR/catberry/tree/vskm) | 1.0.0 | Vencord plugins for Vesktop: `catberry vskm load NAME` (Linux) |
 
 Install this launcher once; it then installs, updates and removes the tools.
 
@@ -20,28 +21,28 @@ Install this launcher once; it then installs, updates and removes the tools.
 **CachyOS, Garuda and other Arch-based distros**
 
 ```bash
-curl -LO https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.6/catberry-1.3.6-1-x86_64.pkg.tar.zst && sudo pacman -U catberry-1.3.6-1-x86_64.pkg.tar.zst
+curl -LO https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.7/catberry-1.3.7-1-x86_64.pkg.tar.zst && sudo pacman -U catberry-1.3.7-1-x86_64.pkg.tar.zst
 ```
 
 **Fedora**
 
 ```bash
-sudo dnf install https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.6/catberry-1.3.6-1.fc44.x86_64.rpm
+sudo dnf install https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.7/catberry-1.3.7-1.fc44.x86_64.rpm
 ```
 
 **Debian 13**
 
 ```bash
-curl -LO https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.6/catberry_1.3.6-1+debian13_amd64.deb && sudo apt install ./catberry_1.3.6-1+debian13_amd64.deb
+curl -LO https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.7/catberry_1.3.7-1+debian13_amd64.deb && sudo apt install ./catberry_1.3.7-1+debian13_amd64.deb
 ```
 
 **Ubuntu 26.04 or newer** (and distros built on it, like Linux Mint)
 
 ```bash
-curl -LO https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.6/catberry_1.3.6-1+ubuntu26.04_amd64.deb && sudo apt install ./catberry_1.3.6-1+ubuntu26.04_amd64.deb
+curl -LO https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.7/catberry_1.3.7-1+ubuntu26.04_amd64.deb && sudo apt install ./catberry_1.3.7-1+ubuntu26.04_amd64.deb
 ```
 
-**Windows 10/11**: download [`catberry-windows.zip`](https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.6/catberry-windows.zip),
+**Windows 10/11**: download [`catberry-windows.zip`](https://github.com/CatDesuFR/catberry/releases/download/catberry-v1.3.7/catberry-windows.zip),
 extract it and double-click `install.bat` (if Windows shows "Windows protected
 your PC", click **More info** → **Run anyway**). It goes into
 `%LOCALAPPDATA%\Programs\catberry`, which is added to your PATH; open a new
@@ -138,11 +139,12 @@ catberry vskm -v                print the plugins' version
 `catberry -v` shows which tools are installed:
 
 ```
-catberry 1.3.6
+catberry 1.3.7
   ac      2.0.1
   mtools  2.1.2
   roofce  1.2.7
   cbmm    1.1.3
+  vskm    1.0.0
 ```
 
 `catberry ac ...` runs the `catberry-ac` program, `catberry mtools ...` (and
@@ -158,7 +160,7 @@ tools work.
 | Linux program | `make` | `catberry` |
 | Install on Linux | `make install` | `~/.local/bin/catberry` |
 | Windows package | `make windows` | `dist/catberry-windows.zip` |
-| Arch package | `cd packaging/arch && makepkg` | `catberry-1.3.6-1-x86_64.pkg.tar.zst` |
+| Arch package | `cd packaging/arch && makepkg` | `catberry-1.3.7-1-x86_64.pkg.tar.zst` |
 | Unit tests | `make test` | |
 | Every package, tested and published | `ci/release-local.sh catberry` (or `ac`, `mtools`, `roofce`, `cbmm`, `vskm`; podman) | a GitHub Release |
 | install/uninstall on every distro | `ci/test-install-local.sh` (podman) | |
