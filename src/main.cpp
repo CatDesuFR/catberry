@@ -352,6 +352,26 @@ int setPlugin(const Plugin *p, bool on) {
         vsettings.erase("vskmPreviousAudio");
         writeJson(vesktopSettings(), vsettings);
     }
+    // Theme Stealer's icon, if Vesktop wasn't there to put Vesktop's back:
+    // its copy of Vesktop's launcher and its tray pictures.
+    bool tsOff = !on && (!p || std::string(p->name) == "TS");
+    if (tsOff) {
+        std::string dataHome = env("XDG_DATA_HOME");
+        fs::path launcher = (dataHome.empty() ? fs::path(env("HOME")) / ".local" / "share" : fs::path(dataHome)) /
+                            "applications" / "vesktop.desktop";
+        std::ifstream in(launcher);
+        std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        if (text.find("X-Vskm-Icon=true") != std::string::npos) fs::remove(launcher, ec);
+        fs::path assets = configHome() / "vesktop" / "userAssets";
+        if (fs::exists(assets / ".vskm-icon", ec)) {
+            for (const char *f : {"tray", "trayUnread"}) {
+                fs::remove(assets / f, ec);
+                if (fs::exists(assets / (std::string(f) + ".vskm-backup"), ec))
+                    fs::rename(assets / (std::string(f) + ".vskm-backup"), assets / f, ec);
+            }
+            fs::remove(assets / ".vskm-icon", ec);
+        }
+    }
     // OptiDiscord's media settings are Discord account settings: only a
     // running Discord can put them back.
     bool odOff = !on && (!p || std::string(p->name) == "OD");
@@ -368,7 +388,7 @@ int setPlugin(const Plugin *p, bool on) {
         std::printf("OptiDiscord had turned off GIF autoplay and emoji/sticker animation; turn them back on in\n"
                     "Discord's Settings > Chat if you want them (Vesktop wasn't open to do it).\n");
     if (wasRunning) startVesktop();
-    else if (ok) std::printf("Open Vesktop to use it.\n");
+    else if (ok && on) std::printf("Open Vesktop to use it.\n");
     return ok ? 0 : 1;
 }
 

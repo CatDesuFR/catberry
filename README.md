@@ -20,9 +20,9 @@ off, and is run for you by `catberry uninstall vskm`.
 
 | Name | Plugin | What it does |
 |------|--------|--------------|
-| MF  | Misc Fixes | Screen share sound on Linux works: Vesktop's audio share is set up for you, and put back as it was when you unload. |
-| TS  | Theme Stealer | Right-click a server: **Steal server look...** or **Save Discord's theme...**, give it a name, and it is saved as a theme in Vesktop's themes folder and switched on. Also `/stealtheme`. |
-| ACA | All Characters In Channel/Category Names | Right-click a channel or category: **Rename (all characters)...** lets the name have capital letters, spaces and symbols. They are written with look-alike characters, so they read as normal. Needs Manage Channels. |
+| MF  | Misc Fixes | Screen share sound on Linux works: Vesktop's audio share is set up for you, and put back as it was when you unload. Search results (Ctrl+F) that are replies show the message they answer instead of "Message could not be loaded". |
+| TS  | Theme Stealer | Right-click a server: **Save Discord's theme...** copies everything Discord looks like right now (its colours, a Nitro gradient theme, every Vencord theme you have on, your QuickCSS and Discord's App Icon), or **Steal server look...** copies a server's colours and icon. Name it, and it is saved as a theme and switched on. While a theme with an icon is on, the icon shows on the home button, the taskbar and the tray. Also `/stealtheme`. |
+| ACA | All Characters In Channel/Category Names | Capital letters, spaces and symbols in channel names, typed straight into Discord's Edit Channel box (or right-click a channel: **Rename (all characters)...**). They are written with look-alike characters, so they read as normal. Needs Manage Channels. |
 | OD  | OptiDiscord | Makes Discord lighter: frees messages of channels you left, does no work while Vesktop is hidden, and stops GIFs, emoji and stickers moving. Each option can be switched in the plugin's settings; "Fewer animations" is off by default. |
 
 Plugin settings are in Vesktop under Settings → Vencord → Plugins.

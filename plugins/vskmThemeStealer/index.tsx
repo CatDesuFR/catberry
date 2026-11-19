@@ -3,23 +3,26 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * Copies a look into a Vencord theme you name and keep:
- *  - Discord's colour theme as it is right now (dark/light, or a Nitro
- *    gradient theme): every colour variable Discord sets, plus the gradient.
+ *  - Everything Discord looks like right now: Discord's colour theme (dark,
+ *    light or a Nitro gradient theme, with the parts of Discord that only
+ *    show with a gradient theme), every Vencord/Vesktop theme you have on
+ *    (local files and online links), your QuickCSS, and Discord's App Icon.
  *  - A server's look: its icon's colour and its role colours, turned into
- *    backgrounds and accents.
- * The theme is saved in Vencord's themes folder and switched on.
+ *    backgrounds and accents, and the server's icon.
+ * The theme is saved in Vencord's themes folder and switched on. While a
+ * theme with an icon is on, the icon shows on the home button (the theme's
+ * own CSS), the taskbar/window and the tray.
  */
 
 import { ApplicationCommandInputType, ApplicationCommandOptionType } from "@api/Commands";
 import { NavContextMenuPatchCallback } from "@api/ContextMenu";
-import { Settings } from "@api/Settings";
+import { Settings, SettingsStore } from "@api/Settings";
 import { Logger } from "@utils/Logger";
-import { ModalCloseButton, ModalContent, ModalFooter, ModalHeader, ModalProps, ModalRoot, openModal } from "@utils/modal";
 import definePlugin, { PluginNative } from "@utils/types";
-import { Button, TextButton } from "@components/Button";
-import { Heading } from "@components/Heading";
 import { Paragraph } from "@components/Paragraph";
-import { GuildRoleStore, Menu, React, showToast, TextInput } from "@webpack/common";
+import { RenderModalProps } from "@vencord/discord-types";
+import { findByCodeLazy, findStoreLazy } from "@webpack";
+import { GuildRoleStore, Menu, Modal, openModal, React, showToast, TextInput, UserStore } from "@webpack/common";
 
 const Native = VencordNative.pluginHelpers.VskmThemeStealer as PluginNative<typeof import("./native")>;
 const logger = new Logger("VskmThemeStealer");
@@ -27,7 +30,7 @@ const logger = new Logger("VskmThemeStealer");
 // ---- reading a look ----
 
 // Discord's colour variables right now (values that are colours or gradients).
-function discordThemeCss(): string {
+function discordColours(): string {
     const cs = getComputedStyle(document.documentElement);
     const vars: string[] = [];
     for (let i = 0; i < cs.length; i++) {
@@ -46,6 +49,159 @@ function discordThemeCss(): string {
     }
     return css;
 }
+
+// Parts of Discord that only look different while a Nitro gradient theme is
+// on (html.custom-theme-background): copied so they always apply.
+function gradientThemeRules(): string {
+    if (!document.documentElement.classList.contains("custom-theme-background")) return "";
+    const ungate = (selector: string) => selector
+        .replace(/(^|[\s(,>+~])\.custom-theme-background/g, "$1:root")
+        .replace(/\.custom-theme-background/g, "");
+    const out: string[] = [];
+    const walk = (rules: CSSRuleList) => {
+        for (const rule of Array.from(rules)) {
+            if (rule instanceof CSSStyleRule) {
+                if (rule.selectorText.includes("custom-theme-background"))
+                    out.push(`${ungate(rule.selectorText)} { ${rule.style.cssText} }`);
+            } else if ("cssRules" in rule) {
+                walk((rule as CSSGroupingRule).cssRules);
+            }
+        }
+    };
+    for (const sheet of Array.from(document.styleSheets)) {
+        // Discord's own stylesheets only (not the themes, collected below).
+        if (!sheet.href?.startsWith(location.origin + "/assets/")) continue;
+        try {
+            walk(sheet.cssRules);
+        } catch { }
+    }
+    return out.join("\n");
+}
+
+// A theme's text, made safe to put inside another theme: its @name header
+// becomes a plain comment, and its @imports are handed back to go first.
+function inline(css: string, imports: string[]): string {
+    return css
+        .replace(/^(\s*\*\s*)@(?=\w)/gm, "$1")
+        .replace(/^\s*@import[^;]*;\s*$/gm, line => {
+            imports.push(line.trim());
+            return "";
+        });
+}
+
+interface Look {
+    css: string;
+    parts: string[]; // what it includes, for the name popup
+}
+
+// Everything Discord looks like right now.
+async function discordLook(): Promise<Look> {
+    const imports: string[] = [];
+    const sections: string[] = [];
+    const parts: string[] = ["Discord's colours"];
+    sections.push("/* Discord's colours */\n" + discordColours());
+    const gradient = gradientThemeRules();
+    if (gradient) {
+        sections.push("/* Discord's gradient theme */\n" + gradient);
+        parts.push("the gradient theme");
+    }
+
+    const dark = document.documentElement.classList.contains("theme-light") ? "light" : "dark";
+    let themes = 0;
+    for (const file of Settings.enabledThemes ?? []) {
+        const data = await VencordNative.themes.getThemeData(file).catch(() => null);
+        if (!data) continue;
+        sections.push(`/* Theme: ${file.replace(/\*\//g, "")} */\n` + inline(data, imports));
+        themes++;
+    }
+    for (const raw of Settings.themeLinks ?? []) {
+        const m = /^@(light|dark) (.*)/.exec(raw);
+        if (m && m[1] !== dark) continue;
+        const link = (m ? m[2] : raw).trim();
+        if (!link) continue;
+        const text = await fetch(link).then(r => r.ok ? r.text() : null).catch(() => null);
+        if (text) sections.push(`/* Theme: ${link.replace(/\*\//g, "")} */\n` + inline(text, imports));
+        else imports.push(`@import url("${link}");`);
+        themes++;
+    }
+    if (themes) parts.push(themes === 1 ? "1 Vencord theme" : `${themes} Vencord themes`);
+
+    if (Settings.useQuickCss) {
+        const quick = await VencordNative.quickCss.get().catch(() => "");
+        if (quick.trim()) {
+            sections.push("/* QuickCSS */\n" + inline(quick, imports));
+            parts.push("your QuickCSS");
+        }
+    }
+    const head = [...new Set(imports)].join("\n");
+    return { css: (head ? head + "\n\n" : "") + sections.join("\n\n") + "\n", parts };
+}
+
+// ---- icons ----
+
+const AppIconStore = findStoreLazy("AppIconPersistedStoreState");
+const appIcons = findByCodeLazy("BRAND_DARK", "iconSource:");
+const premiumAppIcons = findByCodeLazy("HEXAGON", "iconSource:");
+
+// The picture of the App Icon chosen in Discord's Appearance settings.
+function discordAppIconUrl(): string | null {
+    try {
+        const id = AppIconStore.getCurrentDesktopIcon?.() ?? AppIconStore.getState?.()?.client?.desktop;
+        let list: any[] = [];
+        try { list = list.concat(premiumAppIcons(UserStore.getCurrentUser()) ?? []); } catch { }
+        try { list = list.concat(appIcons() ?? []); } catch { }
+        const icon = list.find(i => i?.id === id) ?? list.find(i => i?.iconSource);
+        return icon?.iconSource ? new URL(icon.iconSource, location.origin).href : null;
+    } catch (e) {
+        logger.error("Could not find Discord's app icon", e);
+        return null;
+    }
+}
+
+interface Icon {
+    png: string;    // base64
+    unread: string; // base64, with the unread dot for the tray
+}
+
+// An image as a 256px PNG, and the same with a red dot (the tray's unread
+// picture).
+function loadIcon(url: string): Promise<Icon | null> {
+    return new Promise(resolve => {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => {
+            try {
+                const canvas = document.createElement("canvas");
+                canvas.width = canvas.height = 256;
+                const ctx = canvas.getContext("2d")!;
+                ctx.drawImage(img, 0, 0, 256, 256);
+                const png = canvas.toDataURL("image/png").split(",")[1];
+                ctx.beginPath();
+                ctx.arc(196, 196, 52, 0, Math.PI * 2);
+                ctx.fillStyle = "#f23f43";
+                ctx.fill();
+                const unread = canvas.toDataURL("image/png").split(",")[1];
+                resolve({ png, unread });
+            } catch {
+                resolve(null);
+            }
+        };
+        img.onerror = () => resolve(null);
+        img.src = url;
+    });
+}
+
+// The theme's own part of the icon: the home button at the top of the
+// server list.
+const homeButtonCss = (png: string) => `
+/* Icon: the home button */
+[data-list-item-id="guildsnav___home"] [class*="childWrapper"] {
+    background: url("data:image/png;base64,${png}") center / cover no-repeat !important;
+}
+[data-list-item-id="guildsnav___home"] [class*="childWrapper"] > * {
+    opacity: 0 !important;
+}
+`;
 
 // The average colour of an image (a server icon), as [r, g, b].
 function averageColour(url: string): Promise<[number, number, number] | null> {
@@ -89,11 +245,11 @@ const hsl = (h: number, s: number, l: number) => `hsl(${h.toFixed(1)} ${s.toFixe
 
 async function serverThemeCss(guild: any): Promise<string> {
     const icon = guild.icon ? `https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png?size=64` : null;
-    const base = (icon && await averageColour(icon)) ?? [88, 101, 242];
+    const base: [number, number, number] = (icon ? await averageColour(icon) : null) ?? [88, 101, 242];
     const [h, s] = toHsl(base);
     const sat = Math.min(s, 45);
     // Role colours (highest first) for accents.
-    const roles = Object.values(GuildRoleStore.getRolesSnapshot?.(guild.id) ?? GuildRoleStore.getAllGuildRoles?.(guild.id) ?? {}) as any[];
+    const roles = Object.values((GuildRoleStore as any).getRolesSnapshot?.(guild.id) ?? (GuildRoleStore as any).getAllGuildRoles?.(guild.id) ?? {}) as any[];
     const colours = roles.filter(r => r.color).sort((a, b) => b.position - a.position).map(r => `#${r.color.toString(16).padStart(6, "0")}`);
     const accent = colours[0] ?? hsl(h, Math.max(s, 60), 60);
     const accent2 = colours[1] ?? accent;
@@ -126,11 +282,13 @@ function header(name: string, description: string) {
     return `/**\n * @name ${clean(name)}\n * @description ${clean(description)}\n * @author Theme Stealer (vskm)\n * @version 1.0.0\n */\n\n`;
 }
 
-async function save(name: string, description: string, body: string) {
+async function save(name: string, description: string, body: string, icon: Icon | null) {
     try {
-        const file = await Native.saveTheme(name, header(name, description) + body);
+        const css = header(name, description) + body + (icon ? homeButtonCss(icon.png) : "");
+        const file = await Native.saveTheme(name, css, icon?.png, icon?.unread);
         const themes = Settings.enabledThemes ?? [];
         if (!themes.includes(file)) Settings.enabledThemes = [...themes, file];
+        else syncIcon(true);
         showToast({ text: `Theme saved and switched on: ${file}`, variant: "success" });
     } catch (e) {
         logger.error("Could not save the theme", e);
@@ -138,43 +296,65 @@ async function save(name: string, description: string, body: string) {
     }
 }
 
-function NameModal({ modalProps, initial, title, onSave }: { modalProps: ModalProps; initial: string; title: string; onSave(name: string): void; }) {
+// The icon of the last switched-on theme that has one goes on the taskbar,
+// window and tray; with none, Vesktop's own.
+let shownIcon: string | null | undefined;
+async function syncIcon(force = false) {
+    let file: string | null = null;
+    for (const f of Settings.enabledThemes ?? [])
+        if (await Native.hasIcon(f)) file = f;
+    if (!force && file === shownIcon) return;
+    shownIcon = file;
+    await Native.applyIcon(file).catch(e => logger.error("Could not set the icon", e));
+}
+const onThemesChanged = () => syncIcon();
+
+function NameModal({ modalProps, initial, title, parts, onSave }: { modalProps: RenderModalProps; initial: string; title: string; parts: string[]; onSave(name: string): void; }) {
     const [name, setName] = React.useState(initial);
     const done = () => {
         if (!name.trim()) return;
         onSave(name.trim());
         modalProps.onClose();
     };
+    const list = parts.length > 1 ? parts.slice(0, -1).join(", ") + " and " + parts[parts.length - 1] : parts[0];
     return (
-        <ModalRoot {...modalProps}>
-            <ModalHeader>
-                <Heading tag="h2" style={{ flexGrow: 1, margin: 0 }}>{title}</Heading>
-                <ModalCloseButton onClick={modalProps.onClose} />
-            </ModalHeader>
-            <ModalContent style={{ padding: "16px 0" }}>
+        <Modal
+            {...modalProps}
+            title={title}
+            actions={[
+                { text: "Cancel", variant: "secondary", onClick: () => modalProps.onClose() },
+                { text: "Save theme", variant: "primary", onClick: done },
+            ]}
+        >
+            <div>
+                <Paragraph style={{ marginBottom: 12 }}>Copies {list}.</Paragraph>
                 <Paragraph style={{ marginBottom: 8 }}>Theme name</Paragraph>
                 <TextInput value={name} onChange={setName} autoFocus onKeyDown={(e: React.KeyboardEvent) => e.key === "Enter" && done()} />
-            </ModalContent>
-            <ModalFooter>
-                <Button onClick={done} disabled={!name.trim()}>Save theme</Button>
-                <TextButton variant="secondary" onClick={modalProps.onClose}>Cancel</TextButton>
-            </ModalFooter>
-        </ModalRoot>
+            </div>
+        </Modal>
     );
 }
 
-function askName(title: string, initial: string, onSave: (name: string) => void) {
-    openModal(props => <NameModal modalProps={props} title={title} initial={initial} onSave={onSave} />);
+function askName(title: string, initial: string, parts: string[], onSave: (name: string) => void) {
+    openModal(props => <NameModal modalProps={props} title={title} initial={initial} parts={parts} onSave={onSave} />);
 }
 
-export function stealDiscordTheme() {
-    const css = discordThemeCss();
-    askName("Save Discord's theme", "My Discord theme", name => save(name, "Discord's colour theme, copied by Theme Stealer", css));
+export async function stealDiscordTheme() {
+    const look = await discordLook();
+    const iconUrl = discordAppIconUrl();
+    const icon = iconUrl ? await loadIcon(iconUrl) : null;
+    if (icon) look.parts.push("Discord's App Icon");
+    askName("Save Discord's theme", "My Discord theme", look.parts,
+        name => save(name, "Discord's look, copied by Theme Stealer", look.css, icon));
 }
 
 async function stealServer(guild: any) {
     const css = await serverThemeCss(guild);
-    askName(`Save ${guild.name}'s look`, `${guild.name} theme`, name => save(name, `The look of the server ${guild.name}, copied by Theme Stealer`, css));
+    const parts = ["the server's colours", "its role colours"];
+    const icon = guild.icon ? await loadIcon(`https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png?size=512`) : null;
+    if (icon) parts.push("its icon");
+    askName(`Save ${guild.name}'s look`, `${guild.name} theme`, parts,
+        name => save(name, `The look of the server ${guild.name}, copied by Theme Stealer`, css, icon));
 }
 
 const guildMenu: NavContextMenuPatchCallback = (children, { guild }) => {
@@ -189,15 +369,28 @@ const guildMenu: NavContextMenuPatchCallback = (children, { guild }) => {
 
 export default definePlugin({
     name: "VskmThemeStealer",
-    description: "Theme Stealer (vskm): save Discord's colour theme or a server's look as a theme you name (/stealtheme, or right-click a server).",
+    description: "Theme Stealer (vskm): save everything Discord looks like (colours, gradient, your themes, QuickCSS, App Icon) or a server's look and icon as a theme you name (/stealtheme, or right-click a server).",
     authors: [{ name: "CatDesu", id: 0n }],
     contextMenus: { "guild-context": guildMenu },
-    discordThemeCss,
+    discordLook,
     serverThemeCss,
+    discordAppIconUrl,
+    loadIcon,
+    syncIcon,
+
+    start() {
+        SettingsStore.addChangeListener("enabledThemes", onThemesChanged);
+        syncIcon(true);
+    },
+    stop() {
+        SettingsStore.removeChangeListener("enabledThemes", onThemesChanged);
+        shownIcon = undefined;
+        Native.applyIcon(null);
+    },
     commands: [
         {
             name: "stealtheme",
-            description: "Save Discord's current colour theme as a theme you name",
+            description: "Save how Discord looks right now (colours, themes, QuickCSS, App Icon) as a theme you name",
             inputType: ApplicationCommandInputType.BUILT_IN,
             options: [{ name: "server", description: "This server's look instead", type: ApplicationCommandOptionType.BOOLEAN, required: false }],
             execute: (opts, ctx) => {

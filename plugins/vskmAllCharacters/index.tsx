@@ -13,12 +13,10 @@
 import { definePluginSettings } from "@api/Settings";
 import { NavContextMenuPatchCallback } from "@api/ContextMenu";
 import { Logger } from "@utils/Logger";
-import { ModalCloseButton, ModalContent, ModalFooter, ModalHeader, ModalProps, ModalRoot, openModal } from "@utils/modal";
 import definePlugin, { OptionType } from "@utils/types";
-import { Button, TextButton } from "@components/Button";
-import { Heading } from "@components/Heading";
 import { Paragraph } from "@components/Paragraph";
-import { Menu, PermissionStore, React, RestAPI, showToast, TextInput } from "@webpack/common";
+import { RenderModalProps } from "@vencord/discord-types";
+import { Menu, Modal, openModal, PermissionStore, React, RestAPI, showToast, TextInput } from "@webpack/common";
 
 const logger = new Logger("VskmAllCharacters");
 
@@ -114,7 +112,7 @@ async function rename(channel: any, name: string) {
     }
 }
 
-function RenameModal({ modalProps, channel }: { modalProps: ModalProps; channel: any; }) {
+function RenameModal({ modalProps, channel }: { modalProps: RenderModalProps; channel: any; }) {
     const [name, setName] = React.useState(decode(channel.name ?? ""));
     const done = () => {
         if (!name.trim()) return;
@@ -122,22 +120,21 @@ function RenameModal({ modalProps, channel }: { modalProps: ModalProps; channel:
         modalProps.onClose();
     };
     return (
-        <ModalRoot {...modalProps}>
-            <ModalHeader>
-                <Heading tag="h2" style={{ flexGrow: 1, margin: 0 }}>Rename (all characters)</Heading>
-                <ModalCloseButton onClick={modalProps.onClose} />
-            </ModalHeader>
-            <ModalContent style={{ padding: "16px 0" }}>
+        <Modal
+            {...modalProps}
+            title="Rename (all characters)"
+            actions={[
+                { text: "Cancel", variant: "secondary", onClick: () => modalProps.onClose() },
+                { text: "Rename", variant: "primary", onClick: done },
+            ]}
+        >
+            <div>
                 <Paragraph style={{ marginBottom: 8 }}>Name: capitals, spaces and symbols are kept</Paragraph>
                 <TextInput value={name} onChange={setName} autoFocus maxLength={100}
                     onKeyDown={(e: React.KeyboardEvent) => e.key === "Enter" && done()} />
                 <Paragraph style={{ marginTop: 8, opacity: 0.7 }}>Shown as: {encode(name)}</Paragraph>
-            </ModalContent>
-            <ModalFooter>
-                <Button onClick={done} disabled={!name.trim()}>Rename</Button>
-                <TextButton variant="secondary" onClick={modalProps.onClose}>Cancel</TextButton>
-            </ModalFooter>
-        </ModalRoot>
+            </div>
+        </Modal>
     );
 }
 
@@ -159,4 +156,21 @@ export default definePlugin({
     contextMenus: { "channel-context": channelMenu },
     encode,
     decode,
+
+    patches: [
+        {
+            // The name box in a channel's settings (Edit Channel > Overview):
+            // Discord makes the name lowercase with dashes as you type.
+            find: "handleChangeName=",
+            replacement: {
+                match: /(handleChangeName=(\i)=>\{let\{channel:(\i)\}=this\.props;if\(null==\3\)return;)\2=(\(0,\i\.\i\))\(\2,\3\.type\);/,
+                replace: "$1$2=$self.channelName($2,$3,$4);",
+            },
+        },
+    ],
+    // What the name box keeps of what you typed.
+    channelName(typed: string, channel: any, discord: (name: string, type: number) => string) {
+        if (!TEXT_LIKE.has(channel.type) && !settings.store.allChannels) return discord(typed, channel.type);
+        return encode(typed);
+    },
 });
