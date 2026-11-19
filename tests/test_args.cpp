@@ -33,6 +33,10 @@ void testArgs() {
     // Everything else still goes to the tool, untouched.
     c = parse({"cbmm", "load"});
     CHECK(c.kind == Command::RunTool && c.tool == "cbmm" && c.toolArgStart == 2);
+    c = parse({"vskm", "load", "OD"});
+    CHECK(c.kind == Command::RunTool && c.tool == "vskm" && c.toolArgStart == 2);
+    c = parse({"install", "vskm"});
+    CHECK(c.kind == Command::Install && c.tool == "vskm" && c.version == "latest");
     c = parse({"install", "cbmm"});
     CHECK(c.kind == Command::Install && c.tool == "cbmm" && c.version == "latest");
     c = parse({"roofce", "gui"});

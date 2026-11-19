@@ -35,7 +35,7 @@ void usage(FILE *out) {
                  "  catberry -v                     print the versions of catberry and its tools\n"
                  "\n"
                  "  catberry install TOOL [VERSION] install a tool, or another version of it (default: latest)\n"
-                 "                                  TOOL is ac, mtools, roofce, cbmm or catberry; add --reinstall\n"
+                 "                                  TOOL is ac, mtools, roofce, cbmm, vskm or catberry; add --reinstall\n"
                  "                                  to install the same version again\n"
                  "  catberry uninstall TOOL         remove a tool, then choose whether to keep its settings\n"
                  "  catberry update [TOOL]          update everything installed, or one tool, to the newest version\n"
@@ -60,6 +60,10 @@ void usage(FILE *out) {
                  "  catberry cbmm unload            take it out of Geometry Dash again\n"
                  "  catberry cbmm status            show whether it is loaded\n"
                  "  catberry cbmm -v                print the mod menu version\n"
+                 "  catberry vskm -list             list the Vencord plugins for Vesktop (Linux)\n"
+                 "  catberry vskm load NAME         switch a plugin on (MF, TS, ACA or OD)\n"
+                 "  catberry vskm unload NAME       switch it off (or: unload all)\n"
+                 "  catberry vskm -v                print the plugins' version\n"
                  "\n"
                  "Releases: %s/releases\n",
                  kVersion, kRepo);

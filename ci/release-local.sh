@@ -2,11 +2,13 @@
 # Builds, tests and publishes one version of one catberry tool as a GitHub
 # Release, using podman containers on this PC. Same steps as
 # .github/workflows/release.yml (which needs GitHub Actions):
-#   ci/release-local.sh <catberry|ac|mtools|roofce> [--no-publish]
+#   ci/release-local.sh <catberry|ac|mtools|roofce|cbmm|vskm> [--no-publish]
+# REF=<git ref> builds that ref instead of origin/<branch> (trial builds of
+# unpushed work; use with --no-publish).
 # The version comes from the tool branch's packaging/arch/PKGBUILD (as on
 # GitHub). A version that is already released is never rebuilt or overwritten.
 set -euo pipefail
-tool=${1:?usage: ci/release-local.sh <catberry|ac|mtools|roofce|cbmm> [--no-publish]}
+tool=${1:?usage: ci/release-local.sh <catberry|ac|mtools|roofce|cbmm|vskm> [--no-publish]}
 publish=yes
 [ "${2:-}" = --no-publish ] && publish=no
 
@@ -16,14 +18,20 @@ ac) branch=ac program=catberry-ac ;;
 mtools) branch=mtools program=catberry-mtools ;;
 roofce) branch=roof-carton-engine program=catberry-roofce ;;
 cbmm) branch=cbmm program=catberry-cbmm ;;
+vskm) branch=vskm program=catberry-vskm ;;
 *) echo "unknown tool $tool" >&2; exit 2 ;;
 esac
 
 repo=CatDesuFR/catberry
 ci=$(cd "$(dirname "$0")" && pwd)
 source "$ci/lib.sh"
-git fetch -q origin "$branch"
-sha=$(git rev-parse "origin/$branch")
+if [ -n "${REF:-}" ]; then
+    [ "$publish" = no ] || { echo "REF= is for trial builds: add --no-publish" >&2; exit 2; }
+    sha=$(git rev-parse "$REF^{commit}")
+else
+    git fetch -q origin "$branch"
+    sha=$(git rev-parse "origin/$branch")
+fi
 pkgbuild=$(git show "$sha:packaging/arch/PKGBUILD")
 version=$(sed -n 's/^pkgver=//p' <<<"$pkgbuild")
 rel=$(sed -n 's/^pkgrel=//p' <<<"$pkgbuild")
@@ -53,7 +61,7 @@ echo "== working in $work"
 
 # The tools are tested with the launcher installed: its newest release.
 launcher=""
-if [ "$tool" = ac ] || [ "$tool" = mtools ] || [ "$tool" = cbmm ]; then
+if [ "$tool" = ac ] || [ "$tool" = mtools ] || [ "$tool" = cbmm ] || [ "$tool" = vskm ]; then
     ltag=$(gh release list -R "$repo" --limit 200 --json tagName -q '.[].tagName' | grep '^catberry-v' | sort -V | tail -1 || true)
     [ -n "$ltag" ] || { echo "no catberry-v* release yet: publish catberry first" >&2; exit 1; }
     mkdir -p "$work/launcher"
@@ -71,7 +79,7 @@ image_of() {
 }
 
 targets=(arch fedora debian13 ubuntu26.04)
-[ "$tool" != roofce ] && targets+=(windows)
+[ "$tool" != roofce ] && [ "$tool" != vskm ] && targets+=(windows)
 
 for target in "${targets[@]}"; do
     echo "== build $target"

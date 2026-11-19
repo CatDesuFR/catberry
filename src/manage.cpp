@@ -308,8 +308,8 @@ int installTool(const std::string &name, const std::string &wanted, bool reinsta
         return 0;
     }
 
-    // ac, mtools and cbmm are packaged to need the launcher's package.
-    if ((name == "ac" || name == "mtools" || name == "cbmm") && !installedAsPackage(sys.family, "catberry")) {
+    // ac, mtools, cbmm and vskm are packaged to need the launcher's package.
+    if ((name == "ac" || name == "mtools" || name == "cbmm" || name == "vskm") && !installedAsPackage(sys.family, "catberry")) {
         const Tool *launcher = toolByName("catberry");
         std::vector<std::string> launcherVersions;
         if (!publishedVersions("catberry", tmp, launcherVersions)) return 1;
@@ -324,6 +324,7 @@ int installTool(const std::string &name, const std::string &wanted, bool reinsta
     if (name == "roofce")
         std::printf("If the wallpaper is running, restart it: catberry roofce stop; catberry roofce start\n");
     if (name == "cbmm") std::printf("Put it into Geometry Dash with: catberry cbmm load\n");
+    if (name == "vskm") std::printf("List the plugins with: catberry vskm -list\n");
     return 0;
 }
 
@@ -460,7 +461,13 @@ bool offerPersonalFiles(const std::vector<std::string> &files) {
 } // namespace
 
 // cbmm puts a mod into Geometry Dash; offer to take it out before removing cbmm.
+// vskm points Vesktop at its own Vencord; point it back before removing vskm.
 void offerUnloadMod(const std::string &name) {
+    if (name == "vskm") {
+        std::string path = findTool("catberry-vskm");
+        if (!path.empty()) runProgram({path, "unload", "all"});
+        return;
+    }
     if (name != "cbmm") return;
     std::string path = findTool("catberry-cbmm");
     if (!path.empty() && askYesNo("Also remove the mod from Geometry Dash?")) runProgram({path, "unload"});
@@ -489,10 +496,10 @@ int uninstallTool(const std::string &name) {
         return code;
     }
 
-    // The launcher: ac, mtools and cbmm cannot run without it; roofce can.
+    // The launcher: ac, mtools, cbmm and vskm cannot run without it; roofce can.
     std::vector<const Tool *> chosen;
     std::vector<std::string> needing;
-    for (const char *dep : {"ac", "mtools", "cbmm"})
+    for (const char *dep : {"ac", "mtools", "cbmm", "vskm"})
         if (isInstalled(sys.family, *toolByName(dep))) needing.push_back(dep);
     if (!needing.empty()) {
         std::string who = needing.size() == 1 ? needing[0] + " needs" : "the tools need";
@@ -533,8 +540,9 @@ std::string exePath(const Tool &tool) { return installDir() + "\\" + tool.progra
 std::string currentVersion(const Tool &tool) { return installedVersion(tool); }
 
 bool linuxOnly(const std::string &name) {
-    if (name != "roofce") return false;
-    std::fprintf(stderr, "roofce is Linux-only (Wayland).\n");
+    if (name == "roofce") std::fprintf(stderr, "roofce is Linux-only (Wayland).\n");
+    else if (name == "vskm") std::fprintf(stderr, "vskm is Linux-only (Vesktop on Linux).\n");
+    else return false;
     return true;
 }
 
@@ -660,7 +668,13 @@ int installTool(const std::string &name, const std::string &wanted, bool reinsta
 }
 
 // cbmm puts a mod into Geometry Dash; offer to take it out before removing cbmm.
+// vskm points Vesktop at its own Vencord; point it back before removing vskm.
 void offerUnloadMod(const std::string &name) {
+    if (name == "vskm") {
+        std::string path = findTool("catberry-vskm");
+        if (!path.empty()) runProgram({path, "unload", "all"});
+        return;
+    }
     if (name != "cbmm") return;
     std::string path = findTool("catberry-cbmm");
     if (!path.empty() && askYesNo("Also remove the mod from Geometry Dash?")) runProgram({path, "unload"});
@@ -681,7 +695,7 @@ int uninstallTool(const std::string &name) {
     }
 
     std::vector<std::string> needing;
-    for (const char *dep : {"ac", "mtools", "cbmm"})
+    for (const char *dep : {"ac", "mtools", "cbmm", "vskm"})
         if (fs::exists(exePath(*toolByName(dep)), ec)) needing.push_back(dep);
     if (!needing.empty()) {
         std::string who = needing.size() == 1 ? needing[0] + " needs" : "the tools need";
@@ -762,7 +776,7 @@ int updateTools(const std::string &only) {
         // kTools ends with the launcher: it updates last, being the program doing it.
         for (const Tool &t : kTools) {
 #ifdef _WIN32
-            if (std::string(t.name) == "roofce") continue; // Linux-only
+            if (std::string(t.name) == "roofce" || std::string(t.name) == "vskm") continue; // Linux-only
 #endif
             tools.push_back(&t);
         }

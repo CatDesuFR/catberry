@@ -56,6 +56,7 @@ catberry install ac          # the autoclicker
 catberry install mtools      # the macro recorder
 catberry install roofce      # the wallpaper manager (Linux, Wayland)
 catberry install cbmm        # Catberry's Mod Menu for Geometry Dash
+catberry install vskm        # Vencord plugins for Vesktop (Linux)
 ```
 
 catberry picks the right package for your system and installs it with
@@ -128,6 +129,10 @@ catberry cbmm load              put Catberry's Mod Menu into Geometry Dash (need
 catberry cbmm unload            take it out of Geometry Dash again
 catberry cbmm status            show whether it is loaded
 catberry cbmm -v                print the mod menu version
+catberry vskm -list             list the Vencord plugins for Vesktop (Linux)
+catberry vskm load NAME         switch a plugin on (MF, TS, ACA or OD)
+catberry vskm unload NAME       switch it off (or: unload all)
+catberry vskm -v                print the plugins' version
 ```
 
 `catberry -v` shows which tools are installed:
@@ -142,7 +147,7 @@ catberry 1.3.6
 
 `catberry ac ...` runs the `catberry-ac` program, `catberry mtools ...` (and
 the `-config` and `-quick` commands) run `catberry-mtools`, and `catberry roofce ...` runs
-`catberry-roofce`, and `catberry cbmm ...` runs `catberry-cbmm`. The launcher looks for them
+`catberry-roofce`, `catberry cbmm ...` runs `catberry-cbmm`, and `catberry vskm ...` runs `catberry-vskm`. The launcher looks for them
 next to itself first, then on your PATH. See each branch's README for how the
 tools work.
 
@@ -155,7 +160,7 @@ tools work.
 | Windows package | `make windows` | `dist/catberry-windows.zip` |
 | Arch package | `cd packaging/arch && makepkg` | `catberry-1.3.6-1-x86_64.pkg.tar.zst` |
 | Unit tests | `make test` | |
-| Every package, tested and published | `ci/release-local.sh catberry` (or `ac`, `mtools`, `roofce`, `cbmm`; podman) | a GitHub Release |
+| Every package, tested and published | `ci/release-local.sh catberry` (or `ac`, `mtools`, `roofce`, `cbmm`, `vskm`; podman) | a GitHub Release |
 | install/uninstall on every distro | `ci/test-install-local.sh` (podman) | |
 
 Ready-built downloads are on the [Releases](https://github.com/CatDesuFR/catberry/releases)
