@@ -1,50 +1,24 @@
-# catberry: the launcher that runs the catberry tools (catberry-ac and
-# catberry-mtools, built from the ac and mtools branches).
+# catberry-vskm: Vencord plugins for Vesktop. The Vencord build with the
+# plugins in it (vencord/) is made by scripts/build-vencord.sh.
 CXX ?= g++
-WINCXX ?= x86_64-w64-mingw32-g++
 CXXFLAGS ?= -O2 -Wall -Wextra
 PREFIX ?= $(HOME)/.local
 
-PROGRAM = catberry
-WINDOWS_DIST = dist/$(PROGRAM)-windows
-SRCS = $(wildcard src/*.cpp)
-HEADERS = $(wildcard src/*.h)
-# Everything but main(), for the tests.
-LIB_SRCS = $(filter-out src/main.cpp,$(SRCS))
-TEST_SRCS = $(wildcard tests/*.cpp)
+PROGRAM = catberry-vskm
+VERSION := $(shell sed -n 's/^pkgver=//p' packaging/arch/PKGBUILD)
 
-$(PROGRAM): $(SRCS) $(HEADERS)
-	$(CXX) $(CXXFLAGS) -std=c++17 $(SRCS) -o $@
-
-# Unit tests of the launcher's logic: make test
-test: $(LIB_SRCS) $(TEST_SRCS) $(HEADERS) tests/test.h
-	$(CXX) $(CXXFLAGS) -std=c++17 $(LIB_SRCS) $(TEST_SRCS) -o tests/run-tests
-	cd tests && ./run-tests
+$(PROGRAM): src/main.cpp third_party/json.hpp packaging/arch/PKGBUILD
+	$(CXX) $(CXXFLAGS) -std=c++17 -DVSKM_VERSION='"$(VERSION)"' src/main.cpp -o $@
 
 install: $(PROGRAM)
 	install -Dm755 $(PROGRAM) $(DESTDIR)$(PREFIX)/bin/$(PROGRAM)
+	for f in vencord/*; do install -Dm644 "$$f" "$(DESTDIR)$(PREFIX)/share/catberry-vskm/vencord/$$(basename "$$f")"; done
 
 uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/bin/$(PROGRAM)
-
-# Windows build, cross-compiled with MinGW-w64: a folder with the exe,
-# install.bat and uninstall.bat, plus a zip of it when zip is available.
-windows: $(WINDOWS_DIST)/$(PROGRAM).exe $(WINDOWS_DIST)/install.bat $(WINDOWS_DIST)/uninstall.bat
-	@if command -v zip >/dev/null; then \
-		rm -f dist/$(PROGRAM)-windows.zip && cd dist && zip -qr $(PROGRAM)-windows.zip $(PROGRAM)-windows && \
-		echo "Built dist/$(PROGRAM)-windows.zip"; \
-	else echo "Built $(WINDOWS_DIST)/"; fi
-
-$(WINDOWS_DIST)/$(PROGRAM).exe: $(SRCS) $(HEADERS)
-	mkdir -p $(@D)
-	$(WINCXX) $(CXXFLAGS) -std=c++17 -static -s $(SRCS) -o $@
-
-# Batch files need Windows line endings.
-$(WINDOWS_DIST)/%.bat: windows/%.bat
-	mkdir -p $(@D)
-	sed 's/\r*$$/\r/' $< > $@
+	for f in vencord/*; do rm -f "$(DESTDIR)$(PREFIX)/share/catberry-vskm/vencord/$$(basename "$$f")"; done
 
 clean:
-	rm -rf $(PROGRAM) dist tests/run-tests
+	rm -f $(PROGRAM)
 
-.PHONY: install uninstall windows clean test
+.PHONY: install uninstall clean
