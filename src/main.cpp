@@ -86,6 +86,10 @@ fs::path configHome() {
 fs::path vesktopState() { return configHome() / "vesktop" / "state.json"; }
 fs::path vencordSettings() { return configHome() / "vesktop" / "settings" / "settings.json"; }
 fs::path vskmState() { return configHome() / "catberry" / "vskm.json"; }
+fs::path vesktopSettings() { return configHome() / "vesktop" / "settings.json"; }
+// Read by vskm's Vencord in a running Vesktop: plugins to stop (see
+// plugins/vskmMiscFixes/native.ts).
+fs::path stopRequest() { return configHome() / "catberry" / "vskm-stop"; }
 
 // vskm's Vencord build: next to the program while developing, else installed.
 fs::path vencordDir() {
@@ -293,6 +297,21 @@ int setPlugin(const Plugin *p, bool on) {
     if (!readJson(vesktopState(), vesktop) || !readJson(vencordSettings(), vencord)) return 1;
     readJson(vskmState(), state);
 
+    // Plugins being switched off put back what they changed (audio share
+    // settings, Discord's GIF/emoji settings) when they stop; ask the running
+    // Vesktop to stop them before closing it.
+    if (!on && vesktopPid()) {
+        std::string names;
+        for (const Plugin &q : kPlugins)
+            if ((!p || &q == p) && pluginOn(vencord, q)) names += std::string(q.vencord) + "\n";
+        if (!names.empty()) {
+            fs::create_directories(stopRequest().parent_path(), ec);
+            std::ofstream(stopRequest()) << names;
+            for (int i = 0; i < 80 && fs::exists(stopRequest(), ec); i++)
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            fs::remove(stopRequest(), ec);
+        }
+    }
     bool wasRunning = closeVesktop();
     // Read again: closing Vesktop may have saved its settings.
     if (wasRunning && (!readJson(vesktopState(), vesktop) || !readJson(vencordSettings(), vencord))) return 1;
@@ -323,9 +342,31 @@ int setPlugin(const Plugin *p, bool on) {
         else vesktop["vencordDir"] = previous;
     }
 
+    // Misc Fixes' audio settings, if Vesktop wasn't there to put them back.
+    json vsettings;
+    bool mfOff = !on && (!p || std::string(p->name) == "MF");
+    if (mfOff && fs::exists(vesktopSettings(), ec) && readJson(vesktopSettings(), vsettings) &&
+        vsettings.contains("vskmPreviousAudio")) {
+        json old = json::parse(vsettings.value("vskmPreviousAudio", std::string("{}")), nullptr, false);
+        vsettings["audio"] = old.is_object() ? old : json::object();
+        vsettings.erase("vskmPreviousAudio");
+        writeJson(vesktopSettings(), vsettings);
+    }
+    // OptiDiscord's media settings are Discord account settings: only a
+    // running Discord can put them back.
+    bool odOff = !on && (!p || std::string(p->name) == "OD");
+    bool odPending = false;
+    if (odOff && vencord["plugins"].contains("OptiDiscord")) {
+        const json &od = vencord["plugins"]["OptiDiscord"];
+        odPending = od.is_object() && !od.value("previousMedia", std::string()).empty();
+    }
+
     bool ok = writeJson(vencordSettings(), vencord) && writeJson(vesktopState(), vesktop) && writeJson(vskmState(), state);
     if (ok && p) std::printf("%s (%s) %s.\n", p->title, p->name, on ? "loaded" : "unloaded");
     if (ok && !p) std::printf("All vskm plugins unloaded; Vesktop uses its own Vencord again.\n");
+    if (ok && odPending)
+        std::printf("OptiDiscord had turned off GIF autoplay and emoji/sticker animation; turn them back on in\n"
+                    "Discord's Settings > Chat if you want them (Vesktop wasn't open to do it).\n");
     if (wasRunning) startVesktop();
     else if (ok) std::printf("Open Vesktop to use it.\n");
     return ok ? 0 : 1;

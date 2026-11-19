@@ -12,6 +12,9 @@ catberry vskm -v               # version
 ```
 
 If Vesktop is open, it is closed and started again so the change takes effect.
+Unloading a plugin puts back what it changed (Vesktop's audio share settings,
+Discord's GIF and emoji settings). `catberry vskm unload all` switches them all
+off, and is run for you by `catberry uninstall vskm`.
 
 ## Plugins
 
