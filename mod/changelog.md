@@ -1,3 +1,9 @@
+# v1.1.3
+
+- Replay Bot: regular position fixes. While recording, the players' state is kept every 30 ticks (8 times a second) too, not only at clicks, and playback puts them back there. Before, a long stretch with no clicks could drift far from the recording (on Poltergeist 2 the wave drifted over 100 units between two clicks and died at 19.8%), and so could the run after a practice respawn. Record your macros again to get them.
+- Replay Bot: practice respawns. Respawning at a checkpoint while recording keeps the player's state right then as a fix, and if a button you held when you died isn't held after the respawn (its release was after the checkpoint, so it was dropped with everything else), the macro lets go too. Before, the bot could keep holding where you weren't.
+- Frame Window Counter: releases only count as wave, ship or robot (where letting go matters); other releases still move with their press. Its re-runs follow the bot's regular fixes too. The mouse cursor shows on the loading screen.
+
 # v1.1.2
 
 - Replay Bot: clicks made with GD's second jump key (the "player 2" key, which also moves player 1 in one-player levels) were recorded as player 2's, so they never got their real tick or their position fix: most of a macro played uncorrected and drifted. In one-player levels both keys now count as player 1's everywhere, and fixes keep both players in line in dual mode and two-player levels. Tested with the Up key through GD's keyboard handler: 159 of 159 clicks fixed, every click on the right tick, drift 0.001 units on average.

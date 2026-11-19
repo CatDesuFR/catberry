@@ -26,6 +26,7 @@
 #include <core/Log.hpp>
 #include "Replay.hpp"
 #include "ClickBeforeFrames.hpp"
+#include "FrameWindow.hpp"
 #include <chrono>
 #include <ctime>
 #include <Geode/modify/GJBaseGameLayer.hpp>
@@ -33,6 +34,7 @@
 #include <Geode/modify/PlayerObject.hpp>
 #include <imgui.h>
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -55,6 +57,7 @@ namespace cmm::replay {
         bool s_filesDirty = true;
         // Recorded clicks GD hasn't handed to the player yet (index into s_inputs).
         std::vector<size_t> s_waiting;
+        constexpr unsigned kFixEvery = 30;  // ticks between regular fixes while recording
         unsigned s_applyFixesStat = 0;  // fixes applied this attempt (for the window)
         // Recorded clicks whose fix is taken at the end of their tick: the
         // start of the tick with progress `at` (index into s_inputs).
@@ -236,7 +239,8 @@ namespace cmm::replay {
         ImGui::Separator();
         if (s_loadedName.empty()) ImGui::TextDisabled(s_inputs.empty() ? "No macro loaded" : "Unsaved recording");
         else ImGui::Text("Loaded: %s", s_loadedName.c_str());
-        ImGui::TextDisabled("%zu clicks%s%s", s_inputs.size(), s_levelName.empty() ? "" : " - ", s_levelName.c_str());
+        size_t clicks = std::count_if(s_inputs.begin(), s_inputs.end(), [](Input const& i) { return i.button != 0; });
+        ImGui::TextDisabled("%zu clicks%s%s", clicks, s_levelName.empty() ? "" : " - ", s_levelName.c_str());
         if (!s_inputs.empty()) {
             size_t fixes = std::count_if(s_inputs.begin(), s_inputs.end(), [](Input const& i) { return i.fix.ok; });
             if (fixes == 0) ImGui::TextDisabled("Old macro: no position fixes (record it again for full accuracy)");
@@ -342,6 +346,24 @@ class $modify(ReplayGameLayer, GJBaseGameLayer) {
     void processCommands(float dt, bool isHalfTick, bool isLastTick) {
         unsigned now = m_gameState.m_currentProgress;  // progress before this tick
         unsigned ppt = cmm::cbf::progressPerTick();
+        // Recording: every kFixEvery ticks keep where the players are, with no
+        // click (button 0). A long stretch without clicks then can't drift
+        // away either (and a practice respawn in it is covered too).
+        if (isMain() && recording() && now >= 2 * ppt && now % (kFixEvery * ppt) == 0 && m_player1 && !m_player1->m_isDead) {
+            Input in{now - 2 * ppt, false, 0, false};
+            in.fix = stateOf(m_player1);
+            if (m_player2 && (m_gameState.m_isDualMode || cmm::twoPlayer())) {
+                Fix two = stateOf(m_player2);
+                in.fix.ok2 = true;
+                in.fix.x2 = two.x;
+                in.fix.y2 = two.y;
+                in.fix.rotation2 = two.rotation;
+                in.fix.yVelocity2 = two.yVelocity;
+                in.fix.xVelocity2 = two.xVelocity;
+            }
+            s_inputs.push_back(in);
+            s_next = s_inputs.size();
+        }
         // Recording: the end of a click's tick is now; keep where the player is.
         if (isMain() && recording() && !s_pendingFixes.empty()) {
             for (auto it = s_pendingFixes.begin(); it != s_pendingFixes.end();) {
@@ -370,9 +392,12 @@ class $modify(ReplayGameLayer, GJBaseGameLayer) {
             while (s_nextFix < s_inputs.size() && s_inputs[s_nextFix].tick + 2 * ppt <= now) {
                 auto const& in = s_inputs[s_nextFix++];
                 if (!in.fix.ok || in.tick + 2 * ppt != now) continue;
-                auto put = [](PlayerObject* p, float x, float y, float rotation, double yVel, double xVel) {
+                auto put = [now](PlayerObject* p, float x, float y, float rotation, double yVel, double xVel) {
                     if (!p || p->m_isDead) return;
+                    float moved = std::hypot(p->m_position.x - x, p->m_position.y - y);
+                    if (moved > 0.5f) log::debug("Replay fix at progress {} moved the player {:.2f} units (yVel {:.3f} -> {:.3f})", now, moved, p->m_yVelocity, yVel);
                     p->m_position = CCPoint(x, y);
+                    p->m_lastPosition = CCPoint(x, y);  // no sweep from where the bot was
                     p->setPosition(CCPoint(x, y));
                     p->setRotation(rotation);
                     p->m_yVelocity = yVel;
@@ -381,9 +406,11 @@ class $modify(ReplayGameLayer, GJBaseGameLayer) {
                 put(m_player1, in.fix.x, in.fix.y, in.fix.rotation, in.fix.yVelocity, in.fix.xVelocity);
                 if (in.fix.ok2) put(m_player2, in.fix.x2, in.fix.y2, in.fix.rotation2, in.fix.yVelocity2, in.fix.xVelocity2);
                 s_applyFixesStat++;
+                if (in.button == 0) cmm::fw::noteBotFix(in.fix, now);
             }
             while (s_next < s_inputs.size() && s_inputs[s_next].tick + ppt <= now) {
                 auto const& in = s_inputs[s_next++];
+                if (in.button == 0) continue;  // a respawn's fix only, no click
                 s_injecting = true;
                 s_injectingFix = in.fix;
                 this->handleButton(in.down, in.button, !in.player2);
@@ -429,7 +456,49 @@ class $modify(ReplayPlayLayer, PlayLayer) {
         PlayLayer::resetLevel();
         // After a full restart the tick is back at the start; after a checkpoint
         // respawn it's back at the checkpoint's tick.
-        rewindTo(m_gameState.m_currentProgress);
+        unsigned now = m_gameState.m_currentProgress;
+        rewindTo(now);
+        // Recording in practice: GD puts the player back at the checkpoint
+        // from what it saved there, which isn't exactly where a run straight
+        // through is at that moment. Keep that state as a fix with no click
+        // (button 0), so playback puts the player exactly there too.
+        unsigned ppt = cmm::cbf::progressPerTick();
+        if (recording() && now >= 2 * ppt && m_player1 && !m_player1->m_isDead && cmm::val<bool>("bot.respawnfix", true)) {
+            Input in{now - 2 * ppt, false, 0, false};
+            in.fix = stateOf(m_player1);
+            if (m_player2 && (m_gameState.m_isDualMode || cmm::twoPlayer())) {
+                Fix two = stateOf(m_player2);
+                in.fix.ok2 = true;
+                in.fix.x2 = two.x;
+                in.fix.y2 = two.y;
+                in.fix.rotation2 = two.rotation;
+                in.fix.yVelocity2 = two.yVelocity;
+                in.fix.xVelocity2 = two.xVelocity;
+            }
+            s_inputs.push_back(in);
+            // A button held when you died: the respawn drops the clicks after
+            // the checkpoint, its release too, so the macro would keep holding
+            // it. Match what GD holds now (it acts on the first tick after
+            // the respawn, like a click handed over then).
+            for (int button = 1; button <= 3; button++) {
+                bool macroHeld = false, flag = false;
+                for (auto const& i : s_inputs) {
+                    if (i.button != button || (cmm::twoPlayer() && i.player2)) continue;
+                    macroHeld = i.down;
+                    flag = i.player2;
+                }
+                auto const& holding = m_player1->m_holdingButtons;
+                auto it = holding.find(button);
+                bool gdHeld = it != holding.end() && it->second;
+                if (macroHeld != gdHeld) {
+                    s_inputs.push_back({now - ppt, gdHeld, button, flag});
+                    log::debug("Respawn at progress {}: button {} is {} now, added a {}", now, button, gdHeld ? "held" : "not held",
+                        gdHeld ? "press" : "release");
+                }
+            }
+            s_next = s_inputs.size();
+            log::debug("Respawn at progress {}: kept the player's state as a fix", now);
+        }
     }
 };
 

@@ -162,7 +162,7 @@ namespace cmm {
 
         add({"prediction", "Frame Window Analyser", "Works out each replay click's frame window (how many ticks in a row it could land on and survive). Click Before Frames then aims for the earliest of them.", CBF, NO,
             false, [] { optInt("Search range (ticks each way)", "prediction.range", 16, 2, 64); }});
-        add({"framecounter", "Frame Window Counter", "A ring and the window at every click of the replay, in NaN GD's colours, with a tally per colour.", CBF, NO,
+        add({"framecounter", "Frame Window Counter", "A ring and the window at every click of the replay, in NaN GD's colours, with a tally per colour. Releases count only as wave, ship or robot.", CBF, NO,
             false, [] {
                 {
                     // How far each click is moved, each way. Older setting: Balanced = 32, Max = 64.

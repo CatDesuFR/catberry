@@ -18,6 +18,7 @@
 #include <Geode/modify/PlayLayer.hpp>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 
 using namespace geode::prelude;
 
@@ -90,6 +91,25 @@ class $modify(RealTestShake, GJBaseGameLayer) {
 };
 
 class $modify(RealTestLayer, PlayLayer) {
+    void destroyPlayer(PlayerObject* player, GameObject* object) {
+        bool was = m_playerDied;
+        PlayLayer::destroyPlayer(player, object);
+        if (!s_active || s_mode != "play" || was || !m_playerDied || object == m_anticheatSpike) return;
+        log::info("REALTEST play: the bot died at {:.1f}% (x {:.0f}, progress {}), object {}", this->getCurrentPercent(),
+            m_player1->getPositionX(), m_gameState.m_currentProgress, object ? object->m_objectID : -1);
+        auto mode = [](PlayerObject* p) {
+            if (!p) return std::string("none");
+            return std::string(p->m_isShip ? "ship" : p->m_isDart ? "wave" : p->m_isBall ? "ball" : p->m_isBird ? "ufo" : p->m_isRobot ? "robot"
+                : p->m_isSpider ? "spider" : p->m_isSwing ? "swing" : "cube");
+        };
+        log::info("REALTEST play: dead player {}, dual {}, p1 {} at ({:.1f},{:.1f}) yVel {:.3f}, p2 {} at ({:.1f},{:.1f}) yVel {:.3f}",
+            player == m_player2 ? 2 : 1, m_gameState.m_isDualMode, mode(m_player1), m_player1->getPositionX(), m_player1->getPositionY(), m_player1->m_yVelocity,
+            mode(m_player2), m_player2 ? m_player2->getPositionX() : 0.f, m_player2 ? m_player2->getPositionY() : 0.f, m_player2 ? m_player2->m_yVelocity : 0.0);
+        restore();
+        log::info("REALTEST DONE");
+        this->onQuit();
+    }
+
     void postUpdate(float dt) {
         PlayLayer::postUpdate(dt);
         if (!s_active || PlayLayer::get() != this) return;
@@ -116,6 +136,12 @@ class $modify(RealTestLayer, PlayLayer) {
 
     void levelComplete() {
         PlayLayer::levelComplete();
+        if (s_active && s_mode == "play") {
+            log::info("REALTEST play: the bot finished the level");
+            restore();
+            log::info("REALTEST DONE");
+            return;
+        }
         if (!s_active || s_mode != "end") return;
         log::info("REALTEST run {} (No End Shake {}): level complete, {} camera shakes so far", s_run, s_run == 0 ? "off" : "on", s_shakes);
     }
@@ -188,7 +214,17 @@ class $modify(RealTestMenu, MenuLayer) {
         }
         std::filesystem::remove(trigger, ec);
         GJGameLevel* level = nullptr;
-        if (levelName.rfind("@main", 0) == 0) {
+        if (levelName.rfind("@file:", 0) == 0) {
+            // A level's object string from a file in testlevels/ (downloaded for tests).
+            std::ifstream in(saveDir() / "testlevels" / levelName.substr(6));
+            std::string raw((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            if (!raw.empty()) {
+                level = GJGameLevel::create();
+                level->m_levelName = levelName.substr(6);
+                level->m_levelString = ZipUtils::compressString(raw, false, 0, 0);
+                level->m_levelType = GJLevelType::Editor;
+            }
+        } else if (levelName.rfind("@main", 0) == 0) {
             level = GameLevelManager::get()->getMainLevel(std::atoi(levelName.c_str() + 5), false);
         } else if (levelName == "@short") {
             // A short level: flat ground, the end a few seconds in.
@@ -204,10 +240,18 @@ class $modify(RealTestMenu, MenuLayer) {
         s_level = level;
         for (auto& h : cmm::all()) s_saved.push_back({h.id, h.enabled});
         bool loaded = cmm::replay::loadIntoBot(macro);
+        if (s_mode == "playnofix") {
+            auto& m = const_cast<std::vector<cmm::replay::Input>&>(cmm::replay::botMacro());
+            for (auto& in : m) in.fix.ok = in.fix.ok2 = false;
+            s_mode = "play";
+        }
         setHack("bot.record", false);
         setHack("bot.play", true);
         setHack("cbf", false);
-        if (s_mode == "preload") {
+        if (s_mode == "play") {
+            setHack("framecounter", false);
+            setHack("noclip", false);
+        } else if (s_mode == "preload") {
             setHack("framecounter", true);
             setHack("noclip", false);
             setHack("cbf", false);

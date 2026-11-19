@@ -254,6 +254,9 @@ namespace cmm::fw::own {
         // fix: the bot's position fix for this click (bot clicks only)
         struct Click { int64_t act; bool down; replay::Fix fix = {}; };
         std::deque<Click> s_clicks;        // recent clicks of player 1
+        // The bot's regular fixes (no click): put back at the start of `tick`.
+        struct TimedFix { int64_t tick; replay::Fix fix; };
+        std::deque<TimedFix> s_botFixes;
 
         struct Activation { Ref<EnhancedGameObject> obj; int64_t tick; };
         std::deque<Activation> s_activations;  // orbs/pads the real player may have used
@@ -341,6 +344,7 @@ namespace cmm::fw::own {
             for (auto& j : s_jobs) { releaseSlot(j.slot); if (j.nearSlot >= 0) releaseSlot(j.nearSlot); }
             s_jobs.clear();
             s_clicks.clear();
+            s_botFixes.clear();
             s_activations.clear();
             s_ringReady = false;
             for (auto& t : s_ringTick) t = -1;
@@ -398,6 +402,9 @@ namespace cmm::fw::own {
                 bool useFix = !moved && c.fix.ok && t + 1.0 <= movedFrom;
                 events.push_back({t, c.down, nullptr});
                 if (useFix) fixes.push_back({c.act + 1, &c.fix});
+            }
+            for (auto const& bf : s_botFixes) {
+                if (bf.tick > start && static_cast<double>(bf.tick) <= movedFrom && bf.tick < job.horizon) fixes.push_back({bf.tick, &bf.fix});
             }
             std::stable_sort(events.begin(), events.end(), [](auto const& a, auto const& b) { return a.time < b.time; });
 
@@ -650,10 +657,19 @@ namespace cmm::fw::own {
             startJob(pl, act, false);
         }
 
+        // Letting go only matters in these modes; other releases still move
+        // with their press, but get no window of their own.
+        bool releaseCounts(PlayLayer* pl) {
+            auto p = pl->m_player1;
+            return p && (p->m_isDart || p->m_isShip || p->m_isRobot);
+        }
+
         void onRelease(PlayLayer* pl, int64_t act) {
             for (auto it = s_jobs.rbegin(); it != s_jobs.rend(); ++it) {
                 if (!it->isRelease && it->release < 0 && it->act <= act) { it->release = act; break; }
             }
+            if (!releaseCounts(pl)) return;
+            s_preTotal += s_pre == Pre::Loading ? 1 : 0;  // the loading screen counts it now
             if (fromTable(pl, act, true)) return;
             startJob(pl, act, true);
         }
@@ -664,6 +680,14 @@ namespace cmm::fw::own {
 
 namespace cmm::fw {
     bool loading() { return own::s_pre == own::Pre::Loading; }
+
+    void noteBotFix(replay::Fix const& fix, unsigned progress) {
+        if (!own::active()) return;
+        // The counter's own tick for this one (its processCommands may or may
+        // not have counted this tick yet).
+        int64_t tick = progress == own::s_lastProgress ? own::s_tick : own::s_tick + 1;
+        own::s_botFixes.push_back({tick, fix});
+    }
 }
 
 using namespace cmm::fw;
@@ -706,6 +730,7 @@ class $modify(FrameWindowGameLayer, GJBaseGameLayer) {
                 int64_t keep = std::max<int64_t>(2000, own::range() + stride * 2 + 1000);
                 while (!own::s_clicks.empty() && own::s_clicks.front().act < own::s_tick - keep) own::s_clicks.pop_front();
                 while (!own::s_activations.empty() && own::s_activations.front().tick < own::s_tick - keep) own::s_activations.pop_front();
+                while (!own::s_botFixes.empty() && own::s_botFixes.front().tick < own::s_tick - keep) own::s_botFixes.pop_front();
             }
         }
         own::s_inStep = true;
@@ -797,7 +822,9 @@ class $modify(FrameWindowLayer, PlayLayer) {
         own::s_preAsking = false;
         own::s_preUnknown = 0;
         for (auto const& in : cmm::replay::botMacro()) {
-            if (in.button == 1 && !cmm::forPlayer2(in.player2)) own::s_preTotal++;  // presses and releases
+            // Presses; releases are added as the run reaches them (only those
+            // made as wave, ship or robot count).
+            if (in.button == 1 && !cmm::forPlayer2(in.player2) && in.down) own::s_preTotal++;
         }
         own::s_preStepping = true;
         if (auto engine = FMODAudioEngine::sharedEngine(); engine && engine->m_backgroundMusicChannel) {
@@ -831,6 +858,8 @@ class $modify(FrameWindowLayer, PlayLayer) {
         f->loading = root;
         f->loadingFill = fill;
         f->loadingText = text;
+        // The mouse, for the buttons (GD hides it while playing).
+        PlatformToolbox::showCursor();
         log::info("Frame windows: measuring {} clicks of the bot's macro before the level starts", own::s_preTotal);
         updateLoading();
     }
@@ -913,6 +942,8 @@ class $modify(FrameWindowLayer, PlayLayer) {
     void finishLoading(bool keep) {
         auto f = m_fields.self();
         if (f->loading) f->loading->removeFromParent();
+        // Back to how GD has it while playing ("Show cursor in-game" option).
+        if (!GameManager::get()->getGameVariable("0024")) PlatformToolbox::hideCursor();
         f->loading = nullptr;
         own::s_pre = keep ? own::Pre::Ready : own::Pre::Off;
         own::s_preAsking = false;

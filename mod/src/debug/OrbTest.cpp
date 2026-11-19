@@ -156,7 +156,7 @@ class $modify(OrbTestMenu, MenuLayer) {
             if (auto online = GameLevelManager::get()->m_onlineLevels) {
                 for (auto [key, obj] : CCDictionaryExt<std::string, CCObject*>(online)) {
                     auto l = typeinfo_cast<GJGameLevel*>(obj);
-                    if (l && n++ < 60) log::info("ORBTEST known level: {} ({})", std::string(l->m_levelName), l->m_levelID.value());
+                    if (l && n++ < 1000) log::info("ORBTEST known level: {} ({})", std::string(l->m_levelName), l->m_levelID.value());
                 }
             }
             log::info("ORBTEST {} downloaded levels known", n);

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <features/Replay.hpp>
+
 #include <cstddef>
 
 // Frame Window analyser and counter.
@@ -19,6 +21,10 @@ namespace cmm::fw {
 
     // True while the loading screen is measuring the bot's macro.
     bool loading();
+
+    // The Replay Bot just put the player back where the recording had it (a
+    // fix with no click, at GD progress `progress`): re-runs do the same.
+    void noteBotFix(replay::Fix const& fix, unsigned progress);
 
     // ImGui tally, drawn with the menu overlay.
     void drawOverlay();
