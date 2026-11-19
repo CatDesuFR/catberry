@@ -4,6 +4,7 @@
 //   catberry vskm -list            list the plugins and which are loaded
 //   catberry vskm load NAME        switch a plugin on
 //   catberry vskm unload NAME      switch it off
+//   catberry vskm unload all       switch every vskm plugin off
 //   catberry vskm -v               print the version
 //
 // Vencord can't load plugins at runtime, so vskm comes with its own Vencord
@@ -221,9 +222,11 @@ void startVesktop() {
     posix_spawn_file_actions_addopen(&files, 0, "/dev/null", O_RDONLY, 0);
     posix_spawn_file_actions_addopen(&files, 1, "/dev/null", O_WRONLY, 0);
     posix_spawn_file_actions_addopen(&files, 2, "/dev/null", O_WRONLY, 0);
-    if (posix_spawnp(&pid, program.c_str(), &files, &attr, argv.data(), environ) == 0)
+    if (posix_spawnp(&pid, program.c_str(), &files, &attr, argv.data(), environ) == 0) {
+        // Wait until it holds its settings folder, so a next load/unload sees it.
+        for (int i = 0; i < 100 && !vesktopPid(); i++) std::this_thread::sleep_for(std::chrono::milliseconds(100));
         std::printf("Started Vesktop again.\n");
-    else
+    } else
         std::printf("Start Vesktop again to use it.\n");
     posix_spawn_file_actions_destroy(&files);
     posix_spawnattr_destroy(&attr);
@@ -237,6 +240,7 @@ void usage(FILE *out) {
                  "  catberry vskm -list            list the plugins and which are loaded\n"
                  "  catberry vskm load NAME        switch a plugin on (NAME: MF, TS, ACA or OD)\n"
                  "  catberry vskm unload NAME      switch it off\n"
+                 "  catberry vskm unload all       switch every vskm plugin off\n"
                  "  catberry vskm -v               print the version\n"
                  "\n"
                  "A running Vesktop is closed and started again to apply the change.\n",
@@ -258,9 +262,23 @@ int list() {
     return 0;
 }
 
-int setPlugin(const Plugin &p, bool on) {
+// Switches one plugin on or off; with no plugin, switches every vskm plugin
+// off (used before vskm is uninstalled).
+int setPlugin(const Plugin *p, bool on) {
     std::error_code ec;
     fs::path dir = vencordDir();
+    if (!p) {
+        json vesktop, vencord;
+        bool ours = fs::exists(vesktopState(), ec) && readJson(vesktopState(), vesktop) &&
+                    vesktop.value("vencordDir", std::string()) == dir.string();
+        bool anyOn = false;
+        if (fs::exists(vencordSettings(), ec) && readJson(vencordSettings(), vencord))
+            for (const Plugin &q : kPlugins) anyOn = anyOn || pluginOn(vencord, q);
+        if (!ours && !anyOn) {
+            std::printf("No vskm plugin is loaded.\n");
+            return 0;
+        }
+    }
     if (!fs::exists(dir / "vencordDesktopMain.js", ec)) {
         std::fprintf(stderr, "catberry vskm: vskm's Vencord build is missing (%s). Reinstall: catberry install vskm --reinstall\n",
                      dir.c_str());
@@ -280,9 +298,14 @@ int setPlugin(const Plugin &p, bool on) {
     if (wasRunning && (!readJson(vesktopState(), vesktop) || !readJson(vencordSettings(), vencord))) return 1;
 
     if (!vencord.contains("plugins") || !vencord["plugins"].is_object()) vencord["plugins"] = json::object();
-    json &entry = vencord["plugins"][p.vencord];
-    if (!entry.is_object()) entry = json::object();
-    entry["enabled"] = on;
+    for (const Plugin &q : kPlugins) {
+        if (p && &q != p) continue;
+        json &plugins = vencord["plugins"];
+        if (!p && !plugins.contains(q.vencord)) continue;
+        json &entry = plugins[q.vencord];
+        if (!entry.is_object()) entry = json::object();
+        entry["enabled"] = on;
+    }
 
     bool anyOn = false;
     for (const Plugin &q : kPlugins) anyOn = anyOn || pluginOn(vencord, q);
@@ -301,7 +324,8 @@ int setPlugin(const Plugin &p, bool on) {
     }
 
     bool ok = writeJson(vencordSettings(), vencord) && writeJson(vesktopState(), vesktop) && writeJson(vskmState(), state);
-    if (ok) std::printf("%s (%s) %s.\n", p.title, p.name, on ? "loaded" : "unloaded");
+    if (ok && p) std::printf("%s (%s) %s.\n", p->title, p->name, on ? "loaded" : "unloaded");
+    if (ok && !p) std::printf("All vskm plugins unloaded; Vesktop uses its own Vencord again.\n");
     if (wasRunning) startVesktop();
     else if (ok) std::printf("Open Vesktop to use it.\n");
     return ok ? 0 : 1;
@@ -321,12 +345,13 @@ int main(int argc, char **argv) {
             std::fprintf(stderr, "catberry vskm: which plugin? (MF, TS, ACA or OD)\n");
             return 2;
         }
-        const Plugin *p = findPlugin(argv[2]);
-        if (!p) {
+        bool all = command == "unload" && (std::string(argv[2]) == "all" || std::string(argv[2]) == "-all");
+        const Plugin *p = all ? nullptr : findPlugin(argv[2]);
+        if (!p && !all) {
             std::fprintf(stderr, "catberry vskm: no plugin called '%s'. See: catberry vskm -list\n", argv[2]);
             return 2;
         }
-        return setPlugin(*p, command == "load");
+        return setPlugin(p, command == "load");
     }
     if (command.empty() || command == "-help" || command == "--help" || command == "help") {
         usage(stdout);
