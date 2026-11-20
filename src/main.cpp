@@ -60,7 +60,7 @@ const Plugin kPlugins[] = {
     {"TS", "VskmThemeStealer", "Theme Stealer",
      "Copies Discord's colour theme or a server's look into a theme you name and keep."},
     {"ACA", "VskmAllCharacters", "All Characters In Channel/Category Names",
-     "Capital letters, spaces and symbols in channel and category names (written with look-alike characters)."},
+     "Capital letters and symbols in channel names (look-alike characters; spaces show as dots)."},
     {"OD", "OptiDiscord", "OptiDiscord",
      "Makes Discord lighter and snappier: less memory, no work in the background, lighter media (choose in its settings)."},
 };
