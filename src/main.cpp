@@ -266,6 +266,14 @@ int list() {
     return 0;
 }
 
+// A Vencord folder made by scripts/build-vencord.sh (its SOURCE note says so).
+bool isVskmBuild(const std::string &path) {
+    if (path.empty()) return false;
+    std::ifstream in(fs::path(path) / "SOURCE");
+    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    return text.find("vskm plugins") != std::string::npos;
+}
+
 // Switches one plugin on or off; with no plugin, switches every vskm plugin
 // off (used before vskm is uninstalled).
 int setPlugin(const Plugin *p, bool on) {
@@ -332,12 +340,15 @@ int setPlugin(const Plugin *p, bool on) {
     if (anyOn) {
         // Point Vesktop at vskm's Vencord, remembering what it used before.
         if (current != dir.string()) {
-            state["previousVencordDir"] = current;
+            // Another vskm build (eg a test copy) isn't Vesktop's own: keep
+            // what was remembered from before it.
+            if (!isVskmBuild(current)) state["previousVencordDir"] = current;
             vesktop["vencordDir"] = dir.string();
         }
     } else if (current == dir.string()) {
         // No vskm plugin left: back to Vesktop's own Vencord (or what it had).
         std::string previous = state.value("previousVencordDir", std::string());
+        if (isVskmBuild(previous)) previous.clear();
         if (previous.empty()) vesktop.erase("vencordDir");
         else vesktop["vencordDir"] = previous;
     }

@@ -22,7 +22,7 @@ import definePlugin, { PluginNative } from "@utils/types";
 import { Paragraph } from "@components/Paragraph";
 import { RenderModalProps } from "@vencord/discord-types";
 import { findByCodeLazy, findStoreLazy } from "@webpack";
-import { GuildRoleStore, Menu, Modal, openModal, React, showToast, TextInput, UserStore } from "@webpack/common";
+import { GuildRoleStore, Menu, Modal, openModal, React, showToast, TextInput } from "@webpack/common";
 
 const Native = VencordNative.pluginHelpers.VskmThemeStealer as PluginNative<typeof import("./native")>;
 const logger = new Logger("VskmThemeStealer");
@@ -140,17 +140,16 @@ async function discordLook(): Promise<Look> {
 // ---- icons ----
 
 const AppIconStore = findStoreLazy("AppIconPersistedStoreState");
-const appIcons = findByCodeLazy("BRAND_DARK", "iconSource:");
-const premiumAppIcons = findByCodeLazy("HEXAGON", "iconSource:");
+const appIcons = findByCodeLazy("BRAND_DARK", "iconSource:");     // () => every regular icon
+const appIconById = findByCodeLazy("HEXAGON", "iconSource:");     // (id) => that icon (also limited ones)
 
 // The picture of the App Icon chosen in Discord's Appearance settings.
 function discordAppIconUrl(): string | null {
     try {
         const id = AppIconStore.getCurrentDesktopIcon?.() ?? AppIconStore.getState?.()?.client?.desktop;
-        let list: any[] = [];
-        try { list = list.concat(premiumAppIcons(UserStore.getCurrentUser()) ?? []); } catch { }
-        try { list = list.concat(appIcons() ?? []); } catch { }
-        const icon = list.find(i => i?.id === id) ?? list.find(i => i?.iconSource);
+        let icon: any = null;
+        try { icon = (appIcons() ?? []).find((i: any) => i?.id === id); } catch { }
+        if (!icon?.iconSource) try { icon = appIconById(id); } catch { }
         return icon?.iconSource ? new URL(icon.iconSource, location.origin).href : null;
     } catch (e) {
         logger.error("Could not find Discord's app icon", e);

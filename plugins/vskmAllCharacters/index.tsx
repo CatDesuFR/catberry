@@ -5,9 +5,11 @@
  * Discord makes text channel names lowercase, turns spaces into dashes and
  * drops most symbols. This writes the name with look-alike characters that
  * Discord leaves alone, so it reads as you typed it: capitals become
- * mathematical sans-serif capitals (no lowercase form, so they stay), spaces
- * a blank character (choose which in the settings), symbols similar-looking
- * ones. Right-click a channel or category: "Rename (all characters)...".
+ * mathematical sans-serif capitals (no lowercase form, so they stay), symbols
+ * similar-looking ones. Spaces: Discord's servers turn every kind of blank
+ * space into "-" or remove it, so a space becomes a middle dot (or another
+ * mark, chosen in the settings). Works in the Edit Channel name box, and
+ * right-click a channel: "Rename (all characters)...".
  */
 
 import { definePluginSettings } from "@api/Settings";
@@ -20,22 +22,23 @@ import { Menu, Modal, openModal, PermissionStore, React, RestAPI, showToast, Tex
 
 const logger = new Logger("VskmAllCharacters");
 
+// Discord's servers keep these (checked); no blank character survives.
 const SPACES: Record<string, string> = {
-    thin: " ",        // thin space
-    figure: " ",      // figure space
-    braille: "⠀",     // braille blank
-    hangul: "ㅤ",      // hangul filler
+    dot: "\u00B7",        // · middle dot
+    underscore: "_",
+    bar: "\u2502",        // │ thin bar
+    dash: "\u2010",       // ‐ dash
 };
 
 const settings = definePluginSettings({
     space: {
         type: OptionType.SELECT,
-        description: "Character used for spaces (if Discord still turns spaces into dashes, try another)",
+        description: "What a space becomes (Discord doesn't allow blank spaces in text channel names)",
         options: [
-            { label: "Thin space", value: "thin", default: true },
-            { label: "Figure space", value: "figure" },
-            { label: "Braille blank", value: "braille" },
-            { label: "Hangul filler", value: "hangul" },
+            { label: "· Middle dot", value: "dot", default: true },
+            { label: "_ Underscore", value: "underscore" },
+            { label: "│ Thin bar", value: "bar" },
+            { label: "‐ Dash", value: "dash" },
         ],
     },
     allChannels: {
@@ -54,7 +57,7 @@ const SYMBOLS: Record<string, string> = {
     ".": "․",  // ․
     ",": "‚",  // ‚
     ":": "꞉",  // ꞉
-    ";": ";",  // ;
+    ";": "\uFF1B", // ； (the Greek look-alike is turned back into ";" and dropped)
     "'": "ʼ",  // ʼ
     "\"": "ʺ", // ʺ
     "&": "＆",  // ＆
@@ -73,7 +76,7 @@ const SYMBOLS: Record<string, string> = {
 };
 
 export function encode(name: string): string {
-    const space = SPACES[settings.store.space] ?? SPACES.thin;
+    const space = SPACES[settings.store.space] ?? SPACES.dot;
     let out = "";
     for (const c of name) {
         if (c >= "A" && c <= "Z") out += capital(c);
@@ -87,7 +90,7 @@ export function encode(name: string): string {
 export function decode(name: string): string {
     const back: Record<string, string> = {};
     for (const [k, v] of Object.entries(SYMBOLS)) back[v] = k;
-    for (const v of Object.values(SPACES)) back[v] = " ";
+    for (const v of [SPACES.dot, SPACES.bar, SPACES.dash]) back[v] = " ";
     let out = "";
     for (const c of name) {
         const cp = c.codePointAt(0)!;
@@ -156,6 +159,11 @@ export default definePlugin({
     contextMenus: { "channel-context": channelMenu },
     encode,
     decode,
+
+    start() {
+        // Older versions offered blank spaces, which Discord removes.
+        if (!(settings.store.space in SPACES)) settings.store.space = "dot";
+    },
 
     patches: [
         {

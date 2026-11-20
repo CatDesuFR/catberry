@@ -106,7 +106,7 @@ async function loadReplies() {
                 asked.delete(messageId); // try again next search
             }
             // Gently: Discord limits how fast messages may be fetched.
-            await new Promise(r => setTimeout(r, 350));
+            await new Promise(r => setTimeout(r, 250));
         }
     } finally {
         working = false;
