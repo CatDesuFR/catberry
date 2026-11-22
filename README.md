@@ -9,7 +9,7 @@
 | `catberry ac` | [`ac`](https://github.com/CatDesuFR/catberry/tree/ac) | 2.0.1 | Autoclicker: clicks, scrolls or presses a key at a set rate |
 | `catberry mtools` | [`mtools`](https://github.com/CatDesuFR/catberry/tree/mtools) | 2.1.2 | Macro recorder, hotkey macros (`catberry -config`) and quick click |
 | `catberry roofce` | [`roof-carton-engine`](https://github.com/CatDesuFR/catberry/tree/roof-carton-engine) | 1.2.7 | Roof Carton Engine: live wallpapers, clock and music widgets (Linux, Wayland) |
-| `catberry cbmm` | [`cbmm`](https://github.com/CatDesuFR/catberry/tree/cbmm) | 1.1.4 | Catberry's Mod Menu for Geometry Dash (Geode): `catberry cbmm load` puts it into the game |
+| `catberry cbmm` | [`cbmm`](https://github.com/CatDesuFR/catberry/tree/cbmm) | 1.1.5 | Catberry's Mod Menu for Geometry Dash (Geode): `catberry cbmm load` puts it into the game |
 | `catberry vskm` | [`vskm`](https://github.com/CatDesuFR/catberry/tree/vskm) | 1.0.2 | Vencord plugins for Vesktop: `catberry vskm load NAME` (Linux) |
 
 Install this launcher once; it then installs, updates and removes the tools.
@@ -143,7 +143,7 @@ catberry 1.3.7
   ac      2.0.1
   mtools  2.1.2
   roofce  1.2.7
-  cbmm    1.1.4
+  cbmm    1.1.5
   vskm    1.0.2
 ```
 
