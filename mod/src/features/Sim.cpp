@@ -26,7 +26,7 @@ namespace cmm::sim {
         PlayLayer* s_owner = nullptr;
         // Slots: 0-2 CBF/trajectory/replay analysis, 3 own-click tests,
         // 4-11 clicks waiting to be measured, 12+ the recent-ticks history.
-        Ref<PlayerObject> s_scratch[128];
+        Ref<PlayerObject> s_scratch[192];
         Ref<PlayerCheckpoint> s_checkpoint;
 
         void hide(PlayerObject* p) {

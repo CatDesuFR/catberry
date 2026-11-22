@@ -5,6 +5,10 @@
 //   preload  - Replay Bot + Frame Window Counter with the loading screen:
 //              how many clicks it measures, how many are "?", whether the
 //              macro dies, then plays 20 s and counts the markers
+//   live     - Replay Bot with the Frame Window Counter measuring while it
+//              plays (no loading screen, your counter range): after 60 s or
+//              the end, logs per game mode how many presses were measured,
+//              "?", over 10 or dropped
 //   end      - plays the macro to the end with noclip: counts camera shakes
 //              (No End Shake off, then on) and screenshots the end screen
 //              with End Screen Stats
@@ -29,6 +33,8 @@ namespace {
     std::vector<std::pair<std::string, bool>> s_saved;
     int s_frames = 0, s_shakes = 0, s_blockedRun = 0, s_run = 0;
     bool s_loggedLoad = false;
+    bool s_savedPreload = true;
+    bool s_liveDied = false;
 
     std::filesystem::path saveDir() { return std::filesystem::path(Mod::get()->getSaveDir().native()); }
 
@@ -37,6 +43,7 @@ namespace {
     }
 
     void restore() {
+        if (s_mode == "live") cmm::val<bool>("framecounter.preload", true) = s_savedPreload;
         for (auto& [id, on] : s_saved) setHack(id, on);
         s_saved.clear();
         cmm::replay::clearBot();
@@ -91,9 +98,25 @@ class $modify(RealTestShake, GJBaseGameLayer) {
 };
 
 class $modify(RealTestLayer, PlayLayer) {
+    // The macro is from the start of the level: GD would start a level with
+    // start positions from the last one.
+    void startGame() {
+        PlayLayer::startGame();
+        if (s_active && m_startPosObject) {
+            log::info("REALTEST: the level has start positions; playing from the start");
+            this->setActiveStartPosObject(nullptr);
+            this->resetLevel();
+        }
+    }
+
     void destroyPlayer(PlayerObject* player, GameObject* object) {
         bool was = m_playerDied;
         PlayLayer::destroyPlayer(player, object);
+        if (s_active && s_mode == "live" && !was && m_playerDied && object != m_anticheatSpike) {
+            s_liveDied = true;
+            log::info("REALTEST live: the bot died at {:.1f}% as {}", this->getCurrentPercent(),
+                m_player1->m_isBall ? "ball" : m_player1->m_isShip ? "ship" : m_player1->m_isDart ? "wave" : "other");
+        }
         if (!s_active || s_mode != "play" || was || !m_playerDied || object == m_anticheatSpike) return;
         log::info("REALTEST play: the bot died at {:.1f}% (x {:.0f}, progress {}), object {}", this->getCurrentPercent(),
             m_player1->getPositionX(), m_gameState.m_currentProgress, object ? object->m_objectID : -1);
@@ -119,6 +142,19 @@ class $modify(RealTestLayer, PlayLayer) {
             if (++s_frames % 150 == 60) this->handleButton(true, 1, true);
             if (s_frames % 150 == 70) this->handleButton(false, 1, true);
         }
+        if (s_mode == "live") {
+            ++s_frames;
+            bool done = s_liveDied || s_frames >= 240 * 200;
+            if (s_frames % (240 * 10) == 0 || done)
+                log::info("REALTEST live at {:.1f}%: {}", this->getCurrentPercent(), cmm::fw::debugStats());
+            if (done) {
+                log::info("REALTEST live: {} after {:.1f} s", s_liveDied ? "died" : "played", s_frames / 240.f);
+                restore();
+                log::info("REALTEST DONE");
+                this->onQuit();
+            }
+            return;
+        }
         if (s_mode == "preload") {
             if (cmm::fw::loading()) return;
             if (!s_loggedLoad) {
@@ -136,6 +172,12 @@ class $modify(RealTestLayer, PlayLayer) {
 
     void levelComplete() {
         PlayLayer::levelComplete();
+        if (s_active && s_mode == "live") {
+            log::info("REALTEST live at the end: {}", cmm::fw::debugStats());
+            restore();
+            log::info("REALTEST DONE");
+            return;
+        }
         if (s_active && s_mode == "play") {
             log::info("REALTEST play: the bot finished the level");
             restore();
@@ -251,6 +293,13 @@ class $modify(RealTestMenu, MenuLayer) {
         if (s_mode == "play") {
             setHack("framecounter", false);
             setHack("noclip", false);
+        } else if (s_mode == "live") {
+            setHack("framecounter", true);
+            setHack("noclip", false);
+            s_savedPreload = cmm::val<bool>("framecounter.preload", true);
+            cmm::val<bool>("framecounter.preload", true) = false;
+            cmm::fw::resetDebugStats();
+            s_liveDied = false;
         } else if (s_mode == "preload") {
             setHack("framecounter", true);
             setHack("noclip", false);

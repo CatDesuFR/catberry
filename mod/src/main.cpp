@@ -24,6 +24,8 @@ $on_mod(Loaded) {
         Mod::get()->getVersion().toVString(), cmm::all().size());
 }
 
+namespace cmm::jumpkeys { bool handle(int key, bool down, bool repeat); }
+
 class $modify(CMMKeyboard, CCKeyboardDispatcher) {
     bool dispatchKeyboardMSG(enumKeyCodes key, bool isKeyDown, bool isKeyRepeat, double timestamp) {
         bool typing = ImGuiCocos::get().isInitialized() && ImGui::GetIO().WantTextInput;
@@ -57,6 +59,8 @@ class $modify(CMMKeyboard, CCKeyboardDispatcher) {
                 return true;
             }
         }
+        // Jump Keys: extra keys that jump, default ones turned off.
+        if (!typing && !cmm::gui::isOpen() && cmm::jumpkeys::handle(static_cast<int>(key), isKeyDown, isKeyRepeat)) return true;
         return CCKeyboardDispatcher::dispatchKeyboardMSG(key, isKeyDown, isKeyRepeat, timestamp);
     }
 };

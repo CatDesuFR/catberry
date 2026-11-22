@@ -1,3 +1,14 @@
+# v1.1.4
+
+- Frame Window Counter: clicks are no longer lost in spam sections. At a big accuracy (like 4096) each click takes long to measure, and only 16 could wait at a time, so new clicks were thrown away with no marker; now 64 can wait, and the counter gets more time per frame while clicks pile up (Clairvoyaance: 3 clicks lost before, none now).
+- Frame Window Counter: a press while already holding, or a release that ends nothing (a second key, letting go twice), was counted as another click, so the tally was off (Clairvoyaance's wave counted 4 releases in a row). Only real clicks count now.
+- Frame Window Counter: a click tried later than it really was is now replayed and must be survived too; before, past the end of the re-run it was left out, so late tries looked fine and windows came out too big.
+- Frame Window Counter: Precision, like NaN GD (NaNDL L*): the precision you need to beat what you've played within 24 hours of tries, from every measured click's window and time. It goes up with every click. Shown under the tally ("Prec"); options for it and for the respawn time it counts with.
+- Slider Limit Bypass (Global): editor and settings sliders go past both ends.
+- Enter Plays the Playtest (Creator): in the editor, Enter starts the playtest, pauses it and carries on.
+- Show Hitboxes and Noclip now work in editor playtests too.
+- Jump Keys (Player): add keys that jump, remove them again, and turn off Space, W or Up, in levels and playtests.
+
 # v1.1.3
 
 - Replay Bot: regular position fixes. While recording, the players' state is kept every 30 ticks (8 times a second) too, not only at clicks, and playback puts them back there. Before, a long stretch with no clicks could drift far from the recording (on Poltergeist 2 the wave drifted over 100 units between two clicks and died at 19.8%), and so could the run after a practice respawn. Record your macros again to get them.

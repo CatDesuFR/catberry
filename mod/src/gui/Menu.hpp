@@ -11,4 +11,7 @@ namespace cmm::gui {
     // Keybinds: right-click a hack in the menu, then press a key.
     // Returns true if the key was used to set a bind (so the game shouldn't see it).
     bool captureBindKey(int key);
+
+    // Jump Keys options: the extra keys (add, remove) and the default ones.
+    void jumpKeyOptions();
 }

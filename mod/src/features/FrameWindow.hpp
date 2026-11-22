@@ -3,6 +3,7 @@
 #include <features/Replay.hpp>
 
 #include <cstddef>
+#include <string>
 
 // Frame Window analyser and counter.
 //
@@ -25,6 +26,11 @@ namespace cmm::fw {
     // The Replay Bot just put the player back where the recording had it (a
     // fix with no click, at GD progress `progress`): re-runs do the same.
     void noteBotFix(replay::Fix const& fix, unsigned progress);
+
+    // Developer tally per game mode (presses, measured, "?", over 10, dropped
+    // and why), for tests; reset with resetDebugStats().
+    std::string debugStats();
+    void resetDebugStats();
 
     // ImGui tally, drawn with the menu overlay.
     void drawOverlay();

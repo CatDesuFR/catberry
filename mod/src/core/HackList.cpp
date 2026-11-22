@@ -9,7 +9,7 @@
 using namespace geode::prelude;
 
 namespace cmm::global { void applyFps(); }
-namespace cmm { void registerShortcuts(); void registerPerformance(); void registerBatch1(); void registerBatch2(); void registerBatch3(); void registerBatch4(); void registerBatch5(); void registerPauseZoom(); }
+namespace cmm { void registerShortcuts(); void registerPerformance(); void registerBatch1(); void registerBatch2(); void registerBatch3(); void registerBatch4(); void registerBatch5(); void registerBatch6(); void registerPauseZoom(); }
 namespace cmm::labels { void registerLabels(); }
 
 namespace cmm {
@@ -154,6 +154,7 @@ namespace cmm {
         registerBatch3();
         registerBatch4();
         registerBatch5();
+        registerBatch6();
         registerPauseZoom();
 
         // ---------------- Replay Bot ----------------
@@ -178,6 +179,8 @@ namespace cmm {
                 optBool("Measure the bot's macro first (loading screen)", "framecounter.preload", true);
                 optBool("Hide unsure (?) clicks", "framecounter.hideunsure", true);
                 optBool("Hide windows over 10 (like NaN GD)", "framecounter.hide10", true);
+                optBool("Precision (NaNDL L*, goes up with every click)", "framecounter.precision", true);
+                optFloat("Respawn time for precision (s)", "framecounter.respawn", 1.f, 0.f, 5.f, "%.1f");
                 optBool("Ding when you pass a click", "framecounter.sound", true);
                 optFloat("Ding volume", "framecounter.volume", 0.6f, 0.f, 1.f, "%.2f");
             }});

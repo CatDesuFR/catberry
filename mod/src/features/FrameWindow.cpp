@@ -60,6 +60,44 @@ namespace cmm::fw {
 
         int bandIndex(int window);
 
+        // ---- precision (NaNDL L*, as NaN GD shows it) ----
+        // Each measured click i has a window of w_i ticks (240 per second) and
+        // happens t_i seconds into the attempt (plus the respawn time). With
+        // precision L (sigma per second), it lands in its window with
+        // p_i = erf(w_i / 240 * L / (2 * sqrt 2)). The expected time to beat
+        // the level, counting every failed attempt up to where it failed:
+        //   E[T_A] = t_n * P + sum_i t_i * r_i * (1 - p_i),  r_i = prod_{j<i} p_j,
+        //   P = prod p_i,  E[T_C] = E[T_A] / P.
+        // L* is the precision that makes E[T_C] 24 hours: it goes up with
+        // every click (each one makes passing a bit less likely).
+        struct PrecisionClick { double window; double time; };
+        double expectedTime(std::vector<PrecisionClick> const& clicks, double L) {
+            double r = 1.0, failTime = 0.0;
+            for (auto const& c : clicks) {
+                double x = c.window / 240.0 * L / (2.0 * std::sqrt(2.0));
+                if (x > 8.5) continue;            // can't miss
+                double q = std::erfc(x);
+                double p = std::max(1.0 - q, 1e-300);
+                failTime += c.time * r * q;
+                r *= p;
+            }
+            double last = clicks.empty() ? 0.0 : clicks.back().time;
+            return (last * r + failTime) / std::max(r, 1e-300);
+        }
+        double precisionL(std::vector<PrecisionClick> const& clicks) {
+            if (clicks.empty()) return 0.0;
+            constexpr double kTarget = 24.0 * 3600.0;
+            if (clicks.back().time >= kTarget) return 1e9;
+            double lo = 1e-6, hi = 1.0;
+            while (expectedTime(clicks, hi) > kTarget && hi < 1e9) { lo = hi; hi *= 2.0; }
+            for (int i = 0; i < 80; i++) {        // E[T_C] goes down as L goes up
+                double mid = std::sqrt(lo * hi);
+                if (expectedTime(clicks, mid) > kTarget) lo = mid;
+                else hi = mid;
+            }
+            return hi;
+        }
+
         // ---- dings ----
         // A short bell, made here so no sound files are needed. Tighter
         // windows ring higher. One sound per band, created once.
@@ -241,8 +279,10 @@ namespace cmm::fw {
 namespace cmm::fw::own {
     namespace {
         constexpr int kLegSlot = 3;
-        constexpr int kPendingSlots = 16;  // sim slots 4..19
-        constexpr int kRingBase = 20;      // sim slots 20..
+        // Clicks waiting to be measured: plenty, so spam sections at a big
+        // range don't run out (a click without a slot can't be measured).
+        constexpr int kPendingSlots = 64;  // sim slots 4..67
+        constexpr int kRingBase = 68;      // sim slots 68..139
         constexpr int kRing = 72;          // kept states of history, kStride() ticks apart
 
         int64_t s_tick = 0;                // physics ticks, counted here
@@ -254,6 +294,7 @@ namespace cmm::fw::own {
         // fix: the bot's position fix for this click (bot clicks only)
         struct Click { int64_t act; bool down; replay::Fix fix = {}; };
         std::deque<Click> s_clicks;        // recent clicks of player 1
+        bool s_held = false;               // player 1's jump button is down
         // The bot's regular fixes (no click): put back at the start of `tick`.
         struct TimedFix { int64_t tick; replay::Fix fix; };
         std::deque<TimedFix> s_botFixes;
@@ -286,6 +327,7 @@ namespace cmm::fw::own {
             double lo = 0.0, hi = 0.0;       // bisection: lo survives, hi dies
             int steps = 0;
             bool unknown = false;
+            int mode = 0;           // game mode at the click (developer tally)
         };
         std::vector<Job> s_jobs;
         bool s_slotUsed[kPendingSlots] = {};
@@ -313,6 +355,23 @@ namespace cmm::fw::own {
             return r <= kLinear ? 1 : (r + 2 + kRing - 3) / (kRing - 2);
         }
         int s_ringStride = 1;  // stride the ring was filled with
+
+        // Developer tally per game mode (see debugStats()).
+        enum Mode { kCube, kShip, kBall, kUfo, kWave, kRobot, kSpider, kSwing, kModes };
+        char const* kModeNames[kModes] = {"cube", "ship", "ball", "ufo", "wave", "robot", "spider", "swing"};
+        struct ModeStats { int presses = 0, measured = 0, unknown = 0, over10 = 0, noHistory = 0, noSlot = 0, death = 0, reset = 0; };
+        ModeStats s_stats[kModes];
+        int modeOf(PlayerObject* p) {
+            if (!p) return kCube;
+            if (p->m_isShip) return kShip;
+            if (p->m_isBall) return kBall;
+            if (p->m_isBird) return kUfo;
+            if (p->m_isDart) return kWave;
+            if (p->m_isRobot) return kRobot;
+            if (p->m_isSpider) return kSpider;
+            if (p->m_isSwing) return kSwing;
+            return kCube;
+        }
         // The kept state from tick `at` or the last one before it, or -1.
         int ringAtOrBefore(int64_t at, int64_t& tick) {
             int st = s_ringStride;
@@ -347,6 +406,7 @@ namespace cmm::fw::own {
             s_botFixes.clear();
             s_activations.clear();
             s_ringReady = false;
+            s_held = false;
             for (auto& t : s_ringTick) t = -1;
         }
 
@@ -390,13 +450,17 @@ namespace cmm::fw::own {
             // so the re-run matches the real run up to it. (Not after it: that
             // would undo the move.)
             double movedFrom = static_cast<double>(job.act) + std::min(0.0, offset);
+            // A click moved later has to happen, and be survived for a while,
+            // too: past the usual horizon it used to be left out, so the
+            // player only had to live without it and late moves looked fine.
+            int64_t horizon = std::max<int64_t>(job.horizon, static_cast<int64_t>(std::ceil(static_cast<double>(job.act) + std::max(0.0, offset))) + 12);
             std::vector<std::pair<int64_t, replay::Fix const*>> fixes;
             for (auto const& c : s_clicks) {
                 double t = static_cast<double>(c.act);
                 bool moved = job.isRelease ? (c.act == job.act && !c.down)
                                            : ((c.act == job.act && c.down) || (c.act == job.release && !c.down));
                 if (moved) t += offset;
-                if (t < static_cast<double>(start) || t > static_cast<double>(job.horizon)) continue;
+                if (t < static_cast<double>(start) || t > static_cast<double>(horizon)) continue;
                 // The bot's fix lands at the end of the click's tick (the start
                 // of the next one); only while that's still before the move.
                 bool useFix = !moved && c.fix.ok && t + 1.0 <= movedFrom;
@@ -404,7 +468,7 @@ namespace cmm::fw::own {
                 if (useFix) fixes.push_back({c.act + 1, &c.fix});
             }
             for (auto const& bf : s_botFixes) {
-                if (bf.tick > start && static_cast<double>(bf.tick) <= movedFrom && bf.tick < job.horizon) fixes.push_back({bf.tick, &bf.fix});
+                if (bf.tick > start && static_cast<double>(bf.tick) <= movedFrom && bf.tick < horizon) fixes.push_back({bf.tick, &bf.fix});
             }
             std::stable_sort(events.begin(), events.end(), [](auto const& a, auto const& b) { return a.time < b.time; });
 
@@ -416,7 +480,7 @@ namespace cmm::fw::own {
             size_t e = 0;
             size_t fi = 0;
             std::sort(fixes.begin(), fixes.end(), [](auto const& a, auto const& b) { return a.first < b.first; });
-            for (int64_t t = start; t < job.horizon && alive; t++) {
+            for (int64_t t = start; t < horizon && alive; t++) {
                 // The bot's fixes due at the start of this tick.
                 while (fi < fixes.size() && fixes[fi].first <= t) {
                     if (fixes[fi].first == t) {
@@ -556,8 +620,14 @@ namespace cmm::fw::own {
                     // moment the click still works. Whole ticks only would give
                     // latest - earliest + 1; the exact edges add the fraction.
                     double window = job.unknown ? 0.0 : std::max(0.1, job.right - job.left);
+                    if (!job.isRelease) {
+                        auto& st = s_stats[job.mode];
+                        st.measured++;
+                        if (job.unknown) st.unknown++;
+                        else if (std::lround(window) > 10) st.over10++;
+                    }
                     s_done.push_back({job.id, job.where, window, job.unknown, job.act - s_attemptStart, job.isRelease});
-                    log::debug("Frame window ({} at tick {}): {}", job.isRelease ? "release" : "press", job.act,
+                    log::debug("Frame window ({} {} at tick {}, horizon +{}): {}", kModeNames[job.mode], job.isRelease ? "release" : "press", job.act, job.horizon - job.act,
                         job.unknown ? std::string("? (can't reproduce)") : fmt::format("{:.2f} (from {:+.2f} to {:+.2f})", window, job.left, job.right));
                     releaseSlot(job.slot);
                     if (job.nearSlot >= 0) releaseSlot(job.nearSlot);
@@ -606,9 +676,10 @@ namespace cmm::fw::own {
                     }
                 }
             }
-            if (ringSlot < 0) return;  // no history yet
+            int mode = modeOf(pl->m_player1);
+            if (ringSlot < 0) { if (!release) s_stats[mode].noHistory++; return; }  // no history yet
             int slot = freeSlot();
-            if (slot < 0) return;  // too many clicks waiting
+            if (slot < 0) { if (!release) s_stats[mode].noSlot++; return; }  // too many clicks waiting
             auto from = sim::scratch(pl, kRingBase + ringSlot);
             auto to = sim::scratch(pl, slot);
             if (!from || !to) { releaseSlot(slot); return; }
@@ -643,6 +714,7 @@ namespace cmm::fw::own {
             job.nearSlot = nearSlot;
             job.nearBase = nearSlot >= 0 ? nearBase : -1;
             job.where = pl->m_player1->getPosition();
+            job.mode = mode;
             s_pressed.push_back({job.id, job.where, release});
             s_jobs.push_back(job);
         }
@@ -680,6 +752,18 @@ namespace cmm::fw::own {
 
 namespace cmm::fw {
     bool loading() { return own::s_pre == own::Pre::Loading; }
+
+    std::string debugStats() {
+        std::string out;
+        for (int m = 0; m < own::kModes; m++) {
+            auto const& st = own::s_stats[m];
+            if (!st.presses) continue;
+            out += fmt::format("{}: {} presses, {} measured ({} ?, {} over 10), dropped: {} no history, {} no slot, {} death, {} reset; ",
+                own::kModeNames[m], st.presses, st.measured, st.unknown, st.over10, st.noHistory, st.noSlot, st.death, st.reset);
+        }
+        return out.empty() ? "no presses" : out;
+    }
+    void resetDebugStats() { for (auto& st : own::s_stats) st = {}; }
 
     void noteBotFix(replay::Fix const& fix, unsigned progress) {
         if (!own::active()) return;
@@ -743,10 +827,15 @@ class $modify(FrameWindowGameLayer, GJBaseGameLayer) {
         if (!isMain() || !own::active() || button != 1 || cmm::forPlayer2(!isPlayer1) || cmm::sim::simulating()) return;
         auto pl = static_cast<PlayLayer*>(static_cast<GJBaseGameLayer*>(this));
         if (pl->m_playerDied || pl->m_isPaused) return;
+        // A press while already holding, or a release that ends nothing (a
+        // second key, the bot letting go twice), changes nothing: not a click.
+        if (down == own::s_held) return;
+        own::s_held = down;
         int64_t act = own::s_inStep ? own::s_tick : own::s_tick + 2;
         cmm::replay::Fix fix;
         if (auto f = cmm::replay::injectingFix(); f && own::s_inStep) fix = *f;
         own::s_clicks.push_back({act, down, fix});
+        if (down) own::s_stats[own::modeOf(m_player1)].presses++;
         if (down) own::onPress(pl, act);
         else own::onRelease(pl, act);
     }
@@ -778,6 +867,8 @@ class $modify(FrameWindowLayer, PlayLayer) {
         Ref<CCNode> list;
         std::vector<Marker> markers;
         int counts[8] = {};   // bands 1..9-10, then 10+
+        std::vector<PrecisionClick> precisionClicks;  // measured clicks this attempt
+        double precision = 0.0;                        // NaNDL L* (sigma/s)
         int unknown = 0;
         int presses = 0, releases = 0;  // measured this attempt
         bool haveLast = false;          // the last measured click, for the ms row
@@ -1098,7 +1189,7 @@ class $modify(FrameWindowLayer, PlayLayer) {
         int total = f->unknown;
         for (int c : f->counts) total += c;
         auto key = fmt::format("{}|{}|{}|{}|{}|{}|{}", fmt::join(f->counts, ","), f->unknown, own::s_jobs.size(), note,
-            f->presses, f->releases, f->haveLast ? fmt::format("{:.2f}{}", f->lastWindow, f->lastRelease) : "");
+            f->presses, f->releases, f->haveLast ? fmt::format("{:.2f}{}|{:.3f}", f->lastWindow, f->lastRelease, f->precision) : "");
         if (key == f->listKey) return;
         f->listKey = key;
 
@@ -1143,6 +1234,10 @@ class $modify(FrameWindowLayer, PlayLayer) {
             addRow("ms", fmt::format("{:.1f} ms ({:.1f} f, {})", f->lastWindow * 1000.0 / 240.0, f->lastWindow,
                 f->lastRelease ? "release" : "press"), bandColor(band));
         }
+        // Precision (NaNDL L*): needed to beat this much of the level within
+        // 24 hours of tries; goes up with every click.
+        if (cmm::val<bool>("framecounter.precision", true) && !f->precisionClicks.empty())
+            addRow("Prec", fmt::format("{:.3f}", f->precision), {255, 200, 120});
         addSmall(fmt::format("{} presses, {} releases measured{}", f->presses, f->releases,
             own::s_jobs.empty() ? "" : fmt::format(" ({} waiting)", own::s_jobs.size())));
         (void)total;
@@ -1161,6 +1256,8 @@ class $modify(FrameWindowLayer, PlayLayer) {
         f->unknown = 0;
         f->presses = f->releases = 0;
         f->haveLast = false;
+        f->precisionClicks.clear();
+        f->precision = 0.0;
         f->listKey.clear();
         own::s_done.clear();
     }
@@ -1173,6 +1270,7 @@ class $modify(FrameWindowLayer, PlayLayer) {
         own::s_attemptStart = own::s_tick;
         // Clicks waiting to be measured belong to the attempt that ended.
         for (auto& j : own::s_jobs) {
+            if (!j.isRelease) own::s_stats[j.mode].reset++;
             own::releaseSlot(j.slot);
             removeMarker(j.id);
         }
@@ -1180,6 +1278,7 @@ class $modify(FrameWindowLayer, PlayLayer) {
         own::s_jobs.clear();
         own::s_clicks.clear();
         own::s_activations.clear();
+        own::s_held = false;
         // A new attempt starts a new tally; a practice respawn keeps it.
         if (!m_isPracticeMode) resetCounter();
 
@@ -1199,6 +1298,7 @@ class $modify(FrameWindowLayer, PlayLayer) {
         if (!wasDead && m_playerDied && !cmm::sim::simulating()) {
             for (auto& j : own::s_jobs) {
                 if (j.horizon < 0) {
+                    if (!j.isRelease) own::s_stats[j.mode].death++;
                     own::releaseSlot(j.slot);
                     own::s_dropped.push_back(j.id);
                 }
@@ -1256,7 +1356,11 @@ class $modify(FrameWindowLayer, PlayLayer) {
             for (auto& j : own::s_jobs) {
                 if (j.horizon < 0 && own::s_tick > j.act + 480) j.horizon = j.act + 120;
             }
-            own::work(this, std::clamp(cmm::val<float>("framecounter.budget", 1.5f), 0.2f, 8.f));
+            // More time per frame while clicks pile up (spam sections).
+            float budget = std::clamp(cmm::val<float>("framecounter.budget", 1.5f), 0.2f, 8.f);
+            size_t waiting = own::s_jobs.size();
+            if (waiting > 4) budget = std::min(budget * (1.f + static_cast<float>(waiting - 4) / 4.f), 8.f);
+            own::work(this, budget);
         }
         // A placeholder at every new press, replaced once it's measured.
         for (auto const& p : own::s_pressed) spawnMarker(p.id, p.where, 0.0, false, true, p.release);
@@ -1276,6 +1380,11 @@ class $modify(FrameWindowLayer, PlayLayer) {
             else f->counts[bandIndex(band)]++;
             (r.release ? f->releases : f->presses)++;
             if (!r.unknown) {
+                double respawn = std::clamp(cmm::val<float>("framecounter.respawn", 1.f), 0.f, 10.f);
+                auto& pc = f->precisionClicks;
+                pc.push_back({r.window, static_cast<double>(r.rel) / 240.0 + respawn});
+                std::stable_sort(pc.begin(), pc.end(), [](auto const& a, auto const& b) { return a.time < b.time; });
+                f->precision = precisionL(pc);
                 f->haveLast = true;
                 f->lastWindow = r.window;
                 f->lastRelease = r.release;

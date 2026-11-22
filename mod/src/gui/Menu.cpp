@@ -15,6 +15,8 @@ namespace cmm::predict { void drawOverlay(); }
 
 using namespace geode::prelude;
 
+namespace cmm::jumpkeys { std::vector<int> extra(); void setExtra(std::vector<int> const& keys); }
+
 namespace cmm::gui {
     namespace {
         bool s_open = false;
@@ -491,6 +493,30 @@ namespace cmm::gui {
         return s_open;
     }
 
+    void jumpKeyOptions() {
+        auto keys = cmm::jumpkeys::extra();
+        ImGui::TextUnformatted("Extra jump keys:");
+        if (keys.empty()) ImGui::TextDisabled("  none yet");
+        for (size_t i = 0; i < keys.size(); i++) {
+            ImGui::PushID(static_cast<int>(i));
+            ImGui::Text("  %s", keyName(keys[i]).c_str());
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Remove")) {
+                keys.erase(keys.begin() + static_cast<long>(i));
+                cmm::jumpkeys::setExtra(keys);
+                ImGui::PopID();
+                break;
+            }
+            ImGui::PopID();
+        }
+        if (ImGui::SmallButton(s_bindTarget == "__jump" ? "Press a key... (Esc: cancel)" : "Add a jump key")) s_bindTarget = "__jump";
+        ImGui::Separator();
+        ImGui::TextUnformatted("Default keys that jump:");
+        optBool("Space", "jumpkeys.space", true);
+        optBool("W", "jumpkeys.w", true);
+        optBool("Up arrow", "jumpkeys.up", true);
+    }
+
     void toggle() {
         s_open = !s_open;
     }
@@ -498,6 +524,15 @@ namespace cmm::gui {
     bool captureBindKey(int key) {
         if (s_bindTarget.empty()) return false;
         if (key == KEY_Escape) {
+            s_bindTarget.clear();
+            return true;
+        }
+        // A new jump key ("__jump").
+        if (s_bindTarget == "__jump") {
+            auto keys = cmm::jumpkeys::extra();
+            if (key != KEY_Backspace && std::find(keys.begin(), keys.end(), key) == keys.end()) keys.push_back(key);
+            cmm::jumpkeys::setExtra(keys);
+            log::info("Jump key added: {}", keyName(key));
             s_bindTarget.clear();
             return true;
         }
