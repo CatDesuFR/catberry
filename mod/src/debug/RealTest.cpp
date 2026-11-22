@@ -145,6 +145,7 @@ class $modify(RealTestLayer, PlayLayer) {
         if (s_mode == "live") {
             ++s_frames;
             bool done = s_liveDied || s_frames >= 240 * 200;
+            if (s_frames == 240 * 9) shot("selftest-live.png");
             if (s_frames % (240 * 10) == 0 || done)
                 log::info("REALTEST live at {:.1f}%: {}", this->getCurrentPercent(), cmm::fw::debugStats());
             if (done) {

@@ -532,6 +532,7 @@ namespace cmm::gui {
             auto keys = cmm::jumpkeys::extra();
             if (key != KEY_Backspace && std::find(keys.begin(), keys.end(), key) == keys.end()) keys.push_back(key);
             cmm::jumpkeys::setExtra(keys);
+            if (auto jk = find("jumpkeys"); jk && !jk->enabled) setEnabled(*jk, true);  // a new key should just work
             log::info("Jump key added: {}", keyName(key));
             s_bindTarget.clear();
             return true;
@@ -597,8 +598,9 @@ namespace cmm::gui {
     void drawBindPopup() {
         if (s_bindTarget.empty()) return;
         bool menuKey = s_bindTarget == "__menu";
-        auto hack = menuKey ? nullptr : find(s_bindTarget);
-        if (!hack && !menuKey) { s_bindTarget.clear(); return; }
+        bool jumpKey = s_bindTarget == "__jump";  // Jump Keys: a new key
+        auto hack = menuKey || jumpKey ? nullptr : find(s_bindTarget);
+        if (!hack && !menuKey && !jumpKey) { s_bindTarget.clear(); return; }
         // The menu can take keyboard input before GD sees it, so read the key here too.
         for (int k = ImGuiKey_NamedKey_BEGIN; k < ImGuiKey_NamedKey_END; k++) {
             if (!ImGui::IsKeyPressed(static_cast<ImGuiKey>(k), false)) continue;
@@ -608,9 +610,9 @@ namespace cmm::gui {
         auto& io = ImGui::GetIO();
         ImGui::SetNextWindowPos({io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f}, ImGuiCond_Always, {0.5f, 0.5f});
         if (ImGui::Begin("Keybind", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings)) {
-            ImGui::Text("Press a key for %s", menuKey ? "opening the menu" : hack->name.c_str());
+            ImGui::Text("Press a key for %s", menuKey ? "opening the menu" : jumpKey ? "jumping" : hack->name.c_str());
             if (ImGui::Button("Cancel")) s_bindTarget.clear();
-            ImGui::TextDisabled(menuKey ? "Esc: cancel   Backspace: back to Tab" : "Esc: cancel   Backspace: remove the keybind");
+            ImGui::TextDisabled(menuKey ? "Esc: cancel   Backspace: back to Tab" : jumpKey ? "Esc: cancel" : "Esc: cancel   Backspace: remove the keybind");
         }
         ImGui::End();
     }

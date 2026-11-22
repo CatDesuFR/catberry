@@ -79,6 +79,15 @@ namespace cmm::replay {
         bool recording() { return cmm::on("bot.record"); }
         bool playing() { return cmm::on("bot.play"); }
 
+        // The loaded macro was recorded in this level (by its ID, or its name
+        // for levels without one).
+        bool macroFits(PlayLayer* pl) {
+            if (s_inputs.empty() || !pl || !pl->m_level) return false;
+            int id = pl->m_level->m_levelID.value();
+            if (s_levelID != 0 && id != 0) return s_levelID == id;
+            return s_levelName.empty() || s_levelName == std::string(pl->m_level->m_levelName);
+        }
+
         std::filesystem::path folder() {
             return std::filesystem::path((Mod::get()->getSaveDir() / "macros").native());
         }
@@ -321,8 +330,9 @@ class $modify(ReplayGameLayer, GJBaseGameLayer) {
 
     void handleButton(bool down, int button, bool isPlayer1) {
         if (isMain() && !s_injecting) {
-            // While playing, your own clicks are ignored so they don't mix in.
-            if (playing()) return;
+            // While playing a macro of this level, your own clicks are ignored
+            // so they don't mix in. (In other levels you play yourself.)
+            if (playing() && macroFits(PlayLayer::get())) return;
             if (recording()) {
                 unsigned tick = m_gameState.m_currentProgress;
                 // A click Click Before Frames gives GD at the start of a tick acts

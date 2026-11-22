@@ -1,3 +1,10 @@
+# v1.1.5
+
+- Jump Keys: adding a key never worked: the "press a key" window closed itself right away, so no key was saved. Fixed, and adding a key turns Jump Keys on. Tested through GD's keyboard handler in a level and in a playtest: the extra key jumps, Space turned off doesn't, Space turned back on does.
+- Replay Bot: with "Play" on, your own clicks were ignored in every level, even ones the loaded macro isn't for (so Space and jump keys did nothing). Now only in the macro's own level.
+- Frame Window Counter, like NaN GD: bands by the exact window, 0-1, 1-2, 2-3, 3-4, 4-5, 5-6, 6-8, 8-10 and 10+ (a click under one frame now counts as 0-1), markers with two decimals (3.51), and the last click in milliseconds and Hz (27.41ms, 36Hz).
+- Precision: shown as L* with two decimals, and it counts no respawn time by default, like NaN GD's (checked: Tremor's first three clicks give 8.47 here, NaN GD shows 8.56).
+
 # v1.1.4
 
 - Frame Window Counter: clicks are no longer lost in spam sections. At a big accuracy (like 4096) each click takes long to measure, and only 16 could wait at a time, so new clicks were thrown away with no marker; now 64 can wait, and the counter gets more time per frame while clicks pile up (Clairvoyaance: 3 clicks lost before, none now).

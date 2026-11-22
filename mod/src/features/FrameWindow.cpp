@@ -46,19 +46,20 @@ namespace cmm::fw {
         bool analyserOn() { return cmm::on("prediction"); }
         int searchRange() { return std::clamp(cmm::val<int>("prediction.range", 16), 2, 64); }
 
-        // NaN GD's colour bands, made a bit more vivid. Over 10 is purple.
-        ccColor3B bandColor(int window) {
-            if (window <= 1) return {255, 40, 40};
-            if (window == 2) return {255, 140, 0};
-            if (window == 3) return {255, 225, 0};
-            if (window == 4) return {255, 255, 255};
-            if (window <= 6) return {0, 235, 100};
-            if (window <= 8) return {30, 170, 255};
-            if (window <= 10) return {70, 80, 255};
-            return {190, 90, 255};
+        // NaN GD's bands, by the exact window in frames (240 per second):
+        // 0-1, 1-2, 2-3, 3-4, 4-5, 5-6, 6-8, 8-10, then over 10.
+        constexpr int kBands = 9;
+        char const* kBandNames[kBands] = {"0-1", "1-2", "2-3", "3-4", "4-5", "5-6", "6-8", "8-10", "10+"};
+        constexpr ccColor3B kBandColors[kBands] = {
+            {255, 40, 40}, {255, 90, 140}, {255, 140, 0}, {255, 225, 0}, {120, 235, 60},
+            {0, 230, 200}, {30, 170, 255}, {110, 100, 255}, {190, 90, 255}};
+        int bandOf(double window) {
+            if (window < 6.0) return std::clamp(static_cast<int>(std::floor(window)), 0, 5);
+            if (window < 8.0) return 6;
+            if (window <= 10.0) return 7;
+            return 8;
         }
-
-        int bandIndex(int window);
+        ccColor3B bandColor(double window) { return kBandColors[bandOf(window)]; }
 
         // ---- precision (NaNDL L*, as NaN GD shows it) ----
         // Each measured click i has a window of w_i ticks (240 per second) and
@@ -101,8 +102,8 @@ namespace cmm::fw {
         // ---- dings ----
         // A short bell, made here so no sound files are needed. Tighter
         // windows ring higher. One sound per band, created once.
-        FMOD::Sound* s_dings[8] = {};
-        std::vector<char> s_dingData[8];
+        FMOD::Sound* s_dings[kBands] = {};
+        std::vector<char> s_dingData[kBands];
 
         std::vector<char> makeBell(float freq) {
             constexpr int rate = 44100;
@@ -127,13 +128,13 @@ namespace cmm::fw {
             return wav;
         }
 
-        void ding(int window) {
+        void ding(double window) {
             if (!cmm::val<bool>("framecounter.sound", true)) return;
             auto engine = FMODAudioEngine::sharedEngine();
             if (!engine || !engine->m_system) return;
-            int band = window > 10 ? 7 : bandIndex(window);
-            // band 0 = 1 tick (highest) ... 7 = over 10 (lowest)
-            constexpr float kFreq[8] = {1568.f, 1397.f, 1245.f, 1109.f, 988.f, 880.f, 784.f, 659.f};
+            int band = bandOf(window);
+            // band 0 = under 1 frame (highest) ... 8 = over 10 (lowest)
+            constexpr float kFreq[kBands] = {1760.f, 1568.f, 1397.f, 1245.f, 1109.f, 988.f, 880.f, 784.f, 659.f};
             if (!s_dings[band]) {
                 s_dingData[band] = makeBell(kFreq[band]);
                 FMOD_CREATESOUNDEXINFO info{};
@@ -155,19 +156,11 @@ namespace cmm::fw {
                 log::warn("Frame window ding: could not play (FMOD error {})", static_cast<int>(played));
             }
         }
-        int bandIndex(int window) {
-            if (window <= 1) return 0;
-            if (window <= 4) return window - 1;
-            if (window <= 6) return 4;
-            if (window <= 8) return 5;
-            return 6;  // 9-10 (and over 10 when those are shown)
-        }
-        char const* kBandNames[] = {"1", "2", "3", "4", "5-6", "7-8", "9-10"};
 
         bool isP1(replay::Input const& in) { return in.button == 1 && !cmm::forPlayer2(in.player2); }
 
         // NaN GD shows no marker for windows over 10 (easy clicks); optional.
-        bool shown(int window) { return window <= 10 || !cmm::val<bool>("framecounter.hide10", true); }
+        bool shown(double window) { return window <= 10.0 || !cmm::val<bool>("framecounter.hide10", true); }
 
         // Runs the hidden player from the real one with the replay's clicks,
         // click `index` (and its release) moved by `offset` ticks. True if it
@@ -624,7 +617,7 @@ namespace cmm::fw::own {
                         auto& st = s_stats[job.mode];
                         st.measured++;
                         if (job.unknown) st.unknown++;
-                        else if (std::lround(window) > 10) st.over10++;
+                        else if (window > 10.0) st.over10++;
                     }
                     s_done.push_back({job.id, job.where, window, job.unknown, job.act - s_attemptStart, job.isRelease});
                     log::debug("Frame window ({} {} at tick {}, horizon +{}): {}", kModeNames[job.mode], job.isRelease ? "release" : "press", job.act, job.horizon - job.act,
@@ -866,7 +859,7 @@ class $modify(FrameWindowLayer, PlayLayer) {
         Ref<CCNode> markersRoot;
         Ref<CCNode> list;
         std::vector<Marker> markers;
-        int counts[8] = {};   // bands 1..9-10, then 10+
+        int counts[kBands] = {};  // NaN GD's bands 0-1 .. 8-10, then 10+
         std::vector<PrecisionClick> precisionClicks;  // measured clicks this attempt
         double precision = 0.0;                        // NaNDL L* (sigma/s)
         int unknown = 0;
@@ -1087,8 +1080,7 @@ class $modify(FrameWindowLayer, PlayLayer) {
         auto f = m_fields.self();
         if (!f->markersRoot) return;
         removeMarker(id);
-        int band = static_cast<int>(std::lround(window));
-        auto c = pending ? ccColor3B{200, 200, 210} : unknown ? ccColor3B{150, 150, 160} : bandColor(band);
+        auto c = pending ? ccColor3B{200, 200, 210} : unknown ? ccColor3B{150, 150, 160} : bandColor(window);
         float cr = c.r / 255.f, cg = c.g / 255.f, cb = c.b / 255.f;
         // CCDrawNode blends with pre-multiplied alpha: scale colours by alpha.
         auto tint = [&](float a) { return ccColor4F{cr * a, cg * a, cb * a, a}; };
@@ -1110,7 +1102,7 @@ class $modify(FrameWindowLayer, PlayLayer) {
         circle(13.f, {0, 0, 0, 0}, 2.f, tint(1.f));             // the coloured ring
         node->addChild(ring);
 
-        auto text = pending ? std::string("...") : unknown ? std::string("?") : fmt::format("{:.1f}", window);
+        auto text = pending ? std::string("...") : unknown ? std::string("?") : fmt::format("{:.2f}", window);
         auto label = CCLabelBMFont::create(text.c_str(), "bigFont.fnt");
         label->setColor(c);
         label->setAnchorPoint({1.f, 0.5f});
@@ -1221,23 +1213,22 @@ class $modify(FrameWindowLayer, PlayLayer) {
             y -= label->getScaledContentSize().height + 1.f;
         };
         bool hide10 = cmm::val<bool>("framecounter.hide10", true);
-        if (!hide10) addRow("10+", std::to_string(f->counts[7]), bandColor(11));
-        for (int b = 6; b >= 0; b--) {
-            int window = b <= 3 ? b + 1 : b == 4 ? 5 : b == 5 ? 7 : 9;
-            addRow(kBandNames[b], std::to_string(f->counts[b]), bandColor(window));
-        }
-        if (hide10) addRow("10+", std::to_string(f->counts[7]), {150, 150, 160});
+        if (!hide10) addRow(kBandNames[8], std::to_string(f->counts[8]), kBandColors[8]);
+        for (int b = 7; b >= 0; b--) addRow(kBandNames[b], std::to_string(f->counts[b]), kBandColors[b]);
+        if (hide10) addRow(kBandNames[8], std::to_string(f->counts[8]), {150, 150, 160});
         if (f->unknown) addRow("?", std::to_string(f->unknown), {150, 150, 160});
-        // The last click's window in milliseconds (one tick = 1000/240 ms).
+        // The last click's window, as NaN GD shows it: in milliseconds (one
+        // frame = 1000/240 ms) and as a rate (1000 / ms).
         if (f->haveLast) {
-            int band = static_cast<int>(std::lround(f->lastWindow));
-            addRow("ms", fmt::format("{:.1f} ms ({:.1f} f, {})", f->lastWindow * 1000.0 / 240.0, f->lastWindow,
-                f->lastRelease ? "release" : "press"), bandColor(band));
+            double ms = f->lastWindow * 1000.0 / 240.0;
+            auto c = bandColor(f->lastWindow);
+            addRow(fmt::format("{:.2f}ms", ms), "", c);
+            addRow(fmt::format("{:.0f}Hz", ms > 0.0 ? 1000.0 / ms : 0.0), f->lastRelease ? "(release)" : "", c);
         }
         // Precision (NaNDL L*): needed to beat this much of the level within
         // 24 hours of tries; goes up with every click.
         if (cmm::val<bool>("framecounter.precision", true) && !f->precisionClicks.empty())
-            addRow("Prec", fmt::format("{:.3f}", f->precision), {255, 200, 120});
+            addRow("L*", fmt::format("{:.2f}", f->precision), {255, 200, 120});
         addSmall(fmt::format("{} presses, {} releases measured{}", f->presses, f->releases,
             own::s_jobs.empty() ? "" : fmt::format(" ({} waiting)", own::s_jobs.size())));
         (void)total;
@@ -1369,18 +1360,16 @@ class $modify(FrameWindowLayer, PlayLayer) {
         own::s_dropped.clear();
         bool hideUnsure = cmm::val<bool>("framecounter.hideunsure", true);
         for (auto const& r : own::s_done) {
-            int band = static_cast<int>(std::lround(r.window));
             // Hide unsure: a click that couldn't be measured gets no marker.
             if (r.unknown && hideUnsure) {
                 removeMarker(r.id);
                 continue;
             }
             if (r.unknown) f->unknown++;
-            else if (band > 10) f->counts[7]++;
-            else f->counts[bandIndex(band)]++;
+            else f->counts[bandOf(r.window)]++;
             (r.release ? f->releases : f->presses)++;
             if (!r.unknown) {
-                double respawn = std::clamp(cmm::val<float>("framecounter.respawn", 1.f), 0.f, 10.f);
+                double respawn = std::clamp(cmm::val<float>("framecounter.respawn", 0.f), 0.f, 10.f);
                 auto& pc = f->precisionClicks;
                 pc.push_back({r.window, static_cast<double>(r.rel) / 240.0 + respawn});
                 std::stable_sort(pc.begin(), pc.end(), [](auto const& a, auto const& b) { return a.time < b.time; });
@@ -1389,9 +1378,9 @@ class $modify(FrameWindowLayer, PlayLayer) {
                 f->lastWindow = r.window;
                 f->lastRelease = r.release;
             }
-            if (r.unknown || shown(band)) {
+            if (r.unknown || shown(r.window)) {
                 spawnMarker(r.id, r.where, r.window, r.unknown, false, r.release);
-                if (!r.unknown) ding(band);
+                if (!r.unknown) ding(r.window);
             } else {
                 removeMarker(r.id);
             }

@@ -179,8 +179,8 @@ namespace cmm {
                 optBool("Measure the bot's macro first (loading screen)", "framecounter.preload", true);
                 optBool("Hide unsure (?) clicks", "framecounter.hideunsure", true);
                 optBool("Hide windows over 10 (like NaN GD)", "framecounter.hide10", true);
-                optBool("Precision (NaNDL L*, goes up with every click)", "framecounter.precision", true);
-                optFloat("Respawn time for precision (s)", "framecounter.respawn", 1.f, 0.f, 5.f, "%.1f");
+                optBool("Precision L* (like NaN GD, goes up with every click)", "framecounter.precision", true);
+                optFloat("Respawn time for precision (s)", "framecounter.respawn", 0.f, 0.f, 5.f, "%.1f");
                 optBool("Ding when you pass a click", "framecounter.sound", true);
                 optFloat("Ding volume", "framecounter.volume", 0.6f, 0.f, 1.f, "%.2f");
             }});

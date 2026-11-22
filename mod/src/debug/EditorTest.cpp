@@ -46,11 +46,76 @@ namespace {
         }
     }
 
+    // The same Jump Keys checks in a normal level.
+    struct PlayRunner : CCNode {
+        int step = 0;
+        float wait = 1.5f, groundY = 0.f;
+        void tick(float dt) {
+            auto pl = PlayLayer::get();
+            if (!pl || !pl->m_player1) return;
+            if ((wait -= dt) > 0.f) return;
+            auto kd = CCKeyboardDispatcher::get();
+            switch (step++) {
+                case 0:
+                    cmm::jumpkeys::setExtra({static_cast<int>(KEY_J)});
+                    cmm::save<bool>("jumpkeys.space", false);
+                    setHack("jumpkeys", true);
+                    setHack("noclip", true);
+                    groundY = pl->m_player1->getPositionY();
+                    kd->dispatchKeyboardMSG(KEY_Space, true, false, 0.0);
+                    wait = 0.25f;
+                    break;
+                case 1:
+                    log::info("EDITORTEST level, Space turned off: {:.0f} above the ground", pl->m_player1->getPositionY() - groundY);
+                    kd->dispatchKeyboardMSG(KEY_Space, false, false, 0.0);
+                    kd->dispatchKeyboardMSG(KEY_J, true, false, 0.0);
+                    wait = 0.25f;
+                    break;
+                case 2:
+                    log::info("EDITORTEST level, extra key J: {:.0f} above the ground (x {:.0f}, on ground {}, mode ship {} ball {})", pl->m_player1->getPositionY() - groundY,
+                        pl->m_player1->getPositionX(), pl->m_player1->m_isOnGround, pl->m_player1->m_isShip, pl->m_player1->m_isBall);
+                    kd->dispatchKeyboardMSG(KEY_J, false, false, 0.0);
+                    wait = 0.8f;
+                    break;
+                case 3:
+                    cmm::save<bool>("jumpkeys.space", true);
+                    groundY = pl->m_player1->getPositionY();
+                    kd->dispatchKeyboardMSG(KEY_Space, true, false, 0.0);
+                    wait = 0.25f;
+                    break;
+                case 4:
+                    log::info("EDITORTEST level, Space turned on: {:.0f} above the ground", pl->m_player1->getPositionY() - groundY);
+                    kd->dispatchKeyboardMSG(KEY_Space, false, false, 0.0);
+                    pl->handleButton(true, 1, true);
+                    groundY = pl->m_player1->getPositionY();
+                    wait = 0.25f;
+                    break;
+                case 5:
+                    log::info("EDITORTEST level, handleButton directly: {:.0f} above the ground; x {:.0f}, progress {}, holding {}, yVel {:.2f}, paused {}, dead {}",
+                        pl->m_player1->getPositionY() - groundY, pl->m_player1->getPositionX(), pl->m_gameState.m_currentProgress,
+                        pl->m_player1->m_holdingButtons[1], pl->m_player1->m_yVelocity, pl->m_isPaused, pl->m_playerDied);
+                    pl->handleButton(false, 1, true);
+                    wait = 0.3f;
+                    break;
+                default:
+                    for (auto& [id, on] : s_saved) setHack(id, on);
+                    cmm::save<std::string>("jumpkeys.extra", s_savedKeys);
+                    cmm::save<bool>("jumpkeys.space", s_savedSpace);
+                    log::info("EDITORTEST DONE");
+                    this->unscheduleAllSelectors();
+                    pl->onQuit();
+                    break;
+            }
+        }
+    };
+    GJGameLevel* s_testLevel = nullptr;
+
     struct Runner : CCNode {
         int step = 0;
         float wait = 0.f;
         float maxX = 0.f;
         bool sawDamage = false;
+        float groundY = 0.f;
 
         void tick(float dt) {
             auto ed = LevelEditorLayer::get();
@@ -113,12 +178,38 @@ namespace {
                     wait = 0.5f;
                     break;
                 case 7: {
-                    bool usedJ = cmm::jumpkeys::handle(KEY_J, true, false);
-                    log::info("EDITORTEST jump key J: handled {}, holding {}", usedJ, ed->m_player1 && ed->m_player1->m_holdingButtons[1]);
-                    cmm::jumpkeys::handle(KEY_J, false, false);
-                    bool blocked = cmm::jumpkeys::handle(KEY_Space, true, false);
-                    log::info("EDITORTEST Space turned off: swallowed {}", blocked);
-                    cmm::jumpkeys::handle(KEY_Space, false, false);
+                    // Jump Keys through the real keyboard path: press, wait,
+                    // see whether the player left the ground.
+                    groundY = ed->m_player1->getPositionY();
+                    CCKeyboardDispatcher::get()->dispatchKeyboardMSG(KEY_Space, true, false, 0.0);
+                    wait = 0.25f;
+                    break;
+                }
+                case 8: {
+                    auto kd = CCKeyboardDispatcher::get();
+                    log::info("EDITORTEST Space turned off: {:.0f} above the ground after pressing", ed->m_player1->getPositionY() - groundY);
+                    kd->dispatchKeyboardMSG(KEY_Space, false, false, 0.0);
+                    kd->dispatchKeyboardMSG(KEY_J, true, false, 0.0);
+                    wait = 0.25f;
+                    break;
+                }
+                case 9: {
+                    auto kd = CCKeyboardDispatcher::get();
+                    log::info("EDITORTEST extra key J: {:.0f} above the ground after pressing", ed->m_player1->getPositionY() - groundY);
+                    kd->dispatchKeyboardMSG(KEY_J, false, false, 0.0);
+                    wait = 0.8f;
+                    break;
+                }
+                case 10: {
+                    cmm::save<bool>("jumpkeys.space", true);
+                    groundY = ed->m_player1->getPositionY();
+                    CCKeyboardDispatcher::get()->dispatchKeyboardMSG(KEY_Space, true, false, 0.0);
+                    wait = 0.25f;
+                    break;
+                }
+                case 11: {
+                    log::info("EDITORTEST Space turned on: {:.0f} above the ground after pressing", ed->m_player1->getPositionY() - groundY);
+                    CCKeyboardDispatcher::get()->dispatchKeyboardMSG(KEY_Space, false, false, 0.0);
                     ui->onStopPlaytest(nullptr);
                     // Slider Limit Bypass: a slider dragged far past its end.
                     auto drag = [&](bool bypass) {
@@ -146,14 +237,21 @@ namespace {
                     wait = 0.3f;
                     break;
                 }
-                default:
-                    for (auto& [id, on] : s_saved) setHack(id, on);
-                    cmm::save<std::string>("jumpkeys.extra", s_savedKeys);
-                    cmm::save<bool>("jumpkeys.space", s_savedSpace);
-                    log::info("EDITORTEST DONE");
+                default: {
+                    // On to a normal level for the same Jump Keys checks.
                     this->unscheduleAllSelectors();
-                    this->removeFromParent();
+                    Loader::get()->queueInMainThread([] {
+                        // A main level (Stereo Madness): a level made from
+                        // editor data here doesn't take input.
+                        auto scene = PlayLayer::scene(GameLevelManager::get()->getMainLevel(1, false), false);
+                        CCDirector::get()->replaceScene(scene);
+                        auto runner = new PlayRunner();
+                        runner->autorelease();
+                        scene->addChild(runner);
+                        runner->schedule(schedule_selector(PlayRunner::tick));
+                    });
                     break;
+                }
             }
         }
     };
@@ -173,8 +271,9 @@ class $modify(EditorTestMenu, MenuLayer) {
         level->retain();
         level->m_levelName = "CMM Editor Test";
         // Flat ground, a spike (object 8) at x 400.
-        level->m_levelString = ZipUtils::compressString("kA2,0,kA4,0;1,8,2,405,3,15;", false, 0, 0);
+        level->m_levelString = ZipUtils::compressString("kA2,0,kA4,0;1,8,2,405,3,15;1,1,2,6000,3,15;", false, 0, 0);
         level->m_levelType = GJLevelType::Editor;
+        s_testLevel = level;
         log::info("EDITORTEST start");
         Loader::get()->queueInMainThread([level] {
             auto scene = LevelEditorLayer::scene(level, false);
