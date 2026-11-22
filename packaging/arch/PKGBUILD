@@ -1,7 +1,7 @@
 # Builds the Arch package from the source tree this file sits in:
 #   cd packaging/arch && makepkg -si
 pkgname=catberry-vskm
-pkgver=1.0.1
+pkgver=1.0.2
 pkgrel=1
 pkgdesc="Vencord plugins for Vesktop: catberry vskm load NAME"
 arch=('x86_64')

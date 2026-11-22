@@ -12,14 +12,24 @@
  * Search results (Ctrl+F): a result that is a reply shows "Message could not
  * be loaded" instead of the message it replies to, because Discord's search
  * doesn't send it. This loads those messages (one at a time, gently), the way
- * Vencord's ValidReply does when you hover one.
+ * Vencord's ValidReply does when you hover one. Each result is also shown in
+ * Discord's compact layout (time, name and text on one line when it fits).
+ *
+ * Pictures: avatars and banners in profiles open full size when clicked
+ * (Vencord's ViewIcons, switched on with this plugin), and right-clicking an
+ * avatar, banner or server icon in the image viewer offers "Download (full
+ * quality)": the picture as stored by Discord, at its original size and
+ * format, saved to your Downloads folder.
  */
 
 import { definePluginSettings } from "@api/Settings";
 import { Logger } from "@utils/Logger";
-import definePlugin, { OptionType } from "@utils/types";
+import { NavContextMenuPatchCallback } from "@api/ContextMenu";
+import definePlugin, { OptionType, PluginNative } from "@utils/types";
 import { findByCodeLazy } from "@webpack";
-import { FluxDispatcher, RestAPI } from "@webpack/common";
+import { FluxDispatcher, Menu, React, RestAPI, showToast, UserStore } from "@webpack/common";
+
+const Native = VencordNative.pluginHelpers.VskmMiscFixes as PluginNative<typeof import("./native")>;
 
 const logger = new Logger("VskmMiscFixes");
 
@@ -35,7 +45,69 @@ const settings = definePluginSettings({
         description: "Search results (Ctrl+F): load the messages that replies answer, instead of \"Message could not be loaded\"",
         default: true,
     },
+    compactSearch: {
+        type: OptionType.BOOLEAN,
+        description: "Search results (Ctrl+F): each result on one line when it fits (Discord's compact layout)",
+        default: true,
+        restartNeeded: true,
+    },
+    pictureDownload: {
+        type: OptionType.BOOLEAN,
+        description: "Right-click an avatar, banner or server icon in the image viewer: Download (full quality)",
+        default: true,
+    },
 });
+
+// ---- pictures at full quality ----
+
+// Discord's picture addresses: /avatars/USER/HASH, /banners/USER/HASH,
+// /icons/SERVER/HASH, /guilds/SERVER/users/USER/(avatars|banners)/HASH.
+const PICTURES: [RegExp, string][] = [
+    [/^\/avatars\/(\d+)\/(\w+)\.\w+$/, "avatar"],
+    [/^\/banners\/(\d+)\/(\w+)\.\w+$/, "banner"],
+    [/^\/icons\/(\d+)\/(\w+)\.\w+$/, "server-icon"],
+    [/^\/guilds\/\d+\/users\/(\d+)\/avatars\/(\w+)\.\w+$/, "server-avatar"],
+    [/^\/guilds\/\d+\/users\/(\d+)\/banners\/(\w+)\.\w+$/, "server-banner"],
+];
+
+// The picture as Discord stores it: its original format (GIF when animated)
+// at its original size (asking for 4096 gives the original, never bigger).
+function fullQuality(src: string): { url: string; name: string; } | null {
+    let u: URL;
+    try { u = new URL(src, location.href); } catch { return null; }
+    if (!/^(cdn|media)\.discordapp\.(com|net)$/.test(u.hostname)) return null;
+    for (const [re, kind] of PICTURES) {
+        const m = re.exec(u.pathname);
+        if (!m) continue;
+        const [, ownerId, hash] = m;
+        const ext = hash.startsWith("a_") ? "gif" : "png";
+        const owner = (kind !== "server-icon" && UserStore.getUser(ownerId)?.username) || ownerId;
+        const url = `https://cdn.discordapp.com${u.pathname.replace(/\.\w+$/, "." + ext)}?size=4096`;
+        return { url, name: `${owner}-${kind}-${hash}.${ext}` };
+    }
+    return null;
+}
+
+const imageMenu: NavContextMenuPatchCallback = (children, props) => {
+    if (!settings.store.pictureDownload || !props?.src) return;
+    const picture = fullQuality(props.src);
+    if (!picture) return;
+    children.push(
+        <Menu.MenuItem
+            id="vskm-download-full"
+            label="Download (full quality)"
+            action={async () => {
+                try {
+                    const path = await Native.downloadPicture(picture.url, picture.name);
+                    showToast({ text: `Saved: ${path}`, variant: "success" });
+                } catch (e: any) {
+                    logger.error("Download failed", e);
+                    showToast({ text: "Could not download the picture", variant: "critical" });
+                }
+            }}
+        />
+    );
+};
 
 // Vesktop's own settings, from its renderer bridge.
 const vesktop = () => (window as any).VesktopNative?.settings as
@@ -115,7 +187,10 @@ async function loadReplies() {
 
 function onSearchFinish(event: any) {
     if (!settings.store.searchReplies || !ReplyStore) return;
-    const messages = (event?.messages ?? []).flat(2);
+    // SEARCH_MESSAGES_SUCCESS: data is a list of results, each with messages
+    // (lists of messages); older Discord sent SEARCH_FINISH with messages.
+    const lists = [event?.messages ?? [], ...(Array.isArray(event?.data) ? event.data.map((d: any) => d?.messages ?? []) : [])];
+    const messages = lists.flat(3);
     for (const m of messages) {
         const ref = m?.message_reference;
         // Replies only (forwards carry their message with them).
@@ -129,11 +204,23 @@ function onSearchFinish(event: any) {
 
 export default definePlugin({
     name: "VskmMiscFixes",
-    description: "Misc Fixes (vskm): screen share sound on Linux works, and replies in search results show what they answer.",
+    description: "Misc Fixes (vskm): screen share sound on Linux, search results on one line with the replies they answer, full-size avatars and banners with Download (full quality).",
     authors: [{ name: "CatDesu", id: 0n }],
     settings,
+    // Avatars and banners in profiles open full size when clicked.
+    dependencies: ["ViewIcons"],
+    contextMenus: { "image-context": imageMenu },
+    fullQuality,
 
     patches: [
+        {
+            // Search results: Discord's compact layout, one line per result.
+            find: "subscribeToComponentDispatch:!1,trackAnnouncementViews:!0",
+            replacement: {
+                match: /animateAvatar:!1,subscribeToComponentDispatch:!1,trackAnnouncementViews:!0/,
+                replace: "$&,compact:$self.compactSearch()",
+            },
+        },
         {
             // Discord's store of replied-to messages (as Vencord's ValidReply).
             find: "ReferencedMessageStore",
@@ -146,10 +233,12 @@ export default definePlugin({
     setReplyStore(store: any) {
         ReplyStore = store;
     },
+    compactSearch: () => settings.store.compactSearch,
     // For checking that the patch above found Discord's store.
     hasReplyStore: () => ReplyStore != null,
     flux: {
         SEARCH_FINISH: onSearchFinish,
+        SEARCH_MESSAGES_SUCCESS: onSearchFinish,
     },
 
     start() {

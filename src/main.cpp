@@ -56,7 +56,7 @@ struct Plugin {
 
 const Plugin kPlugins[] = {
     {"MF", "VskmMiscFixes", "Misc Fixes",
-     "Screen share sound on Linux works (Vesktop's audio share set up for you)."},
+     "Screen share sound on Linux, one-line search results with their replies, full-quality avatar and banner downloads."},
     {"TS", "VskmThemeStealer", "Theme Stealer",
      "Copies Discord's colour theme or a server's look into a theme you name and keep."},
     {"ACA", "VskmAllCharacters", "All Characters In Channel/Category Names",
@@ -332,6 +332,23 @@ int setPlugin(const Plugin *p, bool on) {
         json &entry = plugins[q.vencord];
         if (!entry.is_object()) entry = json::object();
         entry["enabled"] = on;
+    }
+
+    // Misc Fixes switches on Vencord's ViewIcons (full-size avatars and
+    // banners); switch it off again with Misc Fixes if it was off before.
+    {
+        json &plugins = vencord["plugins"];
+        bool viewIconsOn = plugins.contains("ViewIcons") && plugins["ViewIcons"].is_object() &&
+                           plugins["ViewIcons"].value("enabled", false);
+        bool mfOn = false;
+        for (const Plugin &q : kPlugins)
+            if (std::string(q.name) == "MF") mfOn = pluginOn(vencord, q);
+        if (mfOn && !viewIconsOn && !state.contains("viewIconsWasOff")) state["viewIconsWasOff"] = true;
+        if (!mfOn && state.value("viewIconsWasOff", false)) {
+            if (plugins.contains("ViewIcons") && plugins["ViewIcons"].is_object()) plugins["ViewIcons"]["enabled"] = false;
+            state.erase("viewIconsWasOff");
+        }
+        if (!mfOn) state.erase("viewIconsWasOff");
     }
 
     bool anyOn = false;
