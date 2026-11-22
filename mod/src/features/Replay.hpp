@@ -46,4 +46,18 @@ namespace cmm::replay {
     void drawWindowContents();
     // While the bot hands GD a click: that click's position fix, else null.
     Fix const* injectingFix();
+    // Index in botMacro() of the click the bot is handing to GD right now
+    // (SIZE_MAX when none).
+    size_t injectingIndex();
+
+    // The Frame Window Counter's engine replays: play the macro with one
+    // click (and its release; SIZE_MAX for none) moved by `deltaProgress`,
+    // continuing from GD progress `resume` (the rewound checkpoint's).
+    // endMove puts the macro back and continues from `resume`.
+    // Fixes from `fixLimit` on: the unmoved replay (record = true) applies
+    // them and notes how far each moved the player; moved replays get the
+    // same corrections added to wherever the player is (the macro's own
+    // drift is corrected, the moved click's effect isn't undone).
+    void beginMove(size_t press, size_t release, long deltaProgress, unsigned fixLimit, unsigned resume, bool record);
+    void endMove(unsigned resume);
 }

@@ -37,6 +37,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <sstream>
 
 using namespace geode::prelude;
@@ -48,6 +49,15 @@ namespace cmm::replay {
         size_t s_next = 0;           // next input to play
         bool s_injecting = false;
         Fix s_injectingFix;  // the fix of the click the bot is handing to GD right now
+        size_t s_injectingIndex = SIZE_MAX;  // and its index in s_inputs
+        std::vector<Input> s_moveSaved;      // the macro while a moved-click replay runs
+        bool s_moving = false;
+
+        unsigned s_softFrom = 0;             // fixes from here on are relative
+        bool s_recordDeltas = false;
+        struct FixDelta { float dx, dy, drot; double dv; float dx2, dy2, drot2; double dv2; };
+        // fix (by where it puts player 1) -> correction of the unmoved replay
+        std::map<std::pair<float, float>, FixDelta> s_fixDeltas;
         std::string s_levelName;
         int s_levelID = 0;
         char s_name[64] = "my-macro";
@@ -104,11 +114,27 @@ namespace cmm::replay {
 
         // Drop inputs at or after `tick` (respawn while recording) and find
         // where playback should continue from.
+        // When the bot hands a click to GD (the progress before that tick):
+        // at the tick it was stamped with, where your click acted. A click
+        // with no position fix is one the bot added at a practice respawn,
+        // meant for the first tick after it: one tick later.
+        // Option "bot.sooner" (on): clicks with a fix at their stamped tick,
+        // which matches recordings of real play (your presses act partway into
+        // a tick). Off: a tick later, as before 1.1.6 (matches clicks made
+        // exactly between frames).
+        unsigned dueAt(Input const& in) {
+            bool later = in.button != 0 && (!in.fix.ok || !cmm::val<bool>("bot.sooner", true));
+            return later ? in.tick + cmm::cbf::progressPerTick() : in.tick;
+        }
+
         void rewindTo(unsigned tick) {
             if (recording()) {
                 s_inputs.erase(std::remove_if(s_inputs.begin(), s_inputs.end(), [&](auto const& i) { return i.tick >= tick; }), s_inputs.end());
             }
-            s_next = std::lower_bound(s_inputs.begin(), s_inputs.end(), tick, [](Input const& i, unsigned t) { return i.tick < t; }) - s_inputs.begin();
+            unsigned ppt0 = cmm::cbf::progressPerTick();
+            s_next = std::lower_bound(s_inputs.begin(), s_inputs.end(), tick >= ppt0 ? tick - ppt0 : 0, [](Input const& i, unsigned t) { return i.tick < t; }) - s_inputs.begin();
+            while (s_next < s_inputs.size() && dueAt(s_inputs[s_next]) < tick) s_next++;
+
             s_waiting.clear();
             s_pendingFixes.clear();
             s_applyFixesStat = 0;
@@ -195,6 +221,37 @@ namespace cmm::replay {
     }
 
     Fix const* injectingFix() { return s_injecting && s_injectingFix.ok ? &s_injectingFix : nullptr; }
+    size_t injectingIndex() { return s_injecting ? s_injectingIndex : SIZE_MAX; }
+
+    void beginMove(size_t press, size_t release, long deltaProgress, unsigned fixLimit, unsigned resume, bool record) {
+        if (recording()) return;
+        if (!s_moving) s_moveSaved = s_inputs;
+        else s_inputs = s_moveSaved;
+        s_moving = true;
+        unsigned ppt = cmm::cbf::progressPerTick();
+        auto shift = [&](size_t i) {
+            if (i >= s_inputs.size()) return;
+            long t = static_cast<long>(s_inputs[i].tick) + deltaProgress;
+            s_inputs[i].tick = static_cast<unsigned>(std::max(0L, t));
+        };
+        shift(press);
+        shift(release);
+        s_softFrom = fixLimit;
+        s_recordDeltas = record;
+        if (record) s_fixDeltas.clear();
+        std::stable_sort(s_inputs.begin(), s_inputs.end(), [](auto const& a, auto const& b) { return a.tick < b.tick; });
+        (void)ppt;
+        rewindTo(resume);
+    }
+
+    void endMove(unsigned resume) {
+        if (s_moving) {
+            s_inputs = std::move(s_moveSaved);
+            s_moveSaved.clear();
+            s_moving = false;
+        }
+        rewindTo(resume);
+    }
 
     std::vector<std::string> macroNames() {
         refreshFiles();
@@ -254,6 +311,7 @@ namespace cmm::replay {
             size_t fixes = std::count_if(s_inputs.begin(), s_inputs.end(), [](Input const& i) { return i.fix.ok; });
             if (fixes == 0) ImGui::TextDisabled("Old macro: no position fixes (record it again for full accuracy)");
             else if (playing()) ImGui::TextDisabled("Position fixes: %zu (%u used this attempt)", fixes, s_applyFixesStat);
+            optBool("Hand clicks over a tick sooner (real recordings)", "bot.sooner", true);
         }
         if (recording()) ImGui::TextDisabled("Finishing the level in practice saves it automatically.");
         ImGui::Separator();
@@ -402,6 +460,31 @@ class $modify(ReplayGameLayer, GJBaseGameLayer) {
             while (s_nextFix < s_inputs.size() && s_inputs[s_nextFix].tick + 2 * ppt <= now) {
                 auto const& in = s_inputs[s_nextFix++];
                 if (!in.fix.ok || in.tick + 2 * ppt != now) continue;
+                // A moved-click replay: past the move, corrections are relative.
+                if (s_moving && in.tick + 2 * ppt > s_softFrom) {
+                    auto p1 = m_player1;
+                    auto p2 = in.fix.ok2 ? m_player2 : nullptr;
+                    if (s_recordDeltas) {
+                        FixDelta d{};
+                        if (p1) { d.dx = in.fix.x - p1->m_position.x; d.dy = in.fix.y - p1->m_position.y; d.drot = in.fix.rotation - p1->getRotation(); d.dv = in.fix.yVelocity - p1->m_yVelocity; }
+                        if (p2) { d.dx2 = in.fix.x2 - p2->m_position.x; d.dy2 = in.fix.y2 - p2->m_position.y; d.drot2 = in.fix.rotation2 - p2->getRotation(); d.dv2 = in.fix.yVelocity2 - p2->m_yVelocity; }
+                        s_fixDeltas[{in.fix.x, in.fix.y}] = d;
+                    } else {
+                        auto it = s_fixDeltas.find({in.fix.x, in.fix.y});
+                        if (it == s_fixDeltas.end()) continue;
+                        auto add = [](PlayerObject* p, float dx, float dy, float drot, double dv) {
+                            if (!p || p->m_isDead) return;
+                            p->m_position = CCPoint(p->m_position.x + dx, p->m_position.y + dy);
+                            p->m_lastPosition = p->m_position;
+                            p->setPosition(p->m_position);
+                            p->setRotation(p->getRotation() + drot);
+                            p->m_yVelocity += dv;
+                        };
+                        add(p1, it->second.dx, it->second.dy, it->second.drot, it->second.dv);
+                        add(p2, it->second.dx2, it->second.dy2, it->second.drot2, it->second.dv2);
+                        continue;
+                    }
+                }
                 auto put = [now](PlayerObject* p, float x, float y, float rotation, double yVel, double xVel) {
                     if (!p || p->m_isDead) return;
                     float moved = std::hypot(p->m_position.x - x, p->m_position.y - y);
@@ -418,14 +501,20 @@ class $modify(ReplayGameLayer, GJBaseGameLayer) {
                 s_applyFixesStat++;
                 if (in.button == 0) cmm::fw::noteBotFix(in.fix, now);
             }
-            while (s_next < s_inputs.size() && s_inputs[s_next].tick + ppt <= now) {
+            // A click goes to GD at the start of the tick it was stamped with:
+            // that's when your own click acted (one tick later, as before
+            // 1.1.6, every bot click came a tick late: the fixes kept moving
+            // the wave 4.8-9.6 units and it died on Slaughterhouse).
+            while (s_next < s_inputs.size() && dueAt(s_inputs[s_next]) <= now) {
                 auto const& in = s_inputs[s_next++];
                 if (in.button == 0) continue;  // a respawn's fix only, no click
                 s_injecting = true;
                 s_injectingFix = in.fix;
+                s_injectingIndex = s_next - 1;
                 this->handleButton(in.down, in.button, !in.player2);
                 s_injecting = false;
                 s_injectingFix = {};
+                s_injectingIndex = SIZE_MAX;
             }
         }
         GJBaseGameLayer::processCommands(dt, isHalfTick, isLastTick);

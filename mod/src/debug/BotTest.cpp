@@ -33,6 +33,7 @@ namespace {
     unsigned s_seed = 12345;
     GJGameLevel* s_level = nullptr;
     std::vector<std::pair<std::string, bool>> s_saved;
+    bool s_oldSooner = true;
     float s_oldFps = 240.f;
     int s_oldMaxDeaths = 0;
     float s_oldMinAcc = 0.f;
@@ -109,6 +110,7 @@ namespace {
     void finish() {
         for (auto& [id, on] : s_saved) setHack(id, on);
         s_saved.clear();
+        cmm::val<bool>("bot.sooner", true) = s_oldSooner;
         cmm::val<float>("fpsbypass.value", 240.f) = s_oldFps;
         cmm::val<int>("noclip.maxdeaths", 0) = s_oldMaxDeaths;
         cmm::val<float>("noclip.minacc", 0.f) = s_oldMinAcc;
@@ -248,6 +250,9 @@ class $modify(BotTestMenu, MenuLayer) {
         s_active = true;
         s_run = 0;
         log::info("BOTTEST start ({})", s_keys ? "clicks through GD's keyboard handler" : "clicks handed to GD directly");
+        // Its clicks land exactly between frames: the bot's later timing.
+        s_oldSooner = cmm::val<bool>("bot.sooner", true);
+        cmm::val<bool>("bot.sooner", true) = false;
         Loader::get()->queueInMainThread([] {
             CCDirector::get()->replaceScene(PlayLayer::scene(s_level, false));
             Loader::get()->queueInMainThread([] {

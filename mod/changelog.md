@@ -1,3 +1,10 @@
+# v1.1.6
+
+- Frame Window Counter, loading screen: clicks are measured with the game itself. The level is rewound to a practice checkpoint and the macro played with the click moved, so moving objects, triggers and portals are exactly right (the hidden player saw moving spikes where they stood at that moment). Slaughterhouse: 191 of 192 clicks measured, none unsure (before: "?" and windows of 4096 and 8192). Takes longer: about 2 minutes for 60% of Slaughterhouse. Windows there are whole frames (moves up to 128 frames each way; past 10 it's "10+" anyway).
+- Frame Window Counter while playing (no loading screen): a re-run that stops (a portal, the end) no longer counts as surviving. That gave windows of thousands of frames.
+- Replay Bot: clicks were handed to GD one tick late. On Slaughterhouse every wave click needed a 4.8-9.6 unit fix and the bot died at 53%; now it plays the whole SLH TEST macro (big fixes 95 -> 9). New option "Hand clicks over a tick sooner (real recordings)", on; turn it off for clicks made exactly between frames (as before). Clicks the bot adds at a practice respawn keep their old timing.
+- Engine replays don't count in your stats (attempts, jumps).
+
 # v1.1.5
 
 - Jump Keys: adding a key never worked: the "press a key" window closed itself right away, so no key was saved. Fixed, and adding a key turns Jump Keys on. Tested through GD's keyboard handler in a level and in a playtest: the extra key jumps, Space turned off doesn't, Space turned back on does.

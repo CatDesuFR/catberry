@@ -1,3 +1,4 @@
+#include <Geode/modify/GameStatsManager.hpp>
 #include "Sim.hpp"
 #include <Geode/modify/EffectGameObject.hpp>
 #include <Geode/modify/EnhancedGameObject.hpp>
@@ -13,6 +14,7 @@ namespace cmm::sim {
         bool s_simulating = false;
         bool s_died = false;
         bool s_stopped = false;
+        bool s_engine = false, s_engineDied = false, s_engineEnded = false;
         PlayerObject* s_player = nullptr;
         float s_stepDt = 0.25f;
 
@@ -135,6 +137,12 @@ namespace cmm::sim {
         return false;
     }
 
+    void beginEngine() { s_engine = true; s_engineDied = s_engineEnded = false; }
+    void endEngine() { s_engine = false; }
+    bool engineRunning() { return s_engine; }
+    bool engineDied() { return s_engineDied; }
+    bool engineEnded() { return s_engineEnded; }
+
     bool simulating() { return s_simulating; }
     bool stopped() { return s_stopped; }
     void clearStopped() { s_stopped = false; }
@@ -150,6 +158,11 @@ class $modify(SimPlayLayer, PlayLayer) {
     }
 
     void destroyPlayer(PlayerObject* player, GameObject* object) {
+        if (s_engine) {
+            // An engine replay: note it, don't die (noclip and the rest never see it).
+            if (object != m_anticheatSpike) s_engineDied = true;
+            return;
+        }
         if (s_simulating) {
             if (player == s_player) s_died = true;
             return;
@@ -158,6 +171,7 @@ class $modify(SimPlayLayer, PlayLayer) {
     }
 
     void levelComplete() {
+        if (s_engine) { s_engineEnded = true; return; }
         if (s_simulating) { s_stopped = true; return; }
         PlayLayer::levelComplete();
     }
@@ -200,6 +214,14 @@ class $modify(SimGameLayer, GJBaseGameLayer) {
     void lightningFlash(CCPoint from, CCPoint to, ccColor3B c, float lw, float d, int disp, bool flash, float op) {
         if (s_simulating) return;
         GJBaseGameLayer::lightningFlash(from, to, c, lw, d, disp, flash, op);
+    }
+};
+
+// Engine replays don't count in your stats (attempts, jumps...).
+class $modify(SimStats, GameStatsManager) {
+    void incrementStat(char const* key, int amount) {
+        if (s_engine) return;
+        GameStatsManager::incrementStat(key, amount);
     }
 };
 

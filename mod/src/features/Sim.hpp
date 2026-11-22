@@ -31,4 +31,14 @@ namespace cmm::sim {
     bool stopped();  // the last run hit something we can't simulate
     void clearStopped();
     float stepDt();  // dt GD passes per physics tick
+
+    // Engine replays: the real level, rewound to a practice checkpoint and
+    // run by the game itself (the Frame Window Counter's loading screen).
+    // While one runs, a death is only noted (no death, no respawn) and the
+    // level end only stops it.
+    void beginEngine();
+    void endEngine();
+    bool engineRunning();
+    bool engineDied();   // the player died in this replay
+    bool engineEnded();  // the level ended in this replay
 }

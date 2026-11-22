@@ -285,7 +285,8 @@ namespace cmm::fw::own {
         bool s_ringReady = false;
 
         // fix: the bot's position fix for this click (bot clicks only)
-        struct Click { int64_t act; bool down; replay::Fix fix = {}; };
+        // macroIndex: the click's place in the bot's macro (bot clicks only)
+        struct Click { int64_t act; bool down; replay::Fix fix = {}; size_t macroIndex = SIZE_MAX; };
         std::deque<Click> s_clicks;        // recent clicks of player 1
         bool s_held = false;               // player 1's jump button is down
         // The bot's regular fixes (no click): put back at the start of `tick`.
@@ -310,6 +311,9 @@ namespace cmm::fw::own {
             int slot;               // sim slot holding the kept state
             int nearSlot = -1;      // a kept state just before the click (for later moves), or -1
             int64_t nearBase = -1;  // tick of that state
+            // The click (and a press's release) in the bot's macro, for engine
+            // replays; SIZE_MAX when not known.
+            size_t pressIdx = SIZE_MAX, releaseIdx = SIZE_MAX;
             int gHi = 0;            // doubling search: first offset found that dies (0 = none yet)
             CCPoint where;
             // 0 = as it was, 1 = later, 2 = earlier, 3 = sub-tick at the late
@@ -498,7 +502,11 @@ namespace cmm::fw::own {
                     e++;
                 }
                 if (alive && done < 1.0 - 1e-6) alive = sim::stepPart(pl, p, static_cast<float>(1.0 - done));
-                if (sim::stopped()) { alive = true; break; }
+                // The re-run can't go on (a portal, the end): it can't tell
+                // whether a moved click survives, so only the click where it
+                // really was counts as surviving. (Counting every stop as
+                // surviving gave windows of thousands of frames.)
+                if (sim::stopped()) { alive = offset == 0.0; break; }
             }
             sim::restoreTouched();
             for (auto const& sv : saved) {
@@ -511,15 +519,138 @@ namespace cmm::fw::own {
 
         constexpr int kBisect = 6;  // halvings per edge: 1/64 of a tick
 
+        // Pre-measuring a macro behind a loading screen (see below).
+        enum class Pre { Off, Loading, Ready };
+        Pre s_pre = Pre::Off;
+
+        // ---- engine replays (the loading screen) ----
+        // While the loading screen runs the bot's macro, a practice checkpoint
+        // (the whole level: moving objects, triggers, both players) is kept
+        // every kCpEvery ticks. A click is then measured by rewinding to one,
+        // playing the macro with the click moved, and letting the game itself
+        // say whether the player dies. Exact where the hidden player isn't
+        // (moving objects, portals), but slower, so only on the loading screen
+        // and only up to kEngineRange ticks each way (past 10 it's "10+").
+        constexpr int kCpEvery = 30;
+        constexpr int kEngineRange = 128;
+        // What a practice checkpoint doesn't keep of a player (GD gets it
+        // right on a respawn by starting fresh; a rewind has to put it back).
+        struct PlayerExtra {
+            bool ok = false;
+            std::map<int, bool> holding;
+            bool jumpBuffered, stateJumpBuffered, onGround, onGround2, onGround3, onGround4, onSlope, wasOnSlope;
+            double yVel, lastJumpTime, lastFlipTime;
+            float rotation;
+            bool touchedRing, ringJumped;
+        };
+        PlayerExtra extraOf(PlayerObject* p) {
+            PlayerExtra e;
+            if (!p) return e;
+            e.ok = true;
+            e.holding = p->m_holdingButtons;
+            e.jumpBuffered = p->m_jumpBuffered;
+            e.stateJumpBuffered = p->m_stateJumpBuffered;
+            e.onGround = p->m_isOnGround; e.onGround2 = p->m_isOnGround2; e.onGround3 = p->m_isOnGround3; e.onGround4 = p->m_isOnGround4;
+            e.onSlope = p->m_isOnSlope; e.wasOnSlope = p->m_wasOnSlope;
+            e.yVel = p->m_yVelocity;
+            e.lastJumpTime = p->m_lastJumpTime;
+            e.lastFlipTime = p->m_lastFlipTime;
+            e.rotation = p->getRotation();
+            e.touchedRing = p->m_touchedRing;
+            e.ringJumped = p->m_ringJumpedSincePress;
+            return e;
+        }
+        void putExtra(PlayerObject* p, PlayerExtra const& e) {
+            if (!p || !e.ok) return;
+            p->m_holdingButtons = e.holding;
+            p->m_jumpBuffered = e.jumpBuffered;
+            p->m_stateJumpBuffered = e.stateJumpBuffered;
+            p->m_isOnGround = e.onGround; p->m_isOnGround2 = e.onGround2; p->m_isOnGround3 = e.onGround3; p->m_isOnGround4 = e.onGround4;
+            p->m_isOnSlope = e.onSlope; p->m_wasOnSlope = e.wasOnSlope;
+            p->m_yVelocity = e.yVel;
+            p->m_lastJumpTime = e.lastJumpTime;
+            p->m_lastFlipTime = e.lastFlipTime;
+            p->setRotation(e.rotation);
+            p->m_touchedRing = e.touchedRing;
+            p->m_ringJumpedSincePress = e.ringJumped;
+        }
+        struct Cp { Ref<CheckpointObject> cp; unsigned progress; PlayerExtra p1, p2; };
+        std::map<int64_t, Cp> s_cps;   // own tick (its start) -> checkpoint
+        unsigned s_nowProgress = 0;    // progress of the real moment to come back to
+        bool s_engineUsed = false;     // a replay ran since the real moment was kept
+
+        // Back to a checkpoint: the level, and the players where they were
+        // (GD itself puts them back during a practice respawn, not here).
+        // GD's own practice respawn does it right (it resets every object
+        // and rebuilds the moving ones from the checkpoint; loading the
+        // checkpoint alone left moving spikes where they were): respawn at
+        // our checkpoint as if in practice mode, then undo what a respawn
+        // counts (attempts) and put back the held buttons.
+        void restore(PlayLayer* pl, Cp const& c) {
+            int attempts = pl->m_attempts;
+            int levelAttempts = pl->m_level ? pl->m_level->m_attempts.value() : 0;
+            bool practice = pl->m_isPracticeMode;
+            pl->m_isPracticeMode = true;
+            pl->m_checkpointArray->addObject(c.cp);
+            pl->resetLevel();
+            pl->m_checkpointArray->removeObject(c.cp, false);
+            pl->m_isPracticeMode = practice;
+            pl->m_attempts = attempts;
+            if (pl->m_level) pl->m_level->m_attempts = levelAttempts;
+            putExtra(pl->m_player1, c.p1);
+            putExtra(pl->m_player2, c.p2);
+            if (auto engine = FMODAudioEngine::sharedEngine(); engine && engine->m_backgroundMusicChannel) engine->m_backgroundMusicChannel->setPaused(true);
+        }
+
+        bool engineReady(Job const& job) {
+            if (s_pre != Pre::Loading || s_cps.empty()) return false;
+            return job.isRelease ? job.releaseIdx != SIZE_MAX : job.pressIdx != SIZE_MAX;
+        }
+
+        bool engineLeg(PlayLayer* pl, Job const& job, double offset) {
+            int off = static_cast<int>(std::lround(offset));
+            int64_t movedFrom = job.act + std::min(0, off);
+            auto it = s_cps.upper_bound(movedFrom - 2);
+            if (it == s_cps.begin()) return leg(pl, job, offset);
+            --it;
+            int64_t K = it->first;
+            unsigned ppt = std::max(1u, cbf::progressPerTick());
+            int64_t horizon = std::max<int64_t>(job.horizon, job.act + std::max(0, off) + 12);
+            sim::beginEngine();
+            s_engineUsed = true;
+            restore(pl, it->second);
+            // A respawn can land a tick before the checkpoint: go by where it landed.
+            unsigned P = pl->m_gameState.m_currentProgress;
+            K -= (static_cast<int64_t>(it->second.progress) - static_cast<int64_t>(P)) / static_cast<int64_t>(ppt);
+            unsigned fixLimit = P + static_cast<unsigned>(std::max<int64_t>(0, movedFrom - K) * ppt);
+            replay::beginMove(job.isRelease ? SIZE_MAX : job.pressIdx, job.releaseIdx, static_cast<long>(off) * static_cast<long>(ppt), fixLimit, P, off == 0);
+            // By the level's progress, not by updates: the first update after a
+            // respawn doesn't move the level on.
+            bool alive = true;
+            for (int guard = 0; guard < (horizon - K) * 2 + 16; guard++) {
+                int64_t t = K + (static_cast<int64_t>(pl->m_gameState.m_currentProgress) - static_cast<int64_t>(P)) / static_cast<int64_t>(ppt);
+                if (t >= horizon) break;
+                static_cast<GJBaseGameLayer*>(pl)->update(1.f / 240.f);
+                if (sim::engineDied()) { alive = false; break; }
+                if (sim::engineEnded()) break;
+            }
+            sim::endEngine();
+            replay::endMove(s_nowProgress);
+            return alive;
+        }
+
         // Works on the oldest ready job for up to `budgetMs`.
         void work(PlayLayer* pl, float budgetMs) {
             auto start = std::chrono::steady_clock::now();
             auto elapsed = [&] { return std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - start).count(); };
-            int r = range();
             while (elapsed() < budgetMs) {
                 auto it = std::find_if(s_jobs.begin(), s_jobs.end(), [](Job const& j) { return j.horizon >= 0 && j.phase < 5; });
                 if (it == s_jobs.end()) return;
                 auto& job = *it;
+                // The real game where it can (loading screen), else the hidden player.
+                bool engine = engineReady(job);
+                int r = engine ? std::min(range(), kEngineRange) : range();
+                auto leg = [&](PlayLayer* pl, Job const& j, double off) { return engine ? engineLeg(pl, j, off) : own::leg(pl, j, off); };
                 switch (job.phase) {
                     case 0:
                         if (!leg(pl, job, 0.0)) { job.unknown = true; job.phase = 5; }
@@ -548,7 +679,8 @@ namespace cmm::fw::own {
                     case 2: {  // earlier: a whole tick at a time, then doubling + narrowing down
                         // The furthest back the click can go: the kept state, and
                         // for a release, just after its press.
-                        int minOff = static_cast<int>(std::max<int64_t>(job.base - job.act + 1, -r));
+                        int64_t oldest = engine ? s_cps.begin()->first + 2 : job.base;
+                        int minOff = static_cast<int>(std::max<int64_t>(oldest - job.act + 1, -r));
                         if (job.pressAt >= 0) minOff = std::max(minOff, static_cast<int>(job.pressAt - job.act + 1));
                         bool more = false;
                         if (job.earliest > minOff && -job.earliest < kLinear) {
@@ -578,8 +710,16 @@ namespace cmm::fw::own {
                         break;
                     }
                     case 3: {
+                        // Engine replays only do whole ticks: the fraction comes
+                        // from the hidden player, if it agrees on the two ticks.
+                        if (engine && job.steps == 0 && !(own::leg(pl, job, job.lo) && !own::leg(pl, job, job.hi))) {
+                            job.right = job.lo + 0.5;
+                            job.phase = 4;
+                            job.steps = -1;
+                            break;
+                        }
                         double mid = (job.lo + job.hi) / 2.0;
-                        if (leg(pl, job, mid)) job.lo = mid;
+                        if (engine ? own::leg(pl, job, mid) : leg(pl, job, mid)) job.lo = mid;
                         else job.hi = mid;
                         if (++job.steps >= kBisect) {
                             job.right = job.lo;
@@ -591,15 +731,20 @@ namespace cmm::fw::own {
                     case 4: {
                         // Early edge: between the tick before the first that survives and it.
                         if (job.steps == -1 || job.steps == 0) {
-                            bool canGoEarlier = job.act + job.earliest - 1 >= job.base &&
+                            bool canGoEarlier = job.act + job.earliest - 1 >= (engine ? s_cps.begin()->first + 2 : job.base) &&
                                                 job.act + job.earliest - 1 > job.pressAt;
                             if (job.earliest <= -r || !canGoEarlier) { job.phase = 5; break; }
                             job.lo = job.earliest;      // survives
                             job.hi = job.earliest - 1;  // dies
                             job.steps = 1;
+                            if (engine && !(own::leg(pl, job, job.lo) && !own::leg(pl, job, job.hi))) {
+                                job.left = job.lo - 0.5;
+                                job.phase = 5;
+                                break;
+                            }
                         }
                         double mid = (job.lo + job.hi) / 2.0;
-                        if (leg(pl, job, mid)) job.lo = mid;
+                        if (engine ? own::leg(pl, job, mid) : leg(pl, job, mid)) job.lo = mid;
                         else job.hi = mid;
                         if (++job.steps > kBisect) {
                             job.left = job.lo;
@@ -620,7 +765,8 @@ namespace cmm::fw::own {
                         else if (window > 10.0) st.over10++;
                     }
                     s_done.push_back({job.id, job.where, window, job.unknown, job.act - s_attemptStart, job.isRelease});
-                    log::debug("Frame window ({} {} at tick {}, horizon +{}): {}", kModeNames[job.mode], job.isRelease ? "release" : "press", job.act, job.horizon - job.act,
+                    log::debug("Frame window ({} {} at tick {}, horizon +{}, {}): {}", kModeNames[job.mode], job.isRelease ? "release" : "press", job.act, job.horizon - job.act,
+                        engineReady(job) ? "engine" : "hidden player",
                         job.unknown ? std::string("? (can't reproduce)") : fmt::format("{:.2f} (from {:+.2f} to {:+.2f})", window, job.left, job.right));
                     releaseSlot(job.slot);
                     if (job.nearSlot >= 0) releaseSlot(job.nearSlot);
@@ -630,8 +776,6 @@ namespace cmm::fw::own {
         }
 
         // ---- pre-measuring a macro behind a loading screen ----
-        enum class Pre { Off, Loading, Ready };
-        Pre s_pre = Pre::Off;
         // (attempt tick * 2 + is release) -> (window, unknown)
         std::map<int64_t, std::pair<double, bool>> s_table;
         int s_preTotal = 0;      // presses in the macro
@@ -702,6 +846,12 @@ namespace cmm::fw::own {
                 }
             }
             job.act = act;
+            for (auto c = s_clicks.rbegin(); c != s_clicks.rend(); ++c) {
+                if (c->act == act && c->down == !release) {
+                    (release ? job.releaseIdx : job.pressIdx) = c->macroIndex;
+                    break;
+                }
+            }
             job.base = base;
             job.slot = slot;
             job.nearSlot = nearSlot;
@@ -731,7 +881,11 @@ namespace cmm::fw::own {
 
         void onRelease(PlayLayer* pl, int64_t act) {
             for (auto it = s_jobs.rbegin(); it != s_jobs.rend(); ++it) {
-                if (!it->isRelease && it->release < 0 && it->act <= act) { it->release = act; break; }
+                if (!it->isRelease && it->release < 0 && it->act <= act) {
+                    it->release = act;
+                    if (!s_clicks.empty() && !s_clicks.back().down) it->releaseIdx = s_clicks.back().macroIndex;
+                    break;
+                }
             }
             if (!releaseCounts(pl)) return;
             s_preTotal += s_pre == Pre::Loading ? 1 : 0;  // the loading screen counts it now
@@ -784,7 +938,7 @@ class $modify(FrameWindowGameLayer, GJBaseGameLayer) {
     }
 
     void processCommands(float dt, bool isHalfTick, bool isLastTick) {
-        if (isMain() && own::active() && !cmm::sim::simulating()) {
+        if (isMain() && own::active() && !cmm::sim::simulating() && !cmm::sim::engineRunning()) {
             auto pl = static_cast<PlayLayer*>(static_cast<GJBaseGameLayer*>(this));
             unsigned progress = m_gameState.m_currentProgress;
             if (progress != own::s_lastProgress) {
@@ -817,7 +971,7 @@ class $modify(FrameWindowGameLayer, GJBaseGameLayer) {
 
     void handleButton(bool down, int button, bool isPlayer1) {
         GJBaseGameLayer::handleButton(down, button, isPlayer1);
-        if (!isMain() || !own::active() || button != 1 || cmm::forPlayer2(!isPlayer1) || cmm::sim::simulating()) return;
+        if (!isMain() || !own::active() || button != 1 || cmm::forPlayer2(!isPlayer1) || cmm::sim::simulating() || cmm::sim::engineRunning()) return;
         auto pl = static_cast<PlayLayer*>(static_cast<GJBaseGameLayer*>(this));
         if (pl->m_playerDied || pl->m_isPaused) return;
         // A press while already holding, or a release that ends nothing (a
@@ -827,7 +981,7 @@ class $modify(FrameWindowGameLayer, GJBaseGameLayer) {
         int64_t act = own::s_inStep ? own::s_tick : own::s_tick + 2;
         cmm::replay::Fix fix;
         if (auto f = cmm::replay::injectingFix(); f && own::s_inStep) fix = *f;
-        own::s_clicks.push_back({act, down, fix});
+        own::s_clicks.push_back({act, down, fix, own::s_inStep ? cmm::replay::injectingIndex() : SIZE_MAX});
         if (down) own::s_stats[own::modeOf(m_player1)].presses++;
         if (down) own::onPress(pl, act);
         else own::onRelease(pl, act);
@@ -837,7 +991,7 @@ class $modify(FrameWindowGameLayer, GJBaseGameLayer) {
 class $modify(FrameWindowEnhanced, EnhancedGameObject) {
     bool hasBeenActivatedByPlayer(PlayerObject* player) {
         bool used = EnhancedGameObject::hasBeenActivatedByPlayer(player);
-        if (!used && own::active() && !cmm::sim::simulating()) {
+        if (!used && own::active() && !cmm::sim::simulating() && !cmm::sim::engineRunning()) {
             auto pl = PlayLayer::get();
             if (pl && player == pl->m_player1) own::s_activations.push_back({this, own::s_tick});
         }
@@ -980,13 +1134,37 @@ class $modify(FrameWindowLayer, PlayLayer) {
                 own::s_preStepping = false;
                 break;
             }
+            // A practice checkpoint every so often, for the engine replays.
+            if (own::s_tick % own::kCpEvery == 0 && !own::s_cps.contains(own::s_tick + 1)) {
+                if (auto cp = this->createCheckpoint()) own::s_cps[own::s_tick + 1] = {cp, m_gameState.m_currentProgress, own::extraOf(m_player1), own::extraOf(m_player2)};
+            }
             static_cast<GJBaseGameLayer*>(this)->update(1.f / 240.f);
+        }
+        // Checkpoints no click can rewind to any more.
+        {
+            int64_t keep = own::s_tick;
+            for (auto const& j : own::s_jobs) keep = std::min(keep, j.act);
+            keep -= own::kEngineRange + 2 * own::kCpEvery;
+            while (own::s_cps.size() > 1 && own::s_cps.begin()->first < keep) own::s_cps.erase(own::s_cps.begin());
         }
         // A press with no next one: it has to survive half a second.
         for (auto& j : own::s_jobs) {
             if (j.horizon < 0 && (!own::s_preStepping || own::s_tick > j.act + 480)) j.horizon = j.act + 120;
         }
+        // Engine replays rewind the level: keep the real moment and come back.
+        own::Cp now{this->createCheckpoint(), m_gameState.m_currentProgress, own::extraOf(m_player1), own::extraOf(m_player2)};
+        own::s_nowProgress = m_gameState.m_currentProgress;
+        own::s_engineUsed = false;
         own::work(this, std::max(2.f, 16.f - elapsed()));
+        if (own::s_engineUsed && now.cp) {
+            cmm::sim::beginEngine();
+            own::restore(this, now);
+            cmm::sim::endEngine();
+            cmm::replay::endMove(m_gameState.m_currentProgress);  // the bot carries on from where the respawn landed
+            if (auto engine = FMODAudioEngine::sharedEngine(); engine && engine->m_backgroundMusicChannel) {
+                engine->m_backgroundMusicChannel->setPaused(true);
+            }
+        }
         for (auto const& r : own::s_done) {
             own::s_table[r.rel * 2 + (r.release ? 1 : 0)] = {r.window, r.unknown};
             own::s_preMeasured++;
@@ -1029,6 +1207,7 @@ class $modify(FrameWindowLayer, PlayLayer) {
         // Back to how GD has it while playing ("Show cursor in-game" option).
         if (!GameManager::get()->getGameVariable("0024")) PlatformToolbox::hideCursor();
         f->loading = nullptr;
+        own::s_cps.clear();  // only the loading screen rewinds
         own::s_pre = keep ? own::Pre::Ready : own::Pre::Off;
         own::s_preAsking = false;
         own::s_preDied = false;
@@ -1256,8 +1435,9 @@ class $modify(FrameWindowLayer, PlayLayer) {
     void resetLevel() {
         // The macro died while fast-forwarding: GD wants to respawn on its own,
         // but the loading screen is still up (measuring the rest, or asking).
-        if (own::s_pre == own::Pre::Loading && own::s_preDied) return;
+        if (own::s_pre == own::Pre::Loading && own::s_preDied && !cmm::sim::engineRunning()) return;
         PlayLayer::resetLevel();
+        if (cmm::sim::engineRunning()) return;  // an engine replay's rewind, not a new attempt
         own::s_attemptStart = own::s_tick;
         // Clicks waiting to be measured belong to the attempt that ended.
         for (auto& j : own::s_jobs) {
