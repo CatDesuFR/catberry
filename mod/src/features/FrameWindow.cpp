@@ -1032,10 +1032,7 @@ class $modify(FrameWindowLayer, PlayLayer) {
 
     bool macroForThisLevel() {
         if (!cmm::on("bot.play") || cmm::replay::botMacro().empty() || !m_level) return false;
-        int id = m_level->m_levelID.value();
-        if (cmm::replay::botLevelID() != 0 && id != 0) return cmm::replay::botLevelID() == id;
-        auto const& name = cmm::replay::botLevel();
-        return name.empty() || name == std::string(m_level->m_levelName);
+        return cmm::replay::macroFits(this);
     }
 
     void startGame() {
@@ -1353,7 +1350,11 @@ class $modify(FrameWindowLayer, PlayLayer) {
 
         // A replay Click Before Frames can't use here: say why.
         std::string note;
-        if (!cmm::cbf::replayName().empty() && cmm::on("cbf") && !cmm::cbf::replayUsable(this)) {
+        // The bot's macro is for another level: no loading screen here, say why.
+        if (cmm::on("bot.play") && !cmm::replay::botMacro().empty() && !cmm::replay::macroFits(this)) {
+            note = fmt::format("Bot macro is for \"{}\": not played or measured here",
+                cmm::replay::botLevel().empty() ? "another level" : cmm::replay::botLevel());
+        } else if (!cmm::cbf::replayName().empty() && cmm::on("cbf") && !cmm::cbf::replayUsable(this)) {
             note = fmt::format("CBF replay \"{}\" is for {}", cmm::cbf::replayName(),
                 cmm::cbf::replayLevel().empty() ? "another level" : cmm::cbf::replayLevel());
         }

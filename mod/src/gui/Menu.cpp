@@ -15,7 +15,7 @@ namespace cmm::predict { void drawOverlay(); }
 
 using namespace geode::prelude;
 
-namespace cmm::jumpkeys { std::vector<int> extra(); void setExtra(std::vector<int> const& keys); }
+namespace cmm::jumpkeys { std::vector<std::pair<int, int>> extra(); void setExtra(std::vector<std::pair<int, int>> const& keys); }
 
 namespace cmm::gui {
     namespace {
@@ -499,7 +499,16 @@ namespace cmm::gui {
         if (keys.empty()) ImGui::TextDisabled("  none yet");
         for (size_t i = 0; i < keys.size(); i++) {
             ImGui::PushID(static_cast<int>(i));
-            ImGui::Text("  %s", keyName(keys[i]).c_str());
+            // P1 / P2: which player the key jumps for (click to switch).
+            bool p2 = keys[i].second == 2;
+            ImGui::PushStyleColor(ImGuiCol_Button, p2 ? ImVec4(0.85f, 0.35f, 0.35f, 1.f) : ImVec4(0.30f, 0.55f, 0.95f, 1.f));
+            if (ImGui::SmallButton(p2 ? "P2" : "P1")) {
+                keys[i].second = p2 ? 1 : 2;
+                cmm::jumpkeys::setExtra(keys);
+            }
+            ImGui::PopStyleColor();
+            ImGui::SameLine();
+            ImGui::Text("%s", keyName(keys[i].first).c_str());
             ImGui::SameLine();
             if (ImGui::SmallButton("Remove")) {
                 keys.erase(keys.begin() + static_cast<long>(i));
@@ -530,7 +539,8 @@ namespace cmm::gui {
         // A new jump key ("__jump").
         if (s_bindTarget == "__jump") {
             auto keys = cmm::jumpkeys::extra();
-            if (key != KEY_Backspace && std::find(keys.begin(), keys.end(), key) == keys.end()) keys.push_back(key);
+            bool known = std::any_of(keys.begin(), keys.end(), [&](auto const& k) { return k.first == key; });
+            if (key != KEY_Backspace && !known) keys.push_back({key, 1});
             cmm::jumpkeys::setExtra(keys);
             if (auto jk = find("jumpkeys"); jk && !jk->enabled) setEnabled(*jk, true);  // a new key should just work
             log::info("Jump key added: {}", keyName(key));

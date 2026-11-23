@@ -3,6 +3,7 @@
 #include <core/Hacks.hpp>
 #include <core/Log.hpp>
 #include <Geode/modify/EditorUI.hpp>
+#include <Geode/modify/GJScaleControl.hpp>
 #include <Geode/modify/LevelEditorLayer.hpp>
 #include <Geode/modify/SliderThumb.hpp>
 #include <Geode/modify/SliderTouchLogic.hpp>
@@ -52,6 +53,36 @@ class $modify(CMMSliderThumb, SliderThumb) {
     }
 };
 
+// The editor's scale control takes the touches itself and stops at its
+// bounds: past the end of the slider being dragged, scale on.
+class $modify(CMMScaleControl, GJScaleControl) {
+    void ccTouchMoved(CCTouch* touch, CCEvent* event) {
+        GJScaleControl::ccTouchMoved(touch, event);
+        if (!cmm::on("sliderlimit") || m_touchID == -1 || !m_delegate) return;
+        Slider* slider = m_scaleButtonType == ScaleButtonType::X ? m_sliderX
+                       : m_scaleButtonType == ScaleButtonType::Y ? m_sliderY : m_sliderXY;
+        if (!slider || !slider->m_touchLogic || !slider->m_touchLogic->m_thumb) return;
+        auto thumb = slider->m_touchLogic->m_thumb;
+        float length = thumb->m_length;
+        if (length <= 0.f) return;
+        auto at = slider->m_touchLogic->convertTouchToNodeSpace(touch);
+        float value = ((thumb->m_vertical ? at.y : at.x) + length / 2.f) / length;
+        if (value >= 0.f && value <= 1.f) return;  // inside: GD did it
+        float scale = std::max(0.01f, std::round(((m_upperBound - m_lowerBound) * value + m_lowerBound) * 100.f) / 100.f);
+        thumb->setValue(value);
+        if (m_scaleButtonType == ScaleButtonType::X) {
+            m_delegate->scaleXChanged(scale, m_scaleLocked);
+            this->updateLabelX(scale);
+        } else if (m_scaleButtonType == ScaleButtonType::Y) {
+            m_delegate->scaleYChanged(scale, m_scaleLocked);
+            this->updateLabelY(scale);
+        } else {
+            m_delegate->scaleXYChanged(scale, scale, m_scaleLocked);
+            this->updateLabelXY(scale);
+        }
+    }
+};
+
 // ---------------------------------------------------------------------------
 // The editor.
 // ---------------------------------------------------------------------------
@@ -90,19 +121,25 @@ class $modify(CMMEditorLayer, LevelEditorLayer) {
 // turned off. Only while a level or a playtest is running.
 // ---------------------------------------------------------------------------
 namespace cmm::jumpkeys {
-    std::vector<int> extra() {
-        std::vector<int> keys;
+    // Saved as "key" (player 1) or "key:2" (player 2), comma-separated.
+    std::vector<std::pair<int, int>> extra() {
+        std::vector<std::pair<int, int>> keys;
         std::stringstream in(cmm::val<std::string>("jumpkeys.extra", ""));
         std::string part;
         while (std::getline(in, part, ',')) {
-            try { if (int k = std::stoi(part); k > 0) keys.push_back(k); } catch (...) {}
+            try {
+                auto colon = part.find(':');
+                int k = std::stoi(part.substr(0, colon));
+                int player = colon == std::string::npos ? 1 : std::clamp(std::stoi(part.substr(colon + 1)), 1, 2);
+                if (k > 0) keys.push_back({k, player});
+            } catch (...) {}
         }
         return keys;
     }
 
-    void setExtra(std::vector<int> const& keys) {
+    void setExtra(std::vector<std::pair<int, int>> const& keys) {
         std::string out;
-        for (int k : keys) out += (out.empty() ? "" : ",") + std::to_string(k);
+        for (auto [k, player] : keys) out += (out.empty() ? "" : ",") + std::to_string(k) + (player == 2 ? ":2" : "");
         cmm::save<std::string>("jumpkeys.extra", out);
     }
 
@@ -118,9 +155,9 @@ namespace cmm::jumpkeys {
         if (!cmm::on("jumpkeys")) return false;
         auto layer = playing();
         if (!layer) return false;
-        auto keys = extra();
-        if (std::find(keys.begin(), keys.end(), key) != keys.end()) {
-            if (!repeat) layer->handleButton(down, 1, true);
+        for (auto [k, player] : extra()) {
+            if (k != key) continue;
+            if (!repeat) layer->handleButton(down, 1, player == 1);
             return true;
         }
         if ((key == KEY_Space && !cmm::val<bool>("jumpkeys.space", true)) ||
@@ -141,7 +178,7 @@ namespace cmm {
 
         add({"sliderlimit", "Slider Limit Bypass", "Editor and settings sliders go past both ends (bigger scale, louder music...).", Global, OK});
         add({"editorenterplaytest", "Enter Plays the Playtest", "In the editor, Enter starts the playtest, pauses it and carries on (like the playtest button).", Creator, OK});
-        add({"jumpkeys", "Jump Keys", "Add keys that jump, and turn off Space, W or Up, in levels and playtests.", Player, OK,
+        add({"jumpkeys", "Jump Keys", "Add keys that jump (for player 1 or 2), and turn off Space, W or Up, in levels and playtests.", Player, OK,
             false, [] { cmm::gui::jumpKeyOptions(); }});
     }
 }

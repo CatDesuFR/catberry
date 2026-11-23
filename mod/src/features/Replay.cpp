@@ -91,11 +91,33 @@ namespace cmm::replay {
 
         // The loaded macro was recorded in this level (by its ID, or its name
         // for levels without one).
-        bool macroFits(PlayLayer* pl) {
+        bool fitsLevel(PlayLayer* pl) {
             if (s_inputs.empty() || !pl || !pl->m_level) return false;
             int id = pl->m_level->m_levelID.value();
             if (s_levelID != 0 && id != 0) return s_levelID == id;
-            return s_levelName.empty() || s_levelName == std::string(pl->m_level->m_levelName);
+            auto lower = [](std::string t) {
+                std::transform(t.begin(), t.end(), t.begin(), [](unsigned char c) { return std::tolower(c); });
+                while (!t.empty() && t.back() == ' ') t.pop_back();
+                return t;
+            };
+            if (s_levelName.empty()) return true;
+            auto a = lower(s_levelName), b = lower(std::string(pl->m_level->m_levelName));
+            if (a == b) return true;
+            // A renamed copy of your own level ("clairvoyaance" -> "clairvoyance"):
+            // up to 2 letters different, for names of 5 letters or more.
+            if (a.size() < 5 || b.size() < 5) return false;
+            std::vector<size_t> row(b.size() + 1);
+            for (size_t j = 0; j <= b.size(); j++) row[j] = j;
+            for (size_t i = 1; i <= a.size(); i++) {
+                size_t diag = row[0];
+                row[0] = i;
+                for (size_t j = 1; j <= b.size(); j++) {
+                    size_t up = row[j];
+                    row[j] = std::min({row[j] + 1, row[j - 1] + 1, diag + (a[i - 1] == b[j - 1] ? 0 : 1)});
+                    diag = up;
+                }
+            }
+            return row[b.size()] <= 2;
         }
 
         std::filesystem::path folder() {
@@ -222,6 +244,7 @@ namespace cmm::replay {
 
     Fix const* injectingFix() { return s_injecting && s_injectingFix.ok ? &s_injectingFix : nullptr; }
     size_t injectingIndex() { return s_injecting ? s_injectingIndex : SIZE_MAX; }
+    bool macroFits(PlayLayer* pl) { return fitsLevel(pl); }
 
     void beginMove(size_t press, size_t release, long deltaProgress, unsigned fixLimit, unsigned resume, bool record) {
         if (recording()) return;
@@ -390,7 +413,7 @@ class $modify(ReplayGameLayer, GJBaseGameLayer) {
         if (isMain() && !s_injecting) {
             // While playing a macro of this level, your own clicks are ignored
             // so they don't mix in. (In other levels you play yourself.)
-            if (playing() && macroFits(PlayLayer::get())) return;
+            if (playing() && fitsLevel(PlayLayer::get())) return;
             if (recording()) {
                 unsigned tick = m_gameState.m_currentProgress;
                 // A click Click Before Frames gives GD at the start of a tick acts
@@ -453,7 +476,9 @@ class $modify(ReplayGameLayer, GJBaseGameLayer) {
                 it = s_pendingFixes.erase(it);
             }
         }
-        if (isMain() && playing()) {
+        // The bot plays its macro only in the level it was recorded in (in
+        // another level its clicks and fixes would mix into your own play).
+        if (isMain() && playing() && fitsLevel(PlayLayer::get())) {
             // The end of a click's tick: put the player where the recording had
             // it. Only right on time: after a lag spike a late fix must not
             // teleport the player backwards.

@@ -13,8 +13,8 @@ using namespace geode::prelude;
 
 namespace cmm::jumpkeys {
     bool handle(int key, bool down, bool repeat);
-    std::vector<int> extra();
-    void setExtra(std::vector<int> const& keys);
+    std::vector<std::pair<int, int>> extra();
+    void setExtra(std::vector<std::pair<int, int>> const& keys);
 }
 
 namespace {
@@ -57,7 +57,7 @@ namespace {
             auto kd = CCKeyboardDispatcher::get();
             switch (step++) {
                 case 0:
-                    cmm::jumpkeys::setExtra({static_cast<int>(KEY_J)});
+                    cmm::jumpkeys::setExtra({{static_cast<int>(KEY_J), 1}});
                     cmm::save<bool>("jumpkeys.space", false);
                     setHack("jumpkeys", true);
                     setHack("noclip", true);
@@ -171,7 +171,7 @@ namespace {
                 case 6:
                     log::info("EDITORTEST with noclip: {} after 2.5 s, got to x {:.0f}", mode(ed), maxX);
                     // Jump Keys: J jumps, Space turned off.
-                    cmm::jumpkeys::setExtra({static_cast<int>(KEY_J)});
+                    cmm::jumpkeys::setExtra({{static_cast<int>(KEY_J), 1}});
                     cmm::save<bool>("jumpkeys.space", false);
                     setHack("jumpkeys", true);
                     if (ed->m_playbackMode != PlaybackMode::Playing) ui->onPlaytest(nullptr);
@@ -234,6 +234,39 @@ namespace {
                     };
                     drag(true);
                     drag(false);
+                    // The editor's scale control, dragged past the end of its X slider.
+                    auto scaleDrag = [&](bool bypass) {
+                        setHack("sliderlimit", bypass);
+                        auto obj = ui->createObject(1, {315.f, 105.f});
+                        if (!obj) { log::info("EDITORTEST scale: no object"); return; }
+                        ui->selectObject(obj, true);
+                        auto sender = CCMenuItemSpriteExtra::create(CCSprite::create(), nullptr, nullptr);
+                        sender->setTag(0);
+                        ui->activateScaleControl(sender);
+                        auto sc = ui->m_scaleControl;
+                        log::info("EDITORTEST scale: control {}, slider X {}, logic {}", (void*)sc, sc ? (void*)sc->m_sliderX : nullptr,
+                            sc && sc->m_sliderX ? (void*)sc->m_sliderX->m_touchLogic : nullptr);
+                        if (!sc || !sc->m_sliderX || !sc->m_sliderX->m_touchLogic || !sc->m_sliderX->m_touchLogic->m_thumb) return;
+                        auto thumb = sc->m_sliderX->m_touchLogic->m_thumb;
+                        auto at = thumb->getParent()->convertToWorldSpace(thumb->getPosition());
+                        auto ui0 = CCDirector::get()->convertToUI(at);
+                        auto touch = new CCTouch();
+                        touch->autorelease();
+                        touch->setTouchInfo(7, ui0.x, ui0.y);
+                        auto ev = new CCEvent();
+                        ev->autorelease();
+                        bool began = sc->ccTouchBegan(touch, ev);
+                        log::info("EDITORTEST scale: began {}, touch id {}, button {}", began, sc->m_touchID, static_cast<int>(sc->m_scaleButtonType));
+                        touch->setTouchInfo(7, ui0.x + 600.f, ui0.y);
+                        if (began) sc->ccTouchMoved(touch, ev);
+                        float scaleX = obj->m_scaleX;
+                        if (began) sc->ccTouchEnded(touch, ev);
+                        log::info("EDITORTEST scale X slider dragged 600 px right ({}): began {}, block scale X {:.2f}", bypass ? "bypass on" : "bypass off", began, scaleX);
+                        ui->deactivateScaleControl();
+                        ui->deselectAll();
+                    };
+                    scaleDrag(true);
+                    scaleDrag(false);
                     wait = 0.3f;
                     break;
                 }

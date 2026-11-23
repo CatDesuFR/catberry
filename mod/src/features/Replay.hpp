@@ -49,6 +49,8 @@ namespace cmm::replay {
     // Index in botMacro() of the click the bot is handing to GD right now
     // (SIZE_MAX when none).
     size_t injectingIndex();
+    // The loaded macro was recorded in this level (the bot only plays it there).
+    bool macroFits(PlayLayer* pl);
 
     // The Frame Window Counter's engine replays: play the macro with one
     // click (and its release; SIZE_MAX for none) moved by `deltaProgress`,

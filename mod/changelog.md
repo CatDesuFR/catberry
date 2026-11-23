@@ -1,3 +1,10 @@
+# v1.1.7
+
+- Frame Window Counter: the loading screen didn't start when the bot's macro had a slightly different level name (your "clairvoyaance" macro on "clairvoyance"). A macro now fits its level by ID, or by name ignoring capitals and up to 2 different letters; when it doesn't fit, the counter says so under the tally instead of skipping silently. Tested: clvynce on clairvoyance measured 397 clicks, none unsure, and the bot finished the level.
+- Replay Bot: it only plays its macro in the level it fits (before, its clicks and fixes also ran in any other level and mixed into your own play).
+- Slider Limit Bypass: the editor's scale control takes the touches itself and stopped at its bounds; past the end of its slider it now scales on (tested: 5.55 instead of 2.00).
+- Jump Keys: each extra key is marked P1 or P2 (click to switch) and jumps for that player.
+
 # v1.1.6
 
 - Frame Window Counter, loading screen: clicks are measured with the game itself. The level is rewound to a practice checkpoint and the macro played with the click moved, so moving objects, triggers and portals are exactly right (the hidden player saw moving spikes where they stood at that moment). Slaughterhouse: 191 of 192 clicks measured, none unsure (before: "?" and windows of 4096 and 8192). Takes longer: about 2 minutes for 60% of Slaughterhouse. Windows there are whole frames (moves up to 128 frames each way; past 10 it's "10+" anyway).
