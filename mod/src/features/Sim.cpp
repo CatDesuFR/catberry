@@ -1,3 +1,4 @@
+#include <core/Compat.hpp>
 #include <Geode/modify/GameStatsManager.hpp>
 #include "Sim.hpp"
 #include <Geode/modify/EffectGameObject.hpp>
@@ -86,7 +87,9 @@ namespace cmm::sim {
         dst->m_stateJumpBuffered = src->m_stateJumpBuffered;
         dst->m_touchedRings = src->m_touchedRings;
         dst->m_touchedRing = src->m_touchedRing;
+#if CMM_GD_2091
         dst->m_ringJumpedSincePress = src->m_ringJumpedSincePress;
+#endif
         dst->m_lastJumpTime = src->m_lastJumpTime;
         dst->m_lastFlipTime = src->m_lastFlipTime;
         dst->m_speedMultiplier = src->m_speedMultiplier;

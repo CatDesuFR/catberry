@@ -25,6 +25,7 @@ namespace cmm::gui {
         std::vector<char const*> s_animWindows; // tab windows drawn this frame, in order
         char s_search[128] = "";
         std::string s_bindTarget;   // hack waiting for a key
+        ImGuiWindow* s_swipeWindow = nullptr;  // window being scrolled by a drag
         bool s_bindPopupOpen = false;
 
         std::string bindKey(std::string const& id) { return "bind." + id; }
@@ -178,9 +179,30 @@ namespace cmm::gui {
             int x = column % perRow, y = column / perRow;
             ImGui::SetNextWindowPos({gap + x * (width + gap), gap + y * 420.f * s},
                 s_resetLayout ? ImGuiCond_Always : ImGuiCond_FirstUseEver);
-            ImGui::SetNextWindowSizeConstraints({width, 0}, {width, FLT_MAX});
+            // At most the screen's height: a longer list scrolls (it used to run
+            // off the bottom with no way to reach the rest).
+            float maxHeight = std::max(160.f * s, ImGui::GetIO().DisplaySize.y - 2.f * gap);
+            ImGui::SetNextWindowSizeConstraints({width, 0}, {width, maxHeight});
             s_animWindows.push_back(title);
-            return ImGui::Begin(title, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse);
+            bool open = ImGui::Begin(title, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse);
+            // Drag the list up or down to scroll it, like swiping. A mostly
+            // vertical drag takes over from the row it started on (so it isn't
+            // clicked); sideways drags still move sliders. Windows move by
+            // their title bar.
+            if (open) {
+                auto& io = ImGui::GetIO();
+                ImGuiWindow* window = ImGui::GetCurrentWindow();
+                bool startedHere = ImRect(window->InnerRect).Contains(io.MouseClickedPos[0]);
+                ImVec2 drag = ImGui::GetMouseDragDelta(ImGuiMouseButton_Left, 0.f);
+                bool vertical = std::abs(drag.y) > 8.f && std::abs(drag.y) > 2.f * std::abs(drag.x);
+                if (ImGui::IsMouseDown(ImGuiMouseButton_Left) && startedHere && (vertical || s_swipeWindow == window)) {
+                    s_swipeWindow = window;
+                    if (ImGui::IsAnyItemActive()) ImGui::ClearActiveID();
+                    ImGui::SetScrollY(ImGui::GetScrollY() - io.MouseDelta.y);
+                }
+                if (!ImGui::IsMouseDown(ImGuiMouseButton_Left) && s_swipeWindow == window) s_swipeWindow = nullptr;
+            }
+            return open;
         }
 
         void drawTab(Tab tab, int column) {
@@ -475,6 +497,8 @@ namespace cmm::gui {
         auto& io = ImGui::GetIO();
         s_iniPath = (Mod::get()->getSaveDir() / "imgui.ini").string();
         io.IniFilename = s_iniPath.c_str();
+        // Dragging a window's body scrolls it; windows move by their title bar.
+        io.ConfigWindowsMoveFromTitleBarOnly = true;
         // The grey theme has narrower windows: lay them out fresh once.
         if (val<int>("menu.layoutVersion", 1) < 2) {
             s_resetNext = true;

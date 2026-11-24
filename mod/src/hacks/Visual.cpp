@@ -1,5 +1,6 @@
 // Batch 3: No Shaders, No Portal Lightning, Lock Cursor, Show Taps,
 // and the red noclip death flash.
+#include <core/Compat.hpp>
 #include <core/Hacks.hpp>
 #include <gui/Menu.hpp>
 #include <Geode/modify/GJBaseGameLayer.hpp>
@@ -75,8 +76,8 @@ class $modify(CMMVisualPlayLayer, PlayLayer) {
         float tintAlpha = 0.f;
     };
 
-    bool init(GJGameLevel* level, bool dontCreateObjects) {
-        if (!PlayLayer::init(level, dontCreateObjects)) return false;
+    bool init(CMM_PL_INIT_PARAMS) {
+        if (!PlayLayer::init(CMM_PL_INIT_ARGS)) return false;
         auto tint = CCLayerColor::create({255, 0, 0, 0});
         tint->setZOrder(999);
         this->addChild(tint);

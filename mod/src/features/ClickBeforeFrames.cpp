@@ -1,3 +1,4 @@
+#include <core/Compat.hpp>
 #include "ClickBeforeFrames.hpp"
 #include "Replay.hpp"
 #include "FrameWindow.hpp"
@@ -218,7 +219,7 @@ namespace cmm::cbf {
     int64_t currentTick() { return s_tick; }
     int savedThisSession() { return s_session; }
     int savedThisAttempt() { return s_attempt; }
-    asp::fs::Path logPath() { return Mod::get()->getSaveDir() / "CBF-LOGS.txt"; }
+    decltype(std::declval<geode::Mod&>().getSaveDir() / "x") logPath() { return Mod::get()->getSaveDir() / "CBF-LOGS.txt"; }
     Decision const& lastDecision() { return s_last; }
 }
 
@@ -289,8 +290,8 @@ class $modify(CBFGameLayer, GJBaseGameLayer) {
 };
 
 class $modify(CBFPlayLayer, PlayLayer) {
-    bool init(GJGameLevel* level, bool dontCreateObjects) {
-        if (!PlayLayer::init(level, dontCreateObjects)) return false;
+    bool init(CMM_PL_INIT_PARAMS) {
+        if (!PlayLayer::init(CMM_PL_INIT_ARGS)) return false;
         // Pick up changes to the macro file (re-recorded, etc.).
         cmm::cbf::reloadReplay();
         return true;

@@ -21,6 +21,7 @@
 //
 // Macros are saved as plain text in <mod save folder>/macros/<name>.txt
 // (v2 lines: tick down button player2 [x y rotation yVelocity xVelocity [same for player 2]]).
+#include <core/Compat.hpp>
 #include <core/Hacks.hpp>
 #include <core/Players.hpp>
 #include <core/Log.hpp>
@@ -547,8 +548,8 @@ class $modify(ReplayGameLayer, GJBaseGameLayer) {
 };
 
 class $modify(ReplayPlayLayer, PlayLayer) {
-    bool init(GJGameLevel* level, bool dontCreateObjects) {
-        if (!PlayLayer::init(level, dontCreateObjects)) return false;
+    bool init(CMM_PL_INIT_PARAMS) {
+        if (!PlayLayer::init(CMM_PL_INIT_ARGS)) return false;
         if (recording() && level) {
             s_levelName = level->m_levelName;
             s_levelID = level->m_levelID.value();

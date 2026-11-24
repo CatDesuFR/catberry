@@ -1,5 +1,6 @@
 // Sixth batch: Slider Limit Bypass, the editor (Enter plays/pauses the
 // playtest, noclip and hitboxes in playtests) and Jump Keys.
+#include <core/Compat.hpp>
 #include <core/Hacks.hpp>
 #include <core/Log.hpp>
 #include <Geode/modify/EditorUI.hpp>
@@ -110,10 +111,17 @@ class $modify(CMMEditorLayer, LevelEditorLayer) {
     }
 
     // Show Hitboxes in playtests too.
+#if CMM_GD_2091
     bool shouldDrawDebugHitboxes() {
         if (cmm::on("showhitboxes") && m_playbackMode != PlaybackMode::Not) return true;
         return LevelEditorLayer::shouldDrawDebugHitboxes();
     }
+#else
+    void updateDebugDraw() {
+        if (cmm::on("showhitboxes") && m_playbackMode != PlaybackMode::Not) m_isDebugDrawEnabled = true;
+        LevelEditorLayer::updateDebugDraw();
+    }
+#endif
 };
 
 // ---------------------------------------------------------------------------

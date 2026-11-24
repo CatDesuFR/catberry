@@ -1,3 +1,9 @@
+# v1.1.8
+
+- Built for Geode v6.0.0 (the update turned the mod off: it was made for v6.0.0-alpha.1).
+- Also built for Geometry Dash 2.2081 (Geode 5.11.2). `catberry cbmm load` reads your game and Geode version from Geode's log and puts in the right build; `catberry cbmm status` shows them.
+- Menu: windows taller than the screen stop at its height and scroll (wheel or scrollbar); before, the rest ran off the bottom. Drag a window's body up or down to scroll it like swiping (sideways drags still move sliders); windows now move by their title bar.
+
 # v1.1.7
 
 - Frame Window Counter: the loading screen didn't start when the bot's macro had a slightly different level name (your "clairvoyaance" macro on "clairvoyance"). A macro now fits its level by ID, or by name ignoring capitals and up to 2 different letters; when it doesn't fit, the counter says so under the tally instead of skipping silently. Tested: clvynce on clairvoyance measured 397 clicks, none unsure, and the bot finished the level.

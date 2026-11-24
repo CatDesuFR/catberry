@@ -1,3 +1,4 @@
+#include <core/Compat.hpp>
 #include "StartPos.hpp"
 #include <core/Hacks.hpp>
 #include <core/Log.hpp>
@@ -14,8 +15,8 @@ class $modify(SPSwitcherLayer, PlayLayer) {
         float labelTimer = 0.f;
     };
 
-    bool init(GJGameLevel* level, bool dontCreateObjects) {
-        if (!PlayLayer::init(level, dontCreateObjects)) return false;
+    bool init(CMM_PL_INIT_PARAMS) {
+        if (!PlayLayer::init(CMM_PL_INIT_ARGS)) return false;
 
         auto f = m_fields.self();
         std::sort(f->startPositions.begin(), f->startPositions.end(), [](auto const& a, auto const& b) {
@@ -92,7 +93,7 @@ class $modify(SPSwitcherLayer, PlayLayer) {
 
         StartPosObject* obj = index < 0 ? nullptr : f->startPositions[index].data();
         if (m_isPracticeMode) this->removeAllCheckpoints();
-        this->setActiveStartPosObject(obj);
+        CMM_SET_START_POS(this, obj);
         this->resetLevel();
         this->startMusic();
 

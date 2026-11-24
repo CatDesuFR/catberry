@@ -6,6 +6,10 @@ set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 project(CatsModMenu VERSION 0.1.0)
 
 file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS src/*.cpp)
+# -DCMM_NO_DEBUG=ON: without the developer self-tests (the build for older GD).
+if (CMM_NO_DEBUG)
+    list(FILTER SOURCES EXCLUDE REGEX "/src/debug/")
+endif()
 add_library(${PROJECT_NAME} SHARED ${SOURCES})
 target_include_directories(${PROJECT_NAME} PRIVATE src)
 

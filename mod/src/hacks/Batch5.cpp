@@ -1,4 +1,5 @@
 // Fifth batch of modules from QOLMod / Eclipse's feature lists, written from scratch.
+#include <core/Compat.hpp>
 #include <core/Hacks.hpp>
 #include <core/Log.hpp>
 #include <features/Sim.hpp>
@@ -64,9 +65,9 @@ class $modify(B5Stats, GameStatsManager) {
 };
 
 class $modify(B5PlayLayer, PlayLayer) {
-    bool init(GJGameLevel* level, bool dontCreateObjects) {
+    bool init(CMM_PL_INIT_PARAMS) {
         refreshHitboxSettings();
-        return PlayLayer::init(level, dontCreateObjects);
+        return PlayLayer::init(CMM_PL_INIT_ARGS);
     }
 
     void postUpdate(float dt) {

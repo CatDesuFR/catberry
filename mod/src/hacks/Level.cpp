@@ -1,3 +1,4 @@
+#include <core/Compat.hpp>
 #include <core/Hacks.hpp>
 #include <features/WorldOverlay.hpp>
 #include <Geode/modify/CCParticleSystemQuad.hpp>
@@ -53,11 +54,15 @@ class $modify(CMMLevel, PlayLayer) {
             f->proxy->target = m_debugDrawNode;
             cmm::overlay::syncTo(f->proxy, m_debugDrawNode, this);
         }
+#if CMM_GD_2091
         f->proxy2->setVisible(show && m_debugDrawNode2);
         if (show && m_debugDrawNode2) {
             f->proxy2->target = m_debugDrawNode2;
             cmm::overlay::syncTo(f->proxy2, m_debugDrawNode2, this);
         }
+#else
+        f->proxy2->setVisible(false);  // 2.2081 has one hitbox node
+#endif
     }
 
     void startGame() {
@@ -72,8 +77,18 @@ class $modify(CMMLevel, PlayLayer) {
 
     // GD 2.2 only draws hitboxes when this says yes (normally: practice mode
     // with its own "show hitboxes" option on).
+#if CMM_GD_2091
     bool shouldDrawDebugHitboxes() {
         return wantHitboxes() || PlayLayer::shouldDrawDebugHitboxes();
+    }
+#endif
+    // GD's own hitbox drawing (practice mode with "show hitboxes").
+    bool gdDrawsHitboxes() {
+#if CMM_GD_2091
+        return PlayLayer::shouldDrawDebugHitboxes();
+#else
+        return this->shouldDebugDraw();
+#endif
     }
 
     void drawHitboxesNow() {
@@ -145,7 +160,7 @@ class $modify(CMMLevel, PlayLayer) {
         auto f = m_fields.self();
         if (wantHitboxes()) {
             this->drawHitboxesNow();
-        } else if (f->drawingHitboxes && !m_playerDied && !PlayLayer::shouldDrawDebugHitboxes()) {
+        } else if (f->drawingHitboxes && !m_playerDied && !gdDrawsHitboxes()) {
             m_isDebugDrawEnabled = false;
             if (m_debugDrawNode) {
                 m_debugDrawNode->clear();
@@ -170,9 +185,9 @@ class $modify(CMMEndShake, GJBaseGameLayer) {
 };
 
 class $modify(CMMEndShakePlay, PlayLayer) {
-    bool init(GJGameLevel* level, bool dontCreateObjects) {
+    bool init(CMM_PL_INIT_PARAMS) {
         s_levelEnding = false;
-        return PlayLayer::init(level, dontCreateObjects);
+        return PlayLayer::init(CMM_PL_INIT_ARGS);
     }
     void levelComplete() {
         s_levelEnding = true;

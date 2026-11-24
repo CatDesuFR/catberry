@@ -20,10 +20,14 @@ and Windows) and copies the mod into its `geode/mods` folder. Geode must
 already be installed in the game. Restart Geometry Dash, then press **Tab** in
 game to open the menu.
 
+The mod is built for Geometry Dash 2.2091 (Geode 6) and 2.2081 (Geode 5).
+`load` reads which one you have from Geode's log and puts in the matching
+build (start the game with Geode once first); `status` shows what it found.
+
 ```
 catberry cbmm load      copy the mod into Geometry Dash's geode/mods folder
 catberry cbmm unload    remove it from there again (your settings and macros stay)
-catberry cbmm status    show where Geometry Dash is and whether the mod is loaded
+catberry cbmm status    show Geometry Dash, its Geode version and whether the mod is loaded
 catberry cbmm -v        print the version
 ```
 

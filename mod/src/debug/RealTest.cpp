@@ -102,7 +102,7 @@ class $modify(RealTestLayer, PlayLayer) {
     // start positions from the last one.
     void startGame() {
         PlayLayer::startGame();
-        if (s_active && m_startPosObject) {
+        if (s_active && m_startPosObject && s_mode != "shots") {
             log::info("REALTEST: the level has start positions; playing from the start");
             this->setActiveStartPosObject(nullptr);
             this->resetLevel();
@@ -142,8 +142,29 @@ class $modify(RealTestLayer, PlayLayer) {
             if (++s_frames % 150 == 60) this->handleButton(true, 1, true);
             if (s_frames % 150 == 70) this->handleButton(false, 1, true);
         }
-        if (s_mode == "live") {
+        if (s_mode == "shots") {
             ++s_frames;
+            for (int sec : {1, 3, 20, 40, 60})
+                if (s_frames == 240 * sec) shot(fmt::format("selftest-shot-{}.png", sec).c_str());
+            if (s_frames == 240 * 3) {
+                int copies = 0, clouds = 0;
+                log::info("REALTEST shots: {} objects, player at ({:.0f},{:.0f})", m_objects->count(), m_player1->getPositionX(), m_player1->getPositionY());
+                for (auto obj : CCArrayExt<GameObject*>(m_objects)) {
+                    float px = m_player1->getPositionX();
+                    bool copy = obj->m_isNoTouch && std::abs(obj->getPositionX() - px) < 300.f;
+                    bool cloud = obj->m_objectID == 129 || obj->m_objectID == 222 || obj->m_objectID == 936;
+                    if ((copy && copies++ < 6) || (cloud && clouds++ < 1)) {
+                        std::string groups;
+                        if (obj->m_groups) for (int i = 0; i < obj->m_groupCount; i++) groups += fmt::format("{} ", (*obj->m_groups)[i]);
+                        log::info("REALTEST shots: {} id {} at ({:.0f},{:.0f}) opacity {} visible {} parent {} groups {}", copy ? "copy" : "cloud", obj->m_objectID,
+                            obj->getPositionX(), obj->getPositionY(), (int)obj->getOpacity(), obj->isVisible(), obj->getParent() != nullptr, groups);
+                    }
+                }
+            }
+            if (s_frames >= 240 * 61) { restore(); log::info("REALTEST DONE"); this->onQuit(); }
+            return;
+        }
+        if (s_mode == "live") {
             bool done = s_liveDied || s_frames >= 240 * 200;
             if (s_frames == 240 * 9) shot("selftest-live.png");
             if (s_frames % (240 * 10) == 0 || done)
@@ -294,6 +315,11 @@ class $modify(RealTestMenu, MenuLayer) {
         if (s_mode == "play") {
             setHack("framecounter", false);
             setHack("noclip", false);
+        } else if (s_mode == "shots") {
+            // Screenshots while playing (noclip, no bot): for checking deco.
+            setHack("bot.play", false);
+            setHack("framecounter", false);
+            setHack("noclip", true);
         } else if (s_mode == "live") {
             setHack("framecounter", true);
             setHack("noclip", false);

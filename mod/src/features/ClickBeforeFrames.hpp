@@ -1,6 +1,7 @@
 #pragma once
 
-#include <asp/fs/Path.hpp>
+#include <Geode/loader/Mod.hpp>
+#include <utility>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -43,7 +44,8 @@ namespace cmm::cbf {
     int64_t currentTick();
     int savedThisSession();
     int savedThisAttempt();
-    asp::fs::Path logPath();
+    // Geode 6: asp::fs::Path; Geode 5: std::filesystem::path.
+    decltype(std::declval<geode::Mod&>().getSaveDir() / "x") logPath();
 
     // Last snap, for the self-test.
     struct Decision {

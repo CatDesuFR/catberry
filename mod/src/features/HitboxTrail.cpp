@@ -1,5 +1,6 @@
 // Hitbox Trail: draws the player's hitbox for every physics tick.
 // Green = the tick you started clicking, blue = the tick you let go.
+#include <core/Compat.hpp>
 #include <core/Hacks.hpp>
 #include <core/Players.hpp>
 #include <features/WorldOverlay.hpp>
@@ -28,8 +29,8 @@ class $modify(TrailPlayLayer, PlayLayer) {
         unsigned lastProgress = ~0u;
     };
 
-    bool init(GJGameLevel* level, bool dontCreateObjects) {
-        if (!PlayLayer::init(level, dontCreateObjects)) return false;
+    bool init(CMM_PL_INIT_PARAMS) {
+        if (!PlayLayer::init(CMM_PL_INIT_ARGS)) return false;
         auto node = CCDrawNode::create();
         node->setID("cats-mod-menu-hitbox-trail");
         // On the PlayLayer, lined up with the level each frame (see WorldOverlay.hpp).

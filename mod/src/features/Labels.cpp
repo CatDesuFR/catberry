@@ -1,5 +1,6 @@
 // On-screen labels. Every label is its own module in the Labels tab, with its
 // own corner, alignment, offset, size and opacity.
+#include <core/Compat.hpp>
 #include "ClickBeforeFrames.hpp"
 #include "StartPos.hpp"
 #include "Stats.hpp"
@@ -115,8 +116,8 @@ class $modify(LabelsPlayLayer, PlayLayer) {
         bool hasBest = false;
     };
 
-    bool init(GJGameLevel* level, bool dontCreateObjects) {
-        if (!PlayLayer::init(level, dontCreateObjects)) return false;
+    bool init(CMM_PL_INIT_PARAMS) {
+        if (!PlayLayer::init(CMM_PL_INIT_ARGS)) return false;
         auto container = CCNode::create();
         container->setZOrder(1001);
         container->setID("cats-mod-menu-labels");

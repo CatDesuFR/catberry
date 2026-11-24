@@ -1,6 +1,7 @@
 // Batch 2 hacks: Respawn Delay, No Spider Dash, Auto Kill, Frame Stepper,
 // Force Platformer, No/Instant Mirror, Auto LDM, confirm dialogs,
 // Hide Level Complete VFX, Level Edit, Verify Bypass, No (C) Mark.
+#include <core/Compat.hpp>
 #include <core/Hacks.hpp>
 #include <unordered_set>
 #include <vector>
@@ -44,9 +45,9 @@ class $modify(CMMMorePlayLayer, PlayLayer) {
         bool autoKilled = false;
     };
 
-    bool init(GJGameLevel* level, bool dontCreateObjects) {
+    bool init(CMM_PL_INIT_PARAMS) {
         if (level && cmm::on("autoldm")) level->m_lowDetailModeToggled = true;
-        if (!PlayLayer::init(level, dontCreateObjects)) return false;
+        if (!PlayLayer::init(CMM_PL_INIT_ARGS)) return false;
 
         if (cmm::on("forceplatformer")) {
             m_isPlatformer = true;

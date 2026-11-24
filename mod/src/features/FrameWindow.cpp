@@ -4,6 +4,7 @@
 // at progress P (between frames, after tick T) acts on tick T + 2. From the
 // player's state after tick "now", run tick k of the hidden player is real
 // tick now + 1 + k, so that click acts on run tick (T - now) + 1.
+#include <core/Compat.hpp>
 #include "FrameWindow.hpp"
 #include "ClickBeforeFrames.hpp"
 #include "Sim.hpp"
@@ -557,7 +558,9 @@ namespace cmm::fw::own {
             e.lastFlipTime = p->m_lastFlipTime;
             e.rotation = p->getRotation();
             e.touchedRing = p->m_touchedRing;
+#if CMM_GD_2091
             e.ringJumped = p->m_ringJumpedSincePress;
+#endif
             return e;
         }
         void putExtra(PlayerObject* p, PlayerExtra const& e) {
@@ -572,7 +575,9 @@ namespace cmm::fw::own {
             p->m_lastFlipTime = e.lastFlipTime;
             p->setRotation(e.rotation);
             p->m_touchedRing = e.touchedRing;
+#if CMM_GD_2091
             p->m_ringJumpedSincePress = e.ringJumped;
+#endif
         }
         struct Cp { Ref<CheckpointObject> cp; unsigned progress; PlayerExtra p1, p2; };
         std::map<int64_t, Cp> s_cps;   // own tick (its start) -> checkpoint
