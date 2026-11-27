@@ -695,7 +695,7 @@ int uninstallTool(const std::string &name) {
     }
 
     std::vector<std::string> needing;
-    for (const char *dep : {"ac", "mtools", "cbmm", "vskm"})
+    for (const char *dep : {"ac", "mtools", "cbmm", "vskm", "scan"})
         if (fs::exists(exePath(*toolByName(dep)), ec)) needing.push_back(dep);
     if (!needing.empty()) {
         std::string who = needing.size() == 1 ? needing[0] + " needs" : "the tools need";
@@ -777,6 +777,8 @@ int updateTools(const std::string &only) {
         for (const Tool &t : kTools) {
 #ifdef _WIN32
             if (std::string(t.name) == "roofce" || std::string(t.name) == "vskm") continue; // Linux-only
+#else
+            if (std::string(t.name) == "scan") continue; // Windows only
 #endif
             tools.push_back(&t);
         }

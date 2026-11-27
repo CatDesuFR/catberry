@@ -37,6 +37,10 @@ void testArgs() {
     CHECK(c.kind == Command::RunTool && c.tool == "vskm" && c.toolArgStart == 2);
     c = parse({"install", "vskm"});
     CHECK(c.kind == Command::Install && c.tool == "vskm" && c.version == "latest");
+    c = parse({"scan", "verify", "results_scan_1.txt"});
+    CHECK(c.kind == Command::RunTool && c.tool == "scan" && c.toolArgStart == 2);
+    c = parse({"install", "scan"});
+    CHECK(c.kind == Command::Install && c.tool == "scan" && c.version == "latest");
     c = parse({"install", "cbmm"});
     CHECK(c.kind == Command::Install && c.tool == "cbmm" && c.version == "latest");
     c = parse({"roofce", "gui"});

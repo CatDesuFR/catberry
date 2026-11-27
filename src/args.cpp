@@ -41,7 +41,7 @@ bool isVerb(const std::string &w) { return w == "install" || w == "uninstall" ||
 
 } // namespace
 
-bool isToolName(const std::string &name) { return name == "ac" || name == "mtools" || name == "roofce" || name == "cbmm" || name == "vskm"; }
+bool isToolName(const std::string &name) { return name == "ac" || name == "mtools" || name == "roofce" || name == "cbmm" || name == "vskm" || name == "scan"; }
 
 Command parseCommand(int argc, char **argv) {
     std::vector<std::string> a(argv + 1, argv + argc);

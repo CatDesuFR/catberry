@@ -11,6 +11,7 @@
 | `catberry roofce` | [`roof-carton-engine`](https://github.com/CatDesuFR/catberry/tree/roof-carton-engine) | 1.2.7 | Roof Carton Engine: live wallpapers, clock and music widgets (Linux, Wayland) |
 | `catberry cbmm` | [`cbmm`](https://github.com/CatDesuFR/catberry/tree/cbmm) | 1.1.8 | Catberry's Mod Menu for Geometry Dash (Geode): `catberry cbmm load` puts it into the game |
 | `catberry vskm` | [`vskm`](https://github.com/CatDesuFR/catberry/tree/vskm) | 1.0.2 | Vencord plugins for Vesktop: `catberry vskm load NAME` (Linux) |
+| `catberry scan` | [`scan`](https://github.com/CatDesuFR/catberry/tree/scan) | 1.0.0 | PC check for cheats (Roblox, CS2, Easy Anti-Cheat games) with a signed report: `catberry scan roblox` (Windows) |
 
 Install this launcher once; it then installs, updates and removes the tools.
 
@@ -58,6 +59,7 @@ catberry install mtools      # the macro recorder
 catberry install roofce      # the wallpaper manager (Linux, Wayland)
 catberry install cbmm        # Catberry's Mod Menu for Geometry Dash
 catberry install vskm        # Vencord plugins for Vesktop (Linux)
+catberry install scan        # PC check for cheats (Windows)
 ```
 
 catberry picks the right package for your system and installs it with
@@ -134,6 +136,8 @@ catberry vskm -list             list the Vencord plugins for Vesktop (Linux)
 catberry vskm load NAME         switch a plugin on (MF, TS, ACA or OD)
 catberry vskm unload NAME       switch it off (or: unload all)
 catberry vskm -v                print the plugins' version
+catberry scan GAME              PC check for cheats (Windows): GAME is roblox, cs2 or ezac
+catberry scan verify FILE       check a results_scan_<id>.txt was not edited
 ```
 
 `catberry -v` shows which tools are installed:
@@ -145,11 +149,12 @@ catberry 1.3.7
   roofce  1.2.7
   cbmm    1.1.8
   vskm    1.0.2
+  scan    1.0.0      (Windows only)
 ```
 
 `catberry ac ...` runs the `catberry-ac` program, `catberry mtools ...` (and
 the `-config` and `-quick` commands) run `catberry-mtools`, and `catberry roofce ...` runs
-`catberry-roofce`, `catberry cbmm ...` runs `catberry-cbmm`, and `catberry vskm ...` runs `catberry-vskm`. The launcher looks for them
+`catberry-roofce`, `catberry cbmm ...` runs `catberry-cbmm`, `catberry vskm ...` runs `catberry-vskm`, and `catberry scan ...` runs `catberry-scan`. The launcher looks for them
 next to itself first, then on your PATH. See each branch's README for how the
 tools work.
 
@@ -162,7 +167,7 @@ tools work.
 | Windows package | `make windows` | `dist/catberry-windows.zip` |
 | Arch package | `cd packaging/arch && makepkg` | `catberry-1.3.7-1-x86_64.pkg.tar.zst` |
 | Unit tests | `make test` | |
-| Every package, tested and published | `ci/release-local.sh catberry` (or `ac`, `mtools`, `roofce`, `cbmm`, `vskm`; podman) | a GitHub Release |
+| Every package, tested and published | `ci/release-local.sh catberry` (or `ac`, `mtools`, `roofce`, `cbmm`, `vskm`, `scan`; podman) | a GitHub Release |
 | install/uninstall on every distro | `ci/test-install-local.sh` (podman) | |
 
 Ready-built downloads are on the [Releases](https://github.com/CatDesuFR/catberry/releases)

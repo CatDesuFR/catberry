@@ -2,13 +2,15 @@
 # Builds, tests and publishes one version of one catberry tool as a GitHub
 # Release, using podman containers on this PC. Same steps as
 # .github/workflows/release.yml (which needs GitHub Actions):
-#   ci/release-local.sh <catberry|ac|mtools|roofce|cbmm|vskm> [--no-publish]
+#   ci/release-local.sh <catberry|ac|mtools|roofce|cbmm|vskm|scan> [--no-publish]
 # REF=<git ref> builds that ref instead of origin/<branch> (trial builds of
 # unpushed work; use with --no-publish).
+# scan signs its reports with a key kept out of the source code, in
+# ~/.config/catberry/scan-key (64 hex digits; made on the first release).
 # The version comes from the tool branch's packaging/arch/PKGBUILD (as on
 # GitHub). A version that is already released is never rebuilt or overwritten.
 set -euo pipefail
-tool=${1:?usage: ci/release-local.sh <catberry|ac|mtools|roofce|cbmm|vskm> [--no-publish]}
+tool=${1:?usage: ci/release-local.sh <catberry|ac|mtools|roofce|cbmm|vskm|scan> [--no-publish]}
 publish=yes
 [ "${2:-}" = --no-publish ] && publish=no
 
@@ -19,6 +21,7 @@ mtools) branch=mtools program=catberry-mtools ;;
 roofce) branch=roof-carton-engine program=catberry-roofce ;;
 cbmm) branch=cbmm program=catberry-cbmm ;;
 vskm) branch=vskm program=catberry-vskm ;;
+scan) branch=scan program=catberry-scan ;;
 *) echo "unknown tool $tool" >&2; exit 2 ;;
 esac
 
@@ -80,6 +83,20 @@ image_of() {
 
 targets=(arch fedora debian13 ubuntu26.04)
 [ "$tool" != roofce ] && [ "$tool" != vskm ] && targets+=(windows)
+[ "$tool" = scan ] && targets=(windows) # Windows only
+
+# The scan signing key: given to the Windows build only, never printed.
+keyenv=()
+if [ "$tool" = scan ]; then
+    keyfile=${XDG_CONFIG_HOME:-$HOME/.config}/catberry/scan-key
+    if [ ! -s "$keyfile" ]; then
+        mkdir -p "$(dirname "$keyfile")"
+        (umask 077 && od -An -tx1 -N32 /dev/urandom | tr -d ' \n' >"$keyfile")
+        echo "== made a new scan signing key in $keyfile (back it up: reports signed with it need it to verify)"
+    fi
+    export SCAN_KEY=$(cat "$keyfile")
+    keyenv=(-e SCAN_KEY)
+fi
 
 for target in "${targets[@]}"; do
     echo "== build $target"
@@ -89,7 +106,7 @@ for target in "${targets[@]}"; do
     mkdir -p "$src" "$work/out-$target"
     git archive "$sha" | tar -x -C "$src"
     podman run --rm -v "$src:/src:Z" -v "$ci:/ci:ro,Z" -v "$work/out-$target:/out:Z" -w /src \
-        -e TOOL="$tool" -e PROGRAM="$program" -e VERSION="$version" -e REL="$rel" \
+        -e TOOL="$tool" -e PROGRAM="$program" -e VERSION="$version" -e REL="$rel" "${keyenv[@]}" \
         "$(image_of "$target")" bash /ci/build.sh "$target" /out >"$work/logs/build-$target.log" 2>&1 ||
         { echo "build $target failed; see $work/logs/build-$target.log" >&2; tail -20 "$work/logs/build-$target.log" >&2; exit 1; }
 done

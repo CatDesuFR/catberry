@@ -14,14 +14,15 @@
 #include <unistd.h>
 #endif
 
-const char *const kVersion = "1.3.7";
+const char *const kVersion = "1.3.8";
 const char *const kRepo = "https://github.com/CatDesuFR/catberry";
 
-const Tool kTools[6] = {{"ac", "catberry-ac", "ac"},
+const Tool kTools[7] = {{"ac", "catberry-ac", "ac"},
                         {"mtools", "catberry-mtools", "mtools"},
                         {"roofce", "catberry-roofce", "roof-carton-engine"},
                         {"cbmm", "catberry-cbmm", "cbmm"},
                         {"vskm", "catberry-vskm", "vskm"},
+                        {"scan", "catberry-scan", "scan"},
                         {"catberry", "catberry", "main"}};
 
 const Tool *toolByName(const std::string &name) {

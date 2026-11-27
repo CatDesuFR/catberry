@@ -35,7 +35,7 @@ void usage(FILE *out) {
                  "  catberry -v                     print the versions of catberry and its tools\n"
                  "\n"
                  "  catberry install TOOL [VERSION] install a tool, or another version of it (default: latest)\n"
-                 "                                  TOOL is ac, mtools, roofce, cbmm, vskm or catberry; add --reinstall\n"
+                 "                                  TOOL is ac, mtools, roofce, cbmm, vskm, scan or catberry; add --reinstall\n"
                  "                                  to install the same version again\n"
                  "  catberry uninstall TOOL         remove a tool, then choose whether to keep its settings\n"
                  "  catberry update [TOOL]          update everything installed, or one tool, to the newest version\n"
@@ -64,6 +64,9 @@ void usage(FILE *out) {
                  "  catberry vskm load NAME         switch a plugin on (MF, TS, ACA or OD)\n"
                  "  catberry vskm unload NAME       switch it off (or: unload all)\n"
                  "  catberry vskm -v                print the plugins' version\n"
+                 "  catberry scan GAME              PC check for cheats (Windows): GAME is roblox, cs2 or ezac\n"
+                 "                                  (Easy Anti-Cheat games); writes a signed results_scan_<id>.txt\n"
+                 "  catberry scan verify FILE       check a results file was not edited\n"
                  "\n"
                  "Releases: %s/releases\n",
                  kVersion, kRepo);
@@ -150,6 +153,9 @@ int printVersions() {
     std::printf("catberry %s\n", kVersion);
     for (const Tool &tool : kTools) {
         if (std::string(tool.name) == "catberry") continue;
+#ifndef _WIN32
+        if (std::string(tool.name) == "scan") continue; // Windows only
+#endif
         std::string path = findTool(tool.program);
         std::string version = path.empty() ? "" : toolVersion(path);
         std::printf("  %-7s %s\n", tool.name, path.empty() ? "not installed" : version.empty() ? "?" : version.c_str());
@@ -162,6 +168,12 @@ int printVersions() {
 int main(int argc, char **argv) {
     removeOldLauncher();
     Command command = parseCommand(argc, argv);
+#ifndef _WIN32
+    if (command.tool == "scan" && command.kind != Command::ListVersions && command.kind != Command::Help) {
+        std::fprintf(stderr, "scan is Windows only (a PC check for Roblox, CS2 and Easy Anti-Cheat games).\n");
+        return 1;
+    }
+#endif
     switch (command.kind) {
     case Command::Help:
         usage(stdout);
