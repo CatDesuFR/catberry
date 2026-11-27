@@ -132,7 +132,7 @@ namespace cmm {
 
         // ---------------- Bypass ----------------
         add({"unlockicons", "Unlock Icons", "Unlocks every icon and color (only while on).", Bypass, OK});
-        add({"practicemusic", "Practice Music Sync", "Plays the level song in practice mode.", Bypass, OK});
+        add({"practicemusic", "Practice Music Bypass", "Practice mode keeps playing the level song (practice music sync, no shop unlock needed).", Bypass, OK});
         add({"copybypass", "Level Copy Bypass", "Lets you copy any online level.", Bypass, OK});
         add({"charlimit", "Character Limit Bypass", "Removes the length limit on text boxes.", Bypass, OK});
         add({"charfilter", "Character Filter Bypass", "Lets you type any character in text boxes.", Bypass, OK});

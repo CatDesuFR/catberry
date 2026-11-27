@@ -3,15 +3,21 @@
 // pauses, logs ("PAUSETEST") every menu on the pause screen with its buttons
 // and size, saves a screenshot, scrolls the list if there is one, and leaves.
 #include <core/Hacks.hpp>
+#include <gui/Menu.hpp>
 #include <Geode/modify/MenuLayer.hpp>
 #include <Geode/modify/PlayLayer.hpp>
 #include <filesystem>
+#include <imgui.h>
+#include <imgui_internal.h>
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
 
 using namespace geode::prelude;
 
 namespace {
     bool s_active = false;
     bool s_oldHitboxes = false;
+    bool s_oldPm = false;
     int s_frames = 0;
     GJGameLevel* s_level = nullptr;
 
@@ -29,6 +35,26 @@ namespace {
             img->release();
         }
     }
+
+    // The real (Windows) mouse, at a point in ImGui's coordinates.
+    void realMouse(ImVec2 at, int button) {
+        HWND hwnd = GetForegroundWindow();
+        POINT p{static_cast<LONG>(at.x), static_cast<LONG>(at.y)};
+        RECT rc{};
+        if (hwnd && GetClientRect(hwnd, &rc) && rc.right > 0) {
+            auto& io = ImGui::GetIO();
+            p.x = static_cast<LONG>(at.x * rc.right / io.DisplaySize.x);
+            p.y = static_cast<LONG>(at.y * rc.bottom / io.DisplaySize.y);
+            ClientToScreen(hwnd, &p);
+        }
+        SetCursorPos(p.x, p.y);
+        INPUT in{};
+        in.type = INPUT_MOUSE;
+        in.mi.dwFlags = button > 0 ? MOUSEEVENTF_LEFTDOWN : button < 0 ? MOUSEEVENTF_LEFTUP : MOUSEEVENTF_MOVE;
+        SendInput(1, &in, sizeof(in));
+    }
+    ImVec2 s_dragStart;
+    float s_oldMenuScale = 1.f;
 
     void dump(CCNode* node, int depth) {
         if (!node || depth > 3) return;
@@ -52,7 +78,22 @@ class $modify(PauseTestLayer, PlayLayer) {
     void postUpdate(float dt) {
         PlayLayer::postUpdate(dt);
         if (!s_active || PlayLayer::get() != this) return;
-        if (++s_frames == 480) this->pauseGame(true);
+        ++s_frames;
+        // Practice Music Bypass: into practice mode, then is the level song playing?
+        if (s_frames == 400) {
+            auto pm = cmm::find("practicemusic");
+            s_oldPm = pm && pm->enabled;
+            if (pm) pm->enabled = true;
+            this->togglePracticeMode(true);
+        }
+        if (s_frames == 600 || s_frames == 700) {
+            auto fm = FMODAudioEngine::get();
+            log::info("PAUSETEST practice: level song playing {}, practice song playing {}, song at {} ms, level time {:.2f}",
+                fm->isMusicPlaying(m_level->getAudioFileName(), 0), fm->isMusicPlaying("StayInsideMe.mp3", 0), fm->getMusicTimeMS(0), m_gameState.m_levelTime);
+            // Die and come back at the start: the song should follow.
+            if (s_frames == 600) this->resetLevel();
+        }
+        if (s_frames == 800) this->pauseGame(true);
     }
 };
 
@@ -105,6 +146,35 @@ void PauseChecker::check(float) {
             for (int i = 0; i < 20; i++) CCDirector::get()->getMouseDispatcher()->dispatchScrollMSG(1.f, 0.f);
             auto pl = PlayLayer::get();
             log::info("PAUSETEST zoomed back out: level scale {:.2f}, pause menu visible {}", pl ? pl->getScale() : 0.f, pause->isVisible());
+            // The wheel with the menu open scrolls the menu, not the level.
+            cmm::gui::toggle();
+            for (int i = 0; i < 6; i++) CCDirector::get()->getMouseDispatcher()->dispatchScrollMSG(-1.f, 0.f);
+            log::info("PAUSETEST menu open + wheel: level scale {:.2f}", pl ? pl->getScale() : 0.f);
+            cmm::gui::toggle();
+            if (pl) pl->togglePracticeMode(false);
+            if (auto pm = cmm::find("practicemusic")) pm->enabled = s_oldPm;
+            // Swipe test next: tall menu windows.
+            s_oldMenuScale = cmm::val<float>("menu.scale", 1.f);
+            cmm::val<float>("menu.scale", 1.f) = 2.5f;
+            cmm::gui::applyTheme();
+            cmm::gui::toggle();
+        }
+        if (s_step == 6) {
+            auto win = ImGui::FindWindowByName("Level");
+            if (win) s_dragStart = {win->Pos.x + win->Size.x * 0.85f, win->Pos.y + win->Size.y * 0.7f};
+            log::info("PAUSETEST swipe: Level window {}", win != nullptr);
+            realMouse(s_dragStart, 0);
+        }
+        if (s_step == 7) realMouse(s_dragStart, 1);
+        if (s_step >= 8 && s_step <= 11) realMouse({s_dragStart.x, s_dragStart.y - (s_step - 7) * 60.f}, 0);
+        if (s_step == 12) realMouse({s_dragStart.x, s_dragStart.y - 240.f}, -1);
+        if (s_step == 13) {
+            auto win = ImGui::FindWindowByName("Level");
+            auto pl = PlayLayer::get();
+            log::info("PAUSETEST swipe 240 px up over the pause screen: scroll {:.0f}, still paused {}", win ? win->Scroll.y : -1.f, pl && pl->m_isPaused);
+            cmm::gui::toggle();
+            cmm::val<float>("menu.scale", 1.f) = s_oldMenuScale;
+            cmm::gui::applyTheme();
             if (auto h = cmm::find("showhitboxes")) h->enabled = s_oldHitboxes;
             s_active = false;
             log::info("PAUSETEST DONE");

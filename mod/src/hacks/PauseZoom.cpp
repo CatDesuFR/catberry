@@ -3,6 +3,7 @@
 // they zoom with it). The pause menu hides while zoomed in and comes back
 // when you scroll all the way out; resuming puts the view back.
 #include <core/Hacks.hpp>
+#include <gui/Menu.hpp>
 #include <Geode/modify/CCMouseDispatcher.hpp>
 #include <Geode/modify/PlayLayer.hpp>
 #include <algorithm>
@@ -32,7 +33,8 @@ namespace {
 class $modify(CMMPauseZoomMouse, CCMouseDispatcher) {
     bool dispatchScrollMSG(float y, float x) {
         auto pl = PlayLayer::get();
-        if (!cmm::on("pausezoom") || !pl || !pl->m_isPaused || !pauseLayer() || y == 0.f)
+        // With the menu open the wheel scrolls the menu, not the level.
+        if (!cmm::on("pausezoom") || !pl || !pl->m_isPaused || !pauseLayer() || y == 0.f || cmm::gui::isOpen())
             return CCMouseDispatcher::dispatchScrollMSG(y, x);
         if (!s_zoomed) {
             s_oldScale = pl->getScale();

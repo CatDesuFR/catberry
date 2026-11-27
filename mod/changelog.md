@@ -1,3 +1,8 @@
+# v1.1.9
+
+- Practice Music Bypass (was "Practice Music Sync", which only unlocked GD's option): practice mode now keeps playing the level song instead of the practice song, and it follows you back to checkpoints, without the shop unlock or touching GD's setting. Tested: entering practice keeps the level song, and after a restart the song is at the same time as the level.
+- Pause screen: with the menu open, the scroll wheel scrolls the menu instead of zooming the level (Pause Zoom took the wheel and hid the pause menu). Dragging a menu window up or down scrolls it over the pause screen too, without clicking the pause buttons underneath. Tested with real mouse input: a 240 px drag scrolled 241 px and the game stayed paused.
+
 # v1.1.8
 
 - Built for Geode v6.0.0 (the update turned the mod off: it was made for v6.0.0-alpha.1).
