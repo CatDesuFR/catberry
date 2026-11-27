@@ -1,0 +1,5 @@
+# catberry scan is Windows only; this file only holds its version (the
+# release scripts read pkgver and pkgrel from here, as for every tool).
+pkgname=catberry-scan
+pkgver=1.0.0
+pkgrel=1
