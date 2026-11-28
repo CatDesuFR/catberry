@@ -8,7 +8,7 @@
 | --- | --- | --- | --- |
 | `catberry ac` | [`ac`](https://github.com/CatDesuFR/catberry/tree/ac) | 2.0.1 | Autoclicker: clicks, scrolls or presses a key at a set rate |
 | `catberry mtools` | [`mtools`](https://github.com/CatDesuFR/catberry/tree/mtools) | 2.1.2 | Macro recorder, hotkey macros (`catberry -config`) and quick click |
-| `catberry roofce` | [`roof-carton-engine`](https://github.com/CatDesuFR/catberry/tree/roof-carton-engine) | 1.2.7 | Roof Carton Engine: live wallpapers, clock and music widgets (Linux, Wayland) |
+| `catberry roofce` | [`roof-carton-engine`](https://github.com/CatDesuFR/catberry/tree/roof-carton-engine) | 1.2.8 | Roof Carton Engine: live wallpapers, clock and music widgets (Linux, Wayland) |
 | `catberry cbmm` | [`cbmm`](https://github.com/CatDesuFR/catberry/tree/cbmm) | 1.1.9 | Catberry's Mod Menu for Geometry Dash (Geode): `catberry cbmm load` puts it into the game |
 | `catberry vskm` | [`vskm`](https://github.com/CatDesuFR/catberry/tree/vskm) | 1.0.2 | Vencord plugins for Vesktop: `catberry vskm load NAME` (Linux) |
 | `catberry scan` | [`scan`](https://github.com/CatDesuFR/catberry/tree/scan) | 1.0.2 | PC check for cheats (Roblox, CS2, Easy Anti-Cheat games) with a signed report: `catberry scan roblox` (Windows) |
@@ -146,7 +146,7 @@ catberry scan verify FILE       check a results_scan_<id>.txt was not edited
 catberry 1.3.7
   ac      2.0.1
   mtools  2.1.2
-  roofce  1.2.7
+  roofce  1.2.8
   cbmm    1.1.9
   vskm    1.0.2
   scan    1.0.2      (Windows only)
