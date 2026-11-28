@@ -1,6 +1,6 @@
 # catberry scan
 
-A **PC check for cheats** (version 1.0.1), for Windows 10/11. Someone asks a
+A **PC check for cheats** (version 1.0.2), for Windows 10/11. Someone asks a
 player to run it, and the player sends back the results file. It looks for:
 
 - **Roblox** cheats (`catberry scan roblox`): executors like Solara, Wave, Xeno,
@@ -10,6 +10,11 @@ player to run it, and the player sends back the results file. It looks for:
   Neverlose, Gamesense and others, `-insecure` in the CS2 launch options.
 - **Easy Anti-Cheat** game cheats (`catberry scan ezac`): EAC bypasses and HWID
   spoofers, for every EAC game it finds in Steam and Epic Games.
+- Other anti-cheats, the same way: **Echo AC** (`echoac`, for echo.ac servers like
+  Rust, FiveM and DayZ), **BattlEye** (`battleye`), **Riot Vanguard** (`vanguard`,
+  Valorant and League) and **Anti-Cheat Expert** (`ace`, Delta Force and others).
+  Each looks for that anti-cheat's known bypasses and spoofers and checks its
+  games' folders for injected DLLs.
 
 Every scan also looks for cheat tools (Cheat Engine, DLL injectors, kdmapper,
 ReClass and others) and for **memory injection traces** in every running
@@ -44,6 +49,9 @@ Remove it with `catberry uninstall scan`. Every download is on the
    ```bat
    catberry scan roblox
    ```
+
+   The targets are `roblox`, `cs2`, `ezac`, `echoac`, `battleye`, `vanguard`
+   and `ace`.
 
 It writes `results_scan_<scan id>.txt` in the current folder (or in Documents
 if it can't write there) and prints where.

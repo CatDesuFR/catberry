@@ -321,12 +321,23 @@ std::string processPath(HANDLE h) {
     return QueryFullProcessImageNameW(h, 0, buf, &n) ? utf8(std::wstring(buf, n)) : "";
 }
 
-// The game's own programs: it must be closed for the scan.
+std::vector<std::string> split(const std::string &s, char sep) {
+    std::vector<std::string> out;
+    std::stringstream in(s);
+    std::string part;
+    while (std::getline(in, part, sep))
+        if (!part.empty()) out.push_back(part);
+    return out;
+}
+
+// The game's own programs (and its anti-cheat): it must be closed for the scan.
 std::vector<std::string> gameProcessNames() {
     std::vector<std::string> names;
     if (g_game & Roblox) names.insert(names.end(), {"robloxplayerbeta.exe", "robloxstudiobeta.exe", "windows10universal.exe"});
     if (g_game & CS2) names.insert(names.end(), {"cs2.exe"});
-    if (g_game & Ezac) names.insert(names.end(), {"easyanticheat.exe", "easyanticheat_eos.exe", "start_protected_game.exe"});
+    for (const AntiCheat &ac : kAntiCheats)
+        if (g_game & ac.game)
+            for (const std::string &p : split(ac.processes, ',')) names.push_back(p);
     return names;
 }
 
@@ -851,13 +862,13 @@ void scanCs2Folders() {
     g_checked.push_back(games ? "the CS2 game folder and its Steam launch options" : "CS2 game folder: not found in the Steam libraries");
 }
 
-void scanEacFolders() {
+// All game install folders from Steam and the Epic Games launcher.
+std::vector<fs::path> installedGameFolders() {
     std::vector<fs::path> games;
     std::error_code ec;
     for (const fs::path &lib : steamLibraries())
         for (fs::directory_iterator it(lib / "steamapps" / "common", ec); !ec && it != fs::directory_iterator(); it.increment(ec))
-            if (fs::is_directory(it->path() / "EasyAntiCheat", ec)) games.push_back(it->path());
-    // Epic Games: each install has a manifest with its folder.
+            if (it->is_directory(ec)) games.push_back(it->path());
     fs::path manifests = fs::u8path(env("ProgramData")) / "Epic" / "EpicGamesLauncher" / "Data" / "Manifests";
     for (fs::directory_iterator it(manifests, ec); !ec && it != fs::directory_iterator(); it.increment(ec)) {
         std::ifstream in(it->path());
@@ -872,14 +883,22 @@ void scanEacFolders() {
                 if (p[i] == '\\' && i + 1 < p.size() && p[i + 1] == '\\') i++;
                 clean += p[i];
             }
-            fs::path dir = fs::u8path(clean);
-            if (fs::is_directory(dir / "EasyAntiCheat", ec)) games.push_back(dir);
+            if (!clean.empty()) games.push_back(fs::u8path(clean));
         }
     }
+    return games;
+}
+
+// Games that keep a given anti-cheat's folder: check each for injected DLLs.
+void scanAntiCheatGames(const AntiCheat &ac) {
+    if (!*ac.gameSubdir) return;
+    std::error_code ec;
     std::string names;
-    for (const fs::path &g : games) {
+    int n = 0;
+    for (const fs::path &g : installedGameFolders()) {
+        if (!fs::is_directory(g / ac.gameSubdir, ec)) continue;
+        n++;
         names += (names.empty() ? "" : ", ") + g.filename().u8string();
-        // The game's programs sit in its folder or a few folders down.
         fs::recursive_directory_iterator it(g, fs::directory_options::skip_permission_denied, ec), end;
         for (; !ec && it != end; it.increment(ec)) {
             if (it.depth() > 4) {
@@ -890,8 +909,26 @@ void scanEacFolders() {
                 checkProxyDlls(it->path().parent_path(), g.filename().u8string());
         }
     }
-    g_checked.push_back(games.empty() ? "Easy Anti-Cheat games: none found in Steam or Epic Games"
-                                      : std::to_string(games.size()) + " Easy Anti-Cheat game folders: " + names);
+    g_checked.push_back(n == 0 ? std::string(ac.name) + " games: none found in Steam or Epic Games"
+                               : std::to_string(n) + " " + ac.name + " game folders: " + names);
+}
+
+// Note which anti-cheat is present on this PC (its driver loaded or its folder
+// there). This is not a finding - it just says what the scan is looking at.
+void scanAntiCheatPresence() {
+    std::set<std::string> drivers;
+    LPVOID bases[2048];
+    DWORD need = 0;
+    if (EnumDeviceDrivers(bases, sizeof bases, &need))
+        for (DWORD i = 0, m = std::min<DWORD>(need / sizeof(LPVOID), 2048); i < m; i++) {
+            wchar_t nm[MAX_PATH];
+            if (GetDeviceDriverBaseNameW(bases[i], nm, MAX_PATH)) drivers.insert(lower(utf8(nm)));
+        }
+    for (const AntiCheat &ac : kAntiCheats) {
+        if (!(g_game & ac.game)) continue;
+        bool driverLoaded = *ac.driver && drivers.count(ac.driver);
+        g_checked.push_back(std::string(ac.name) + (driverLoaded ? ": present (its driver is loaded)" : ": its driver is not loaded now"));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -921,7 +958,18 @@ std::string nowText() {
     return buf;
 }
 
-const char *gameName(unsigned g) { return g == Roblox ? "Roblox" : g == CS2 ? "Counter-Strike 2" : "Easy Anti-Cheat games"; }
+const char *gameName(unsigned g) {
+    switch (g) {
+    case Roblox: return "Roblox";
+    case CS2: return "Counter-Strike 2";
+    case Ezac: return "Easy Anti-Cheat games";
+    case EchoAC: return "Echo AC (echo.ac) games";
+    case BattlEye: return "BattlEye games";
+    case Vanguard: return "Riot Vanguard games (Valorant, League)";
+    case ACE: return "Anti-Cheat Expert games";
+    }
+    return "games";
+}
 
 const char *kSignatureLine = "signature: ";
 
@@ -1024,7 +1072,9 @@ int runScan(unsigned game) {
     std::printf("  game folders...\n");
     if (game & Roblox) scanRobloxFolders();
     if (game & CS2) scanCs2Folders();
-    if (game & Ezac) scanEacFolders();
+    scanAntiCheatPresence();
+    for (const AntiCheat &ac : kAntiCheats)
+        if (game & ac.game) scanAntiCheatGames(ac);
     std::printf("  files on disk...\n");
     scanFiles();
     double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
@@ -1083,7 +1133,11 @@ void usage(FILE *to) {
     std::fprintf(to, "catberry scan %s - PC check for cheats (Windows)\n\n"
                      "  catberry scan roblox          scan for Roblox cheats\n"
                      "  catberry scan cs2             scan for Counter-Strike 2 cheats\n"
-                     "  catberry scan ezac            scan for cheats for Easy Anti-Cheat games\n"
+                     "  catberry scan ezac            Easy Anti-Cheat games\n"
+                     "  catberry scan echoac          Echo AC (echo.ac) games: Rust, FiveM, DayZ...\n"
+                     "  catberry scan battleye        BattlEye games: Rust, R6 Siege, PUBG...\n"
+                     "  catberry scan vanguard        Riot Vanguard games: Valorant, League\n"
+                     "  catberry scan ace             Anti-Cheat Expert games: Delta Force...\n"
                      "  catberry scan verify FILE     check a results_scan_<id>.txt was not edited\n"
                      "  catberry scan -v              print the version\n\n"
                      "Close the game first. Run the terminal as administrator for a full scan.\n"
@@ -1113,10 +1167,16 @@ int wmain(int argc, wchar_t **wargv) {
         }
         return verify(args[1]);
     }
-    if (args.size() == 1 && (cmd == "roblox" || cmd == "cs2" || cmd == "ezac")) {
-        CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-        return runScan(cmd == "roblox" ? Roblox : cmd == "cs2" ? CS2 : Ezac);
-    }
+    static const std::pair<const char *, unsigned> kTargets[] = {
+        {"roblox", Roblox}, {"cs2", CS2},        {"ezac", Ezac},        {"echoac", EchoAC},
+        {"battleye", BattlEye}, {"vanguard", Vanguard}, {"ace", ACE},
+    };
+    if (args.size() == 1)
+        for (auto &[word, game] : kTargets)
+            if (cmd == word) {
+                CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+                return runScan(game);
+            }
     std::fprintf(stderr, "catberry scan: unknown command '%s'\n\n", args[0].c_str());
     usage(stderr);
     return 2;

@@ -3,7 +3,16 @@
 // planted copy runs inside the game).
 #pragma once
 
-enum Game : unsigned { Roblox = 1, CS2 = 2, Ezac = 4, AnyGame = 7 };
+enum Game : unsigned {
+    Roblox = 1,
+    CS2 = 2,
+    Ezac = 4,      // Easy Anti-Cheat games
+    EchoAC = 8,    // Echo AC (echo.ac) games/servers: Rust, FiveM, DayZ...
+    BattlEye = 16, // BattlEye games: Rust, DayZ, R6 Siege, PUBG...
+    Vanguard = 32, // Riot Vanguard: Valorant, League of Legends
+    ACE = 64,      // Tencent Anti-Cheat Expert: Delta Force, Wuthering Waves...
+    AnyGame = 127, // every game, for tools that cheat in any of them
+};
 
 enum class Kind {
     Cheat,   // a known cheat for the game
@@ -86,8 +95,38 @@ inline const Signature kSignatures[] = {
     {"eac_bypass", "EAC bypass", Kind::Cheat, Match::Contains, Ezac},
     {"eac-bypass", "EAC bypass", Kind::Cheat, Match::Contains, Ezac},
     {"eac spoofer", "EAC HWID spoofer", Kind::Cheat, Match::Contains, Ezac},
-    {"hwid spoofer", "HWID spoofer (ban evasion)", Kind::Cheat, Match::Contains, Ezac | CS2},
-    {"hwidspoofer", "HWID spoofer (ban evasion)", Kind::Cheat, Match::Contains, Ezac | CS2},
+    {"hwid spoofer", "HWID spoofer (ban evasion)", Kind::Cheat, Match::Contains, Ezac | CS2 | EchoAC | BattlEye | Vanguard | ACE},
+    {"hwidspoofer", "HWID spoofer (ban evasion)", Kind::Cheat, Match::Contains, Ezac | CS2 | EchoAC | BattlEye | Vanguard | ACE},
+
+    // Echo AC (echo.ac) bypasses and its known proof-of-concept.
+    {"echoac bypass", "Echo AC bypass", Kind::Cheat, Match::Contains, EchoAC},
+    {"echoac-bypass", "Echo AC bypass", Kind::Cheat, Match::Contains, EchoAC},
+    {"echoac_bypass", "Echo AC bypass", Kind::Cheat, Match::Contains, EchoAC},
+    {"echo.ac bypass", "Echo AC bypass", Kind::Cheat, Match::Contains, EchoAC},
+    {"echo ac bypass", "Echo AC bypass", Kind::Cheat, Match::Contains, EchoAC},
+    {"echoac spoofer", "Echo AC spoofer (ban evasion)", Kind::Cheat, Match::Contains, EchoAC},
+    {"echoac-poc", "Echo AC exploit (echoac-poc)", Kind::Cheat, Match::Contains, EchoAC},
+    {"echoac_poc", "Echo AC exploit (echoac-poc)", Kind::Cheat, Match::Contains, EchoAC},
+
+    // BattlEye bypasses.
+    {"battleye bypass", "BattlEye bypass", Kind::Cheat, Match::Contains, BattlEye},
+    {"battleye-bypass", "BattlEye bypass", Kind::Cheat, Match::Contains, BattlEye},
+    {"battleye_bypass", "BattlEye bypass", Kind::Cheat, Match::Contains, BattlEye},
+    {"bedaisy bypass", "BattlEye (BEDaisy) bypass", Kind::Cheat, Match::Contains, BattlEye},
+    {"battleye spoofer", "BattlEye spoofer (ban evasion)", Kind::Cheat, Match::Contains, BattlEye},
+
+    // Riot Vanguard bypasses.
+    {"vanguard bypass", "Riot Vanguard bypass", Kind::Cheat, Match::Contains, Vanguard},
+    {"vanguard-bypass", "Riot Vanguard bypass", Kind::Cheat, Match::Contains, Vanguard},
+    {"vanguard spoofer", "Riot Vanguard spoofer (ban evasion)", Kind::Cheat, Match::Contains, Vanguard},
+    {"vgk bypass", "Riot Vanguard (vgk) bypass", Kind::Cheat, Match::Contains, Vanguard},
+
+    // Anti-Cheat Expert (Tencent) bypasses.
+    {"ace bypass", "Anti-Cheat Expert bypass", Kind::Cheat, Match::Contains, ACE},
+    {"ace-bypass", "Anti-Cheat Expert bypass", Kind::Cheat, Match::Contains, ACE},
+    {"anti-cheat expert bypass", "Anti-Cheat Expert bypass", Kind::Cheat, Match::Contains, ACE},
+    {"ace spoofer", "Anti-Cheat Expert spoofer (ban evasion)", Kind::Cheat, Match::Contains, ACE},
+    {"acedriver bypass", "Anti-Cheat Expert (ACE-BASE) bypass", Kind::Cheat, Match::Contains, ACE},
 
     // Cheat tools, for every game.
     {"cheat engine", "Cheat Engine (memory editor)", Kind::Tool, Match::Contains, AnyGame},
@@ -120,6 +159,24 @@ inline const DriverSignature kDrivers[] = {
     {"dbk32.sys", "Cheat Engine's kernel driver"},
     {"capcom.sys", "Capcom driver (runs any code in the kernel; used by cheats)"},
     {"kprocesshacker.sys", "old Process Hacker driver (used to tamper with anti-cheat)"},
+};
+
+// A game's anti-cheat (not a cheat): its kernel driver, the game processes
+// that mean "close the game before scanning", and the folder its games keep it
+// in (for the proxy-DLL check). Any field may be empty.
+struct AntiCheat {
+    unsigned game;
+    const char *name;
+    const char *driver;       // lower case .sys, or ""
+    const char *processes;    // comma-separated lower-case .exe to refuse on, or ""
+    const char *gameSubdir;   // folder name inside a game dir, or ""
+};
+inline const AntiCheat kAntiCheats[] = {
+    {Ezac, "Easy Anti-Cheat", "easyanticheat.sys", "easyanticheat.exe,easyanticheat_eos.exe,start_protected_game.exe", "EasyAntiCheat"},
+    {EchoAC, "Echo AC (echo.ac)", "echo_driver.sys", "", ""},
+    {BattlEye, "BattlEye", "bedaisy.sys", "beservice.exe,belauncher.exe", "BattlEye"},
+    {Vanguard, "Riot Vanguard", "vgk.sys", "valorant.exe,valorant-win64-shipping.exe", "Riot Vanguard"},
+    {ACE, "Anti-Cheat Expert", "ace-base.sys", "sguard64.exe,sguardsvc64.exe,ace-tray.exe", "ACE-BASE"},
 };
 
 // DLLs Windows looks for in a program's own folder first: a copy there runs

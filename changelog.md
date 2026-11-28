@@ -1,3 +1,7 @@
+# v1.0.2
+
+- Four more scan targets, for games protected by other anti-cheats: `echoac` (Echo AC / echo.ac games: Rust, FiveM, DayZ...), `battleye` (BattlEye games), `vanguard` (Riot Vanguard: Valorant, League) and `ace` (Tencent Anti-Cheat Expert: Delta Force...). Each looks for that anti-cheat's known bypasses and spoofers, notes whether its driver is loaded, checks its games' folders for injected DLLs, and runs the same cheat-tool and memory-injection checks every scan does. Close the game (and its anti-cheat) first, as with the others.
+
 # v1.0.1
 
 - Finds cheats hiding deep in AppData. The file scan went only 2 folders into AppData, where executors usually sit (`AppData\Local\<name>\...`, INetCache and so on); it now goes much deeper there, and no longer skips every folder named "Windows" (only the real system one), which had hidden `AppData\Local\Microsoft\Windows\INetCache`.
