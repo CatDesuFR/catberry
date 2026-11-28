@@ -274,6 +274,11 @@ QWidget *MainWindow::buildWallpaperPage() {
     soundRow->addStretch();
     col->addLayout(soundRow);
 
+    muteBusy_ = new QCheckBox("Mute while another app is open");
+    muteBusy_->setToolTip("Silence the video sound and the song whenever a window is open on the desktop.");
+    muteBusy_->setChecked(settings_.muteWhenBusy);
+    col->addWidget(muteBusy_);
+
     autostart_ = new QCheckBox("Start the wallpaper when I log in");
     autostart_->setChecked(settings_.autostart);
     col->addWidget(autostart_);
@@ -292,6 +297,7 @@ QWidget *MainWindow::buildWallpaperPage() {
     connect(fit_, &QComboBox::currentIndexChanged, this, &MainWindow::saveOptions);
     connect(sound_, &QCheckBox::toggled, this, &MainWindow::saveOptions);
     connect(volume_, &QSlider::sliderReleased, this, &MainWindow::saveOptions);
+    connect(muteBusy_, &QCheckBox::toggled, this, &MainWindow::saveOptions);
     connect(autostart_, &QCheckBox::toggled, this, &MainWindow::saveOptions);
     connect(start, &QPushButton::clicked, this, [this] {
         if (settings_.file.isEmpty()) {
@@ -368,6 +374,7 @@ void MainWindow::saveOptions() {
     settings_.fit = fit_->currentData().toString();
     settings_.sound = sound_->isChecked();
     settings_.volume = volume_->value();
+    settings_.muteWhenBusy = muteBusy_->isChecked();
     settings_.autostart = autostart_->isChecked();
     settings_.save();
     if (!settings_.autostart) QFile::remove(paths::autostartFile());

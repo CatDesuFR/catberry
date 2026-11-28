@@ -71,7 +71,8 @@ the window is closed, and (if you leave the option on) starts when you log in.
 ### Wallpaper
 
 The current wallpaper with a live preview, how it fits the screen
-(fill, fit, stretch, center), video sound, and start/stop.
+(fill, fit, stretch, center), video sound (with the option to mute it while
+another app window is open), and start/stop.
 
 ### Library
 

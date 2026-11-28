@@ -16,6 +16,7 @@ struct Settings {
     QString fit = "fill";    // fill, fit, stretch or center
     bool sound = false;      // videos only
     int volume = 50;         // 0-100
+    bool muteWhenBusy = false; // mute the wallpaper's sound while another app window is open
     bool autostart = true;   // start the wallpaper when logging in
 
     // Mond-style clock: day name, date and time.

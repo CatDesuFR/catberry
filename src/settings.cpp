@@ -26,6 +26,7 @@ Settings Settings::load() {
     s.fit = in.value("fit", s.fit).toString();
     s.sound = in.value("sound", s.sound).toBool();
     s.volume = qBound(0, in.value("volume", s.volume).toInt(), 100);
+    s.muteWhenBusy = in.value("mute_when_busy", s.muteWhenBusy).toBool();
     s.autostart = in.value("autostart", s.autostart).toBool();
 
     s.clock = in.value("clock", s.clock).toBool();
@@ -57,6 +58,7 @@ void Settings::save() const {
     out.setValue("fit", fit);
     out.setValue("sound", sound);
     out.setValue("volume", volume);
+    out.setValue("mute_when_busy", muteWhenBusy);
     out.setValue("autostart", autostart);
 
     out.setValue("clock", clock);

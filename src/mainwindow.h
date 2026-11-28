@@ -95,7 +95,7 @@ private:
     QMovie *previewMovie_ = nullptr;
     QString previewFile_;
     QComboBox *fit_;
-    QCheckBox *sound_, *autostart_;
+    QCheckBox *sound_, *muteBusy_, *autostart_;
     QSlider *volume_;
 
     QTabBar *sources_;

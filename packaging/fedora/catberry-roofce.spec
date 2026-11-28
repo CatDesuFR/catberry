@@ -6,7 +6,7 @@ Release:        %{pkgrel}%{?dist}
 Summary:        Roof Carton Engine: live and still wallpapers for Wayland desktops (catberry roofce)
 License:        LicenseRef-custom
 URL:            https://github.com/CatDesuFR/catberry/tree/roof-carton-engine
-BuildRequires:  cmake gcc-c++ qt6-qtbase-devel qt6-qtmultimedia-devel layer-shell-qt-devel
+BuildRequires:  cmake gcc-c++ qt6-qtbase-devel qt6-qtmultimedia-devel layer-shell-qt-devel wayland-devel
 # ffmpeg is ffmpeg-free on stock Fedora, or ffmpeg from RPM Fusion: either has /usr/bin/ffmpeg.
 Requires:       qt6-qtmultimedia /usr/bin/ffmpeg unzip
 Suggests:       catberry

@@ -2,6 +2,7 @@
 
 #include "fonts.h"
 #include "library.h"
+#include "foreground.h"
 #include "settings.h"
 #include "track.h"
 #include "widgets.h"
@@ -97,7 +98,7 @@ public:
                                                                             : Qt::KeepAspectRatioByExpanding);
             video_->setGeometry(rect());
             video_->show();
-            if (audio_) audio_->setVolume(s.volume / 100.0f);
+            if (audio_) audio_->setVolume(muted_ ? 0.f : s.volume / 100.0f);
             player_->setSource(QUrl::fromLocalFile(play));
             player_->play();
         } else {
@@ -160,7 +161,16 @@ private:
         return reader.read();
     }
 
+public:
+    // Mute the video's sound (another app is open), without forgetting the volume.
+    void setMuted(bool muted) {
+        muted_ = muted;
+        if (audio_) audio_->setVolume(muted_ ? 0.f : settings_.volume / 100.0f);
+    }
+
+private:
     bool withSound_;
+    bool muted_ = false;
     Settings settings_;
     QImage image_;
     std::unique_ptr<QMovie> movie_;
@@ -174,18 +184,21 @@ public:
     WallpaperScreens() {
         connect(qApp, &QGuiApplication::screenAdded, this, [this] { rebuild(); });
         connect(qApp, &QGuiApplication::screenRemoved, this, [this] { rebuild(); });
+        // Mute the wallpaper's sound while another app window is open.
+        connect(&watcher_, &ForegroundWatcher::busyChanged, this, [this] { updateMute(); });
         rebuild();
     }
 
     void reload() {
         Settings s = Settings::load();
+        muteWhenBusy_ = s.muteWhenBusy;
+        trackVolume_ = s.trackVolume;
         QString play = kindOfFile(s.file) == Kind::Video ? screenCopy(s.file) : s.file;
         for (auto &view : views_) view->apply(s, play);
         // The song that plays with the wallpaper. It keeps playing through
         // reloads; only a different file starts it again.
         if (s.track && !s.trackFile.isEmpty() && QFileInfo::exists(s.trackFile)) {
             if (!track_) track_ = std::make_unique<TrackPlayer>();
-            track_->setVolume(s.trackVolume);
             track_->setFile(s.trackFile);
         } else {
             if (players_) players_->setLocal(nullptr);
@@ -209,6 +222,15 @@ public:
         } else {
             players_.reset();
         }
+        updateMute();
+    }
+
+    // Silence the video sound and the song while another app is open (only
+    // when the option is on and the compositor tells us a window is up).
+    void updateMute() {
+        bool mute = muteWhenBusy_ && watcher_.busy();
+        for (auto &view : views_) view->setMuted(mute);
+        if (track_) track_->setVolume(mute ? 0 : trackVolume_);
     }
 
 private:
@@ -292,6 +314,9 @@ private:
         reload();
     }
 
+    ForegroundWatcher watcher_;
+    bool muteWhenBusy_ = false;
+    int trackVolume_ = 50;
     std::vector<std::unique_ptr<WallpaperView>> views_;
     std::unique_ptr<TrackPlayer> track_;
     std::unique_ptr<MediaPlayers> players_;
