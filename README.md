@@ -1,6 +1,6 @@
 # catberry scan
 
-A **PC check for cheats** (version 1.0.0), for Windows 10/11. Someone asks a
+A **PC check for cheats** (version 1.0.1), for Windows 10/11. Someone asks a
 player to run it, and the player sends back the results file. It looks for:
 
 - **Roblox** cheats (`catberry scan roblox`): executors like Solara, Wave, Xeno,

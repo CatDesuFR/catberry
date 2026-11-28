@@ -497,7 +497,75 @@ bool looksLikeExecutorFolder(const fs::path &dir) {
     return fs::is_directory(dir / "autoexec", ec) && fs::is_directory(dir / "workspace", ec);
 }
 
-void walk(const fs::path &dir, int depth) {
+// Function names only a Roblox executor exposes (the exploit API). A renamed
+// executor still has them inside it as plain text.
+//
+// They are kept XOR-scrambled so they are NOT sitting in our own program as
+// plain text: otherwise catberry-scan.exe (which is in a scanned folder) would
+// match itself. Decoded once at run time into the needles we actually search.
+struct ApiEnc {
+    unsigned char b[24];
+    int n;
+};
+constexpr ApiEnc apiEnc(const char *s) {
+    ApiEnc e{};
+    int i = 0;
+    for (; s[i] && i < 24; i++) e.b[i] = static_cast<unsigned char>(s[i]) ^ 0x5a;
+    e.n = i;
+    return e;
+}
+constexpr ApiEnc kApiEnc[] = {
+    apiEnc("getgenv"),          apiEnc("hookfunction"),    apiEnc("hookmetamethod"),    apiEnc("getrawmetatable"),
+    apiEnc("setreadonly"),      apiEnc("newcclosure"),     apiEnc("getnamecallmethod"), apiEnc("identifyexecutor"),
+    apiEnc("getscriptbytecode"), apiEnc("firesignal"),     apiEnc("getconnections"),    apiEnc("islclosure"),
+    apiEnc("getsenv"),          apiEnc("replaceclosure"),  apiEnc("getloadedmodules"),  apiEnc("getrunningscripts"),
+    apiEnc("setfpscap"),        apiEnc("make_writable"),   apiEnc("getrenv"),           apiEnc("getcallingscript"),
+};
+
+const std::vector<std::string> &exploitNeedles() {
+    static const std::vector<std::string> needles = [] {
+        std::vector<std::string> v;
+        for (const ApiEnc &e : kApiEnc) {
+            std::string s;
+            for (int i = 0; i < e.n; i++) s += char(e.b[i] ^ 0x5a);
+            v.push_back(s);
+        }
+        return v;
+    }();
+    return needles;
+}
+size_t g_contentScanned = 0;
+
+// An executable that holds several of those names is almost certainly a Roblox
+// executor, whatever it is named. Reads the file (big ones are read in part).
+bool contentLooksLikeExecutor(const fs::path &p, std::string &which) {
+    std::error_code ec;
+    auto size = fs::file_size(p, ec);
+    if (ec || size < 4096 || size > 300ull * 1024 * 1024) return false;
+    std::ifstream in(p, std::ios::binary);
+    if (!in) return false;
+    std::string buf(static_cast<size_t>(std::min<uintmax_t>(size, 160ull * 1024 * 1024)), '\0');
+    in.read(buf.data(), static_cast<std::streamsize>(buf.size()));
+    buf.resize(static_cast<size_t>(in.gcount()));
+    g_contentScanned++;
+    int hits = 0, shown = 0;
+    which.clear();
+    for (const std::string &api : exploitNeedles())
+        if (buf.find(api) != std::string::npos) {
+            hits++;
+            if (shown < 6) {
+                if (shown) which += ", ";
+                which += api;
+                shown++;
+            }
+        }
+    if (hits > shown) which += " +" + std::to_string(hits - shown) + " more";
+    return hits >= 4;
+}
+
+// contentScan: read .exe files here for the exploit API (off in large,
+// trusted trees like Program Files, to stay fast).
+void walk(const fs::path &dir, int depth, bool contentScan) {
     std::error_code ec;
     fs::directory_iterator it(dir, fs::directory_options::skip_permission_denied, ec);
     for (; !ec && it != fs::directory_iterator() && g_files < kMaxFiles; it.increment(ec)) {
@@ -506,26 +574,46 @@ void walk(const fs::path &dir, int depth) {
         std::string name = e.path().filename().u8string();
         bool isDir = e.is_directory(ec) && !e.is_symlink(ec);
         checkName(name, !isDir && isProgramName(name), (isDir ? "folder " : "file ") + e.path().u8string());
-        if (!isDir) continue;
-        std::string l = lower(name);
-        if (l == "node_modules" || l == ".git" || l == "windows" || l == "winsxs" || l == "$recycle.bin" || l == "cache" ||
-            l == "packages")
+        if (!isDir) {
+            if (contentScan && (g_game & Roblox) && endsWith(lower(name), ".exe")) {
+                std::string which;
+                if (contentLooksLikeExecutor(e.path(), which))
+                    found(Level::Cheat,
+                          "program holds Roblox exploit functions (" + which + "): a Roblox executor, even renamed",
+                          "file " + e.path().u8string());
+            }
             continue;
+        }
+        std::string l = lower(name);
+        // Skip only the real system folder, not every folder named "Windows"
+        // (AppData\Local\Microsoft\Windows\INetCache is a real hiding spot).
+        static const std::string sysroot = lower(env("SystemRoot"));
+        if (!sysroot.empty() && lower(e.path().u8string()) == sysroot) continue;
+        if (l == "node_modules" || l == ".git" || l == "winsxs" || l == "$recycle.bin" || l == "packages") continue;
         if ((g_game & Roblox) && looksLikeExecutorFolder(e.path()))
             found(Level::Cheat, "Roblox executor folder (has autoexec and workspace script folders)", "folder " + e.path().u8string());
         DWORD attrs = GetFileAttributesW(e.path().c_str());
         if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_REPARSE_POINT)) continue;
-        if (depth > 0) walk(e.path(), depth - 1);
+        if (depth > 0) walk(e.path(), depth - 1, contentScan);
     }
 }
 
 void scanFiles() {
     std::string home = env("USERPROFILE"), local = env("LOCALAPPDATA"), roaming = env("APPDATA");
-    std::vector<std::pair<std::string, int>> roots = {
-        {knownFolder(FOLDERID_Desktop), 4}, {knownFolder(FOLDERID_Downloads), 4}, {knownFolder(FOLDERID_Documents), 3},
-        {local, 2},                         {roaming, 2},                         {env("TEMP"), 2},
-        {env("ProgramFiles"), 2},           {env("ProgramFiles(x86)"), 2},        {env("ProgramData"), 2},
-        {home, 1},
+    // {folder, how deep, read .exe contents here}. Executors hide deep in
+    // AppData, so those go deep; Program Files is large and trusted, so it is
+    // shallower and its .exe files are not read.
+    struct Root {
+        std::string path;
+        int depth;
+        bool content;
+    };
+    std::vector<Root> roots = {
+        {knownFolder(FOLDERID_Desktop), 4, true}, {knownFolder(FOLDERID_Downloads), 5, true},
+        {knownFolder(FOLDERID_Documents), 4, true}, {local, 7, true},
+        {roaming, 7, true},                       {env("TEMP"), 5, true},
+        {env("ProgramFiles"), 3, false},          {env("ProgramFiles(x86)"), 3, false},
+        {env("ProgramData"), 4, true},            {home, 2, true},
     };
     // Every other drive's top folders too (cheats often sit on D:\).
     DWORD drives = GetLogicalDrives();
@@ -535,18 +623,20 @@ void scanFiles() {
         std::string root = std::string(1, char('A' + i)) + ":\\";
         if (GetDriveTypeA(root.c_str()) != DRIVE_FIXED) continue;
         if (lower(root.substr(0, 2)) == system) continue;
-        roots.push_back({root, 2});
+        roots.push_back({root, 3, true});
     }
     std::set<std::string> done;
     int n = 0;
-    for (auto &[root, depth] : roots) {
-        if (root.empty() || !done.insert(lower(root)).second) continue;
-        walk(fs::u8path(root), depth);
+    for (const Root &r : roots) {
+        if (r.path.empty() || !done.insert(lower(r.path)).second) continue;
+        walk(fs::u8path(r.path), r.depth, r.content);
         n++;
     }
     g_checked.push_back(std::to_string(g_files) + " files and folders in " + std::to_string(n) +
                         " places (desktop, downloads, documents, app data, temp, program files, other drives)" +
-                        (g_files >= kMaxFiles ? " (stopped at the limit)" : ""));
+                        (g_files >= kMaxFiles ? " (stopped at the limit)" : "") +
+                        ((g_game & Roblox) ? ", " + std::to_string(g_contentScanned) + " programs read for Roblox exploit functions"
+                                           : ""));
 }
 
 // ---------------------------------------------------------------------------
