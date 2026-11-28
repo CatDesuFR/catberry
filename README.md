@@ -11,7 +11,7 @@
 | `catberry roofce` | [`roof-carton-engine`](https://github.com/CatDesuFR/catberry/tree/roof-carton-engine) | 1.2.7 | Roof Carton Engine: live wallpapers, clock and music widgets (Linux, Wayland) |
 | `catberry cbmm` | [`cbmm`](https://github.com/CatDesuFR/catberry/tree/cbmm) | 1.1.9 | Catberry's Mod Menu for Geometry Dash (Geode): `catberry cbmm load` puts it into the game |
 | `catberry vskm` | [`vskm`](https://github.com/CatDesuFR/catberry/tree/vskm) | 1.0.2 | Vencord plugins for Vesktop: `catberry vskm load NAME` (Linux) |
-| `catberry scan` | [`scan`](https://github.com/CatDesuFR/catberry/tree/scan) | 1.0.1 | PC check for cheats (Roblox, CS2, Easy Anti-Cheat games) with a signed report: `catberry scan roblox` (Windows) |
+| `catberry scan` | [`scan`](https://github.com/CatDesuFR/catberry/tree/scan) | 1.0.2 | PC check for cheats (Roblox, CS2, Easy Anti-Cheat games) with a signed report: `catberry scan roblox` (Windows) |
 
 Install this launcher once; it then installs, updates and removes the tools.
 
@@ -149,7 +149,7 @@ catberry 1.3.7
   roofce  1.2.7
   cbmm    1.1.9
   vskm    1.0.2
-  scan    1.0.1      (Windows only)
+  scan    1.0.2      (Windows only)
 ```
 
 `catberry ac ...` runs the `catberry-ac` program, `catberry mtools ...` (and
